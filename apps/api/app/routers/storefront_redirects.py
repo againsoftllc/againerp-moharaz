@@ -14,6 +14,7 @@ from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -24,8 +25,9 @@ from app.services.seo.legacy_urls import legacy_key
 router = APIRouter(prefix="/redirects", tags=["storefront-redirects"])
 
 CACHE = "public, max-age=300, s-maxage=600, stale-while-revalidate=3600"
-# where the previous shop served its images; the importers stored source_url = this + quoted path
-OLD_IMAGE_BASE = "https://www.moharaz.com/image/"
+# the previous shop served its images under /image/ on whatever host it had; the importers stored
+# source_url = <that host>/image/<quoted path>, so the lookup matches the path and never needs the host
+OLD_IMAGE_PATH = "/image/"
 
 
 class RedirectRead(BaseModel):
@@ -82,8 +84,9 @@ def lookup_image(response: Response, path: str = Query(..., max_length=1000)) ->
 
         db = SessionLocal()
         try:
-            sources = [OLD_IMAGE_BASE + quote(c) for c in _image_candidates(path)]
-            media: Optional[Media] = db.query(Media).filter(Media.source_url.in_(sources)).first()
+            tails = [OLD_IMAGE_PATH + quote(c) for c in _image_candidates(path)]
+            media: Optional[Media] = (db.query(Media)
+                                      .filter(or_(*[Media.source_url.endswith(x, autoescape=True) for x in tails])).first())
             url = (media.url if media and media.url else "") or ""
         finally:
             db.close()

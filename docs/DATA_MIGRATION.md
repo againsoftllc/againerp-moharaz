@@ -402,7 +402,7 @@ and the blog is `ac_blog_article*`.
 | 4 | Products core (`import_opencart_products --reset`) | ✅ 12,206; opening stock 8,968; 570 "Upcoming" → `coming_soon` |
 | 3 | Attribute schema (`import_opencart_attributes --reset`) | ✅ 36 profiles, 292 groups, 980 attributes, 74 filter codes |
 | 5, 7 | Specs and options (`import_opencart_product_details --skip-images`) | ✅ 7,576 spec values, 122 variants |
-| 6 | Images | ⬜ waiting for the old `image/` folder (`--skip-specs --skip-options --image-source /import/image`), then refresh the review thumbnails (they are copied from `ecommerce_items.thumbnail_url` when a review is imported) |
+| 6 | Images (`import_opencart_product_details --skip-specs --skip-options --image-dir /import/image --image-source https://www.moharaz.com/image/`) | ✅ 25,382 images stored, 25,689 links; 12,189 of 12,206 products have a photo (17 have none in the source, 2 files are missing from the zip). The old `image/catalog` folder came as `catalog.zip` (46,499 files); 43 paths are invalid on Windows (trailing-space folders, >255 characters) — the importer finds the trailing-space ones itself. `--image-dir` is the folder, `--image-source` stays the old shop's URL (it becomes `media.source_url`); passing the folder as `--image-source` makes every file "UnsupportedProtocol". Review thumbnails were then back-filled from `ecommerce_items.thumbnail_url` |
 | 9 | Reviews (`import_opencart_reviews`) | ✅ 1,218 |
 | 10 | SEO redirects (`import_opencart_redirects --replace-demo`) | ✅ 14,289 |
 | 13 | Customers + orders (`import_opencart_customers_orders`) | ✅ 1,863 customers, 1,593 orders, 1,582 sales-order mirrors |
@@ -421,3 +421,31 @@ Prices: 12,206 of 12,206 equal the source. Stock quantity sum 900,805 = source. 
 Category tree: 25 roots / 12 in the top menu, same as the source. No duplicate slugs, no category/product slug clash,
 no orphan listing, no HTML entities left in names. The storefront API serves the catalogue, reviews, blog and
 the old-URL redirects.
+
+### B4. After the import: fixes found while checking (2026-10-17)
+
+| # | What | Why / how |
+|---|------|-----------|
+| 1 | **Stock status follows quantity** | The shop's theme shows "In Stock" whenever `quantity > 0`, even when `stock_status_id` says Out Of Stock / Upcoming (124 products; e.g. all processors: status 5, quantity 100). `import_opencart_products` now maps `out_of_stock` / `coming_soon` + `quantity > 0` → `in_stock`. Moharaz status ids: 5 Out Of Stock, 6 **Upcoming**, 7 In Stock, 8 Pre-Order |
+| 2 | **Category SEO text** (`scripts/build_category_seo_text.py`) | The old category pages end with a generated text: `ac_category_description.seo_content` is a template (`{caption}`, `{min_price}`, `{product_count}`, `{manufacturers}`, `{top_2_best_selling_product}`, `{table_products}` …) filled by the theme. The playbook import only carried `description`. The script fills the template from the imported catalogue into `catalog_categories.description` (after the marker `<!--oc-seo-->`, so re-runs replace only the generated part; a sentence whose data is missing is dropped). Input: `SELECT JSON_OBJECT('category_id',category_id,'blurb',blurb,'seo_content',seo_content) FROM ac_category_description WHERE language_id=1`. 1,235 of 1,778 categories got a text. To carry the result to another database use `--sql file.sql` and run the UPDATEs there |
+| 3 | **Category price list (storefront)** | The storefront's "latest {category} price list in BD" table lists products *on offer* (compare-at price) — 11,914 on Ultratech, 5 on Moharaz, so it was empty and hidden. `app/[slug]/page.tsx` now falls back to the category's first priced products |
+| 4 | **Own-domain links become relative** | Product / category descriptions linked `https://www.moharaz.com/...` (1,143 products, 98 categories). Rewritten to `/...` (`href`/`src` only, text mentions stay), so content follows whatever domain serves the shop; `/image/catalog/...` resolves through the storefront image redirect. `media.source_url` keeps the absolute URL on purpose (provenance + redirect lookup) |
+| 5 | **Host-agnostic code** | Storefront `lib/site.ts`: `SITE_URL` = `NEXT_PUBLIC_SITE_URL`, else Vercel's production domain, else the deployment URL, else localhost — no domain in code. `cleanHtml` strips the deployment's own host (+ `NEXT_PUBLIC_OWN_HOSTS`). API `/storefront/redirects/image` matches `media.source_url` by the `/image/<path>` tail, not by host |
+
+**Gotchas of the link rewrite (lost data once, repaired the same day):**
+- In Python, a replacement written as `"\1"` is the control character U+0001, not the capture group — the `href="` part was replaced by an invisible `\x01`. Write the SQL in a quoted heredoc (`<<'EOF'`) or a raw string. Always run on a copy first and compare a sample.
+- In PostgreSQL regular expressions `\b` is a *backspace*; the word boundary is `\y`.
+- The repair keyed on the stray `chr(1)`: `(<a\y[^<>]*?)<chr(1)>` → `\1href="`, `(<img\y[^<>]*?)<chr(1)>` → `\1src="`.
+
+### B5. Live deployment (2026-10-17)
+
+| Piece | Where |
+|-------|-------|
+| Postgres + API | Railway project `againerp-moharaz` (workspace "againsoftllc-dev's Projects"): Postgres plugin + service `api` from GitHub `againsoftllc/againerp-moharaz` (root `railway.toml` → `Dockerfile.api`, `RAILWAY_DOCKERFILE_PATH=Dockerfile.api`), variables `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `CORS_ORIGINS`, `APP_ENV=production`, `APP_DEBUG=false`, `API_RELOAD=false` |
+| Storefront | Vercel team `againsoft-llc`, project `moharaz-web`, root `frontend`, env `API_PROXY_TARGET` (Railway API), `NEXT_PUBLIC_ADMIN_ORIGIN` |
+| ERP admin | Vercel project `againerp-moharaz`, root `apps/web`, env `API_PROXY_TARGET` |
+
+- **Database:** `pg_dump --clean --if-exists --no-owner --no-privileges` of the local DB (`--exclude-table-data` for the seeded demo tables: coupons, collections, product Q&A, SEO meta / audit, website pages), gzip, piped through `railway ssh --service Postgres -- 'gunzip | psql -v ON_ERROR_STOP=1 --single-transaction'` (the live DB has no public URL). Later SQL fixes go the same way (`cat fix.sql | railway ssh --service Postgres -- 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'`). Run `railway` commands from the repo folder that is linked to the project.
+- **Media:** the files live in the R2 bucket `moharaz-media` (`media/<name>`, `scripts/move_media_to_r2.py --upload --apply`, 25,756 files, checked file by file). The Railway container has no `/uploads`, so `R2FallbackStaticFiles` (`app/services/r2_static.py`) serves a missing `/uploads/media/<name>` from R2 with the Cloudflare plugin's S3 keys — the bucket stays private and the database links stay `/uploads/media/...`. Moving to a public bucket / custom domain later = `move_media_to_r2.py --rewrite`.
+- **Vercel CLI:** deploy from the repo root with the project linked there (the project's Root Directory is set); an ignore file keeps `image-import/` and dumps out of the upload (`--archive=tgz` would pack them). `vercel link` writes a `.env.local` with a token — delete it.
+- The old shop's domain keeps serving the OpenCart site until DNS moves; the live address is the `*.vercel.app` one.

@@ -31,7 +31,7 @@ MAX_ROUNDS = 5
 MAX_HISTORY = 8
 SORTS = {"relevance": None, "price-asc": "price_asc", "price-desc": "price_desc", "newest": "newest"}
 
-SYSTEM = """You are the shopping assistant of Moharaz (moharaz.com), a computer and electronics shop in
+SYSTEM = """You are the shopping assistant of Moharaz, a computer and electronics shop in
 Bangladesh. Answer the shopper using ONLY data returned by your tools — never invent products, prices, stock or specs.
 - Reply in the shopper's language (Bangla, Banglish or English). Prices in BDT as ৳1,23,456 (Bangladeshi grouping).
 - Search the catalogue before recommending; open product details when the question depends on specifications
