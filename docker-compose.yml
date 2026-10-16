@@ -1,0 +1,106 @@
+# AgainERP — local full stack (PostgreSQL + API + Admin Web)
+# Usage: docker compose up --build
+# Admin: http://localhost:3210 · API: http://127.0.0.1:8010 · DB: againerp @ localhost:5440
+# Sibling MoharazNX uses 3200/8000/5433 — keep AgainERP on these offsets so both can run.
+
+name: againerp
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: againerp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: againerp
+      POSTGRES_PASSWORD: againerp
+      POSTGRES_DB: againerp
+    ports:
+      - "5440:5432"
+    volumes:
+      - againerp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U againerp -d againerp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: againerp-api
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+    environment:
+      DATABASE_URL: postgresql+psycopg://againerp:againerp@postgres:5432/againerp
+      CORS_ORIGINS: http://localhost:3210,http://127.0.0.1:3210,http://localhost:3010,http://127.0.0.1:3010,http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001
+      APP_ENV: development
+      APP_DEBUG: "true"
+      APP_NAME: AgainERP API
+      API_PORT: "8010"
+      # AI OS — Claude provider. Value comes from the gitignored root .env
+      # (docker compose auto-loads it for ${...} substitution); never hardcode
+      # a key here, this file is committed.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_DEFAULT_PROVIDER: ${AI_DEFAULT_PROVIDER:-claude}
+      AI_DEFAULT_MODEL: ${AI_DEFAULT_MODEL:-claude-opus-5}
+      # Center entitlements — AI Gateway checks ai_enabled via /client/entitlements before
+      # every chat request (master plan §6, Option C hybrid). Unset = unbound = permissive.
+      AGAINERP_CENTER_URL: ${AGAINERP_CENTER_URL:-}
+      AGAINERP_CLIENT_ID: ${AGAINERP_CLIENT_ID:-}
+      AGAINERP_CLIENT_API_KEY: ${AGAINERP_CLIENT_API_KEY:-}
+      AGAINERP_CLIENT_SLUG: ${AGAINERP_CLIENT_SLUG:-}
+    volumes:
+      - ./apps/api:/app
+      - againerp_api_uploads:/app/uploads
+    # host.docker.internal doesn't auto-resolve on this network (verified — plain docker run
+    # NXDOMAINs on it too); force it so AGAINERP_CENTER_URL can reach Center's container on
+    # the host's mapped port without joining Center's own compose network.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: uvicorn main:app --host 0.0.0.0 --port 8010 --reload
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: againerp-web
+    restart: unless-stopped
+    ports:
+      - "3210:3210"
+    environment:
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:8010
+      # Monarch storefront for Website Live Edit iframe (not the admin :3210)
+      NEXT_PUBLIC_STOREFRONT_URL: http://localhost:3010
+      # Server-side /images proxy (Docker web → host storefront)
+      STOREFRONT_PROXY_TARGET: http://host.docker.internal:3010
+      # Inside Docker, 127.0.0.1 is the web container — proxy via compose service name
+      API_PROXY_TARGET: http://api:8010
+      # Center entitlements — server-side /api/center/entitlements route (Aladin's live/
+      # offline dot) needs these too, not just the api service (STEP 17 only wired the
+      # latter). Same three vars, same root .env source.
+      AGAINERP_CENTER_URL: ${AGAINERP_CENTER_URL:-}
+      AGAINERP_CLIENT_ID: ${AGAINERP_CLIENT_ID:-}
+      AGAINERP_CLIENT_API_KEY: ${AGAINERP_CLIENT_API_KEY:-}
+    volumes:
+      - ./apps/web:/app
+      - againerp_web_node_modules:/app/node_modules
+    # Same host.docker.internal fix as the api service (docker-compose.yml api block) —
+    # /api/center/entitlements calls Center directly from this container, not through api.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: sh -c "npm install && npm run dev -- --hostname 0.0.0.0 --port 3210"
+    depends_on:
+      - api
+
+volumes:
+  againerp_pgdata:
+    name: againerp_pgdata
+  againerp_api_uploads:
+    name: againerp_api_uploads
+  againerp_web_node_modules:
+    name: againerp_web_node_modules

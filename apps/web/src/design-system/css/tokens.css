@@ -1,0 +1,192 @@
+/**
+ * AgainERP design tokens — CSS custom properties.
+ * Source of truth: src/design-system/themes/*.ts
+ * Do not edit by hand — keep in sync with TypeScript themes when values change.
+ *
+ * @see docs/ui-ux/design-system.md
+ * @see docs/design-system/HR_DESIGN_SYSTEM_SPECIFICATION.md
+ */
+
+:root {
+  color-scheme: light;
+
+  /* UI bridge (shadcn / Tailwind) */
+  --background: #fafafa;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #4f46e5;
+
+  /* Semantic colors */
+  --color-primary: #4f46e5;
+  --color-primary-hover: #4338ca;
+  --color-primary-foreground: #ffffff;
+  --color-primary-subtle: #eef2ff;
+  --color-secondary: #f1f5f9;
+  --color-secondary-foreground: #0f172a;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-info: #0891b2;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-background: #fafafa;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-border: #e2e8f0;
+  --color-ring: #4f46e5;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+
+  /* Status badges */
+  --status-success: #15803d;
+  --status-success-bg: #f0fdf4;
+  --status-warning: #b45309;
+  --status-warning-bg: #fffbeb;
+  --status-danger: #b91c1c;
+  --status-danger-bg: #fef2f2;
+  --status-info: #0e7490;
+  --status-info-bg: #ecfeff;
+  --status-pending: #1d4ed8;
+  --status-pending-bg: #eff6ff;
+  --status-draft: #4b5563;
+  --status-draft-bg: #f3f4f6;
+  --status-approved: #166534;
+  --status-approved-bg: #f0fdf4;
+  --status-rejected: #991b1b;
+  --status-rejected-bg: #fef2f2;
+  --status-archived: #6b7280;
+  --status-archived-bg: #f3f4f6;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+  --radius: 0.375rem;
+
+  /* Typography */
+  --font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-family-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-display: 30px;
+  --leading-body: 1.5;
+  --leading-heading: 1.25;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Shadows */
+  --shadow-none: none;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  /* SaaS / app */
+  --density-scale: 0.9;
+  --ai-accent-border: #ddd6fe;
+  --ai-accent-bg: rgb(245 243 255 / 0.5);
+  --ai-accent-fg: #6d28d9;
+}
+
+html.admin-site.dark,
+html.admin-site[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #0b0f19;
+  --foreground: #f8fafc;
+  --card: #111827;
+  --popover: #111827;
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  --secondary: #1e293b;
+  --secondary-foreground: #f8fafc;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #1e293b;
+  --accent-foreground: #f8fafc;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #2a3544;
+  --input: #2a3544;
+  --ring: #6366f1;
+
+  --color-primary: #6366f1;
+  --color-primary-hover: #818cf8;
+  --color-primary-foreground: #ffffff;
+  --color-primary-subtle: #1e3a5f;
+  --color-secondary: #1e293b;
+  --color-secondary-foreground: #f8fafc;
+  --color-success: #22c55e;
+  --color-warning: #fbbf24;
+  --color-danger: #ef4444;
+  --color-info: #22d3ee;
+  --color-surface: #111827;
+  --color-surface-raised: #334155;
+  --color-background: #0b0f19;
+  --color-text: #f8fafc;
+  --color-text-muted: #94a3b8;
+  --color-border: #2a3544;
+  --color-ring: #6366f1;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+
+  --status-success: #86efac;
+  --status-success-bg: #14532d;
+  --status-warning: #fde68a;
+  --status-warning-bg: #78350f;
+  --status-danger: #fca5a5;
+  --status-danger-bg: #7f1d1d;
+  --status-info: #67e8f9;
+  --status-info-bg: #164e63;
+  --status-pending: #93c5fd;
+  --status-pending-bg: #1e3a8a;
+  --status-draft: #cbd5e1;
+  --status-draft-bg: #334155;
+  --status-approved: #bbf7d0;
+  --status-approved-bg: #14532d;
+  --status-rejected: #fecaca;
+  --status-rejected-bg: #7f1d1d;
+  --status-archived: #94a3b8;
+  --status-archived-bg: #334155;
+
+  --shadow-none: none;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 10px 24px rgb(0 0 0 / 0.5);
+
+  --ai-accent-border: #4c1d95;
+  --ai-accent-bg: rgb(46 16 101 / 0.35);
+  --ai-accent-fg: #c4b5fd;
+}

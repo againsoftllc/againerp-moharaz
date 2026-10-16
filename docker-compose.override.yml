@@ -1,0 +1,16 @@
+# Local override: do not bind-mount source (not shared with Docker Desktop).
+# Code is already baked into the image via Dockerfile COPY.
+#
+# Use !override — !reset discards the list and leaves volumes unset, so media
+# (invoice logo/signatures) was written into the container layer and wiped on
+# every API recreate.
+services:
+  api:
+    volumes: !override
+      - againerp_api_uploads:/app/uploads
+    command: uvicorn main:app --host 0.0.0.0 --port 8010
+
+  web:
+    volumes: !override
+      - againerp_web_node_modules:/app/node_modules
+    command: npm run dev -- --hostname 0.0.0.0 --port 3210

@@ -1,0 +1,18 @@
+# Railway — API + Postgres (web goes to Vercel)
+#
+# Services expected in this project:
+#   1. Postgres (Railway plugin) — provides DATABASE_URL
+#   2. api  — Root Directory = apps/api  (this file is apps/api/railway.toml)
+#
+# Do NOT use the repo-root railway.toml for the API service.
+# Repo-root railway.toml / Dockerfile.web are only if you also host web on Railway.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+# startCommand left empty — Dockerfile CMD expands $PORT

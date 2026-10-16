@@ -1,0 +1,174 @@
+# Again List Datatable
+
+**Family name:** Again List Datatable  
+**Canonical screen:** `/customers` (`CustomerGrid`) — filter bar + AG Grid + 27px zoom + native paging footer.
+
+Every admin list that looks like Customers is this family. Visual and paging changes must land in the **shared shell**, not one page at a time.
+
+Living UI rules: `docs/ERP-UI-COMMON.md`. This file is the **inventory** of which pages and drawers use the family.
+
+---
+
+## Shared library (use these — do not fork)
+
+| Piece | Path | Role |
+| --- | --- | --- |
+| Theme / footer CSS | `apps/web/src/app/globals.css` → `.ag-theme-again-list`, `.product-grid-fill` | Square chrome, 27px paging bar |
+| AG Grid register | `apps/web/src/components/providers/ag-grid-provider.tsx` | Modules / license |
+| Page name in filter bar | `apps/web/src/components/shared/list-grid-header-start.tsx` | `[Page name] [New] [⋯]` |
+| Footer zoom | `apps/web/src/components/shared/grid-zoom.tsx` | Left overlay on paging bar |
+| Fullscreen | `apps/web/src/components/shared/grid-fullscreen.tsx` | Header expand |
+| Ref cells | `apps/web/src/components/shared/grid-ref-link.tsx` | Open related drawer |
+| Status chips | `apps/web/src/components/shared/grid-chip-badge.tsx` | Squared labels |
+| Height fix | `apps/web/src/components/shared/use-ag-grid-height-fix.ts` | Fill viewport |
+| Dark mode | `apps/web/src/lib/use-is-dark.ts` | `ag-theme-quartz-dark` |
+| Native server pager | `apps/web/src/components/shared/use-ag-native-server-pager.ts` | Native footer, server `limit`/`offset` (owned by the shell) |
+| List shell | `apps/web/src/components/shared/again-list-grid.tsx` | Filter bar, zoom, 27px pager, empty overlay, day/night — **one change updates every list** |
+| Finance wrapper | `apps/web/src/components/finance/finance-ag-list-grid.tsx` | Column picker + CSV + mobile cards on top of `AgainListGrid` |
+
+Page files pass columns, rows, `filterBar`, `headerLeftActions`, sheets as children. Do **not** fork chrome (`ag-theme-again-list`, zoom, pager) in a grid file.
+
+---
+
+## How to update all datatables together
+
+1. Change **`AgainListGrid`** or shared CSS (`.ag-theme-again-list`) — one edit, all lists.
+2. Finance extras (CSV / column sheet / mobile cards): `FinanceAgListGrid`.
+3. Customers is the reference for **server-side paging**: pass `serverPaging` into `AgainListGrid`.
+
+---
+
+## Pages (full-viewport list)
+
+Local admin: prefix `http://localhost:3210`.
+
+### Contacts / parties
+
+| Datatable | Component | Route | Notes |
+| --- | --- | --- | --- |
+| Customers | `customer-grid.tsx` | `/customers`, `/customers/[id]` | Canonical. Server page + native footer. Drawer: `AgainPartnerDrawer` |
+| Suppliers | `supplier-grid.tsx` | `/purchase/suppliers` | Drawer: `SupplierDetailDrawer` |
+| Employees | `employee-grid.tsx` | `/hrm/employees` | Other HRM screens are **not** this family (`HrmEntityPage` HTML tables) |
+
+### Sales / service / RMA
+
+| Datatable | Component | Route |
+| --- | --- | --- |
+| Sales orders | `sales-order-grid.tsx` | `/sales` |
+| Sales returns | `sales-return-grid.tsx` | `/sales/returns` |
+| Service jobs | `service-job-grid.tsx` | `/service/jobs` |
+| RMA | `rma-grid.tsx` | `/rma` |
+
+### Purchase
+
+| Datatable | Component | Route |
+| --- | --- | --- |
+| Purchase orders | `purchase-order-grid.tsx` | `/purchase/orders` |
+| RFQs | `purchase-rfq-grid.tsx` | `/purchase/rfq` |
+| Quotations | `purchase-quotation-grid.tsx` | `/purchase/quotations` |
+| Receipts | `purchase-receipt-grid.tsx` | `/purchase/receipts` |
+| Bills | `purchase-bill-grid.tsx` | `/purchase/bills` |
+| Returns | `purchase-return-grid.tsx` | `/purchase/returns` |
+| Purchase products | `purchase-product-grid.tsx` | `/purchase/products` |
+| Open orders report | `purchase-report-grid.tsx` | `/purchase/reports/open-orders` |
+| Price report | `inventory-report-grid.tsx` | `/purchase/reports/prices` |
+
+### Catalog / dropshipping / vendors (same grids, multiple routes)
+
+| Datatable | Component | Routes |
+| --- | --- | --- |
+| Products | `product-grid.tsx` | `/catalog/products`, `/dropshipping/products`, `/inventory/catalog`, `/vendors/catalog` |
+| Brands | `brand-grid.tsx` | `/catalog/brands`, `/dropshipping/brands` |
+| Categories | `category-grid.tsx` | `/catalog/categories`, `/dropshipping/categories` |
+| Collections | `collection-grid.tsx` | `/catalog/collections`, `/dropshipping/collections` |
+| Bundles | `bundle-grid.tsx` | `/catalog/bundles`, `/dropshipping/bundles` |
+| Variants | `variant-catalog-list.tsx` | `/catalog/variants`, `/dropshipping/variants` |
+| Reviews | `review-grid.tsx` | `/catalog/reviews` |
+| Q&A | `qa-grid.tsx` | `/catalog/qa` |
+
+### Inventory
+
+| Datatable | Component | Route |
+| --- | --- | --- |
+| Stock | `stock-grid.tsx` | `/inventory/stock` |
+| Warehouses | `warehouse-grid.tsx` | `/inventory/warehouses` |
+| Movements | `movement-grid.tsx` | `/inventory/movements` |
+| Serials | `serial-grid.tsx` | `/inventory/serials` |
+| Adjustments | `stock-adjustment-grid.tsx` | `/inventory/adjustments` |
+| Transfers | `stock-transfer-grid.tsx` | `/inventory/transfers` |
+| Stock counts | `stock-count-grid.tsx` | `/inventory/stock-counts` |
+| Inventory reports | `inventory-report-grid.tsx` | `/inventory/reports/on-hand`, `/valuation`, `/by-supplier`, `/movements`, `/serials` |
+
+### Finance (most wrap `finance-ag-list-grid.tsx`)
+
+| Datatable | Component | Route |
+| --- | --- | --- |
+| Chart of accounts | `account-grid.tsx` → `FinanceAgListGrid` | `/finance/accounts` |
+| Journal | `journal-grid.tsx` → `FinanceAgListGrid` | `/finance/journal` |
+| Expenses | `expense-grid.tsx` → `FinanceAgListGrid` | `/finance/expenses` |
+| Payment accounts | `payment-account-grid.tsx` → `FinanceAgListGrid` | `/finance/payment-accounts` |
+| Cost centers | `cost-center-grid.tsx` → `FinanceAgListGrid` | `/finance/cost-centers` |
+| Allocation rules | `allocation-rule-grid.tsx` → `FinanceAgListGrid` | `/finance/allocation-rules` |
+| Payments | `payment-grid.tsx` | `/finance/payments` |
+| Payables | `payable-grid.tsx` | `/finance/payables` |
+| Receivables | `receivable-grid.tsx` | `/finance/receivables` |
+| P&amp;L | `profit-loss-grid.tsx` → `FinanceAgListGrid` | `/finance/reports/profit-loss` |
+| Other GL reports | `finance-report-ag-grid.tsx` → `FinanceAgListGrid` | `/finance/reports/balance-sheet`, `/trial-balance`, `/cash-flow`, `/general-ledger`, `/receivable-aging`, `/payable-aging`, `/tax-summary`, `/expense-by-cost-center` |
+
+### Website / SEO / blog
+
+| Datatable | Component | Route |
+| --- | --- | --- |
+| Website pages | `website-pages-grid.tsx` | `/website/pages` |
+| Website menus | `website-menu-grid.tsx` | `/website/menus` |
+| SEO URLs | `seo-url-grid.tsx` | `/seo` |
+| SEO redirects | `seo-redirect-grid.tsx` | `/seo/redirects` |
+| Blog articles | `blog-article-grid.tsx` | `/blog/articles` |
+| Blog categories | `blog-category-grid.tsx` | `/blog/categories` |
+| Blog comments | `blog-comment-grid.tsx` | `/blog/comments` |
+
+### Super-admin
+
+| Datatable | Component | Route |
+| --- | --- | --- |
+| Companies | `company-grid.tsx` | `/super-admin/companies` |
+| Plans | `subscription-plan-grid.tsx` | `/super-admin/plans` |
+
+---
+
+## Drawers / embedded panels (same AG list chrome)
+
+These are **inside** a record drawer or workspace, not a full page. Footer/zoom/theme must still match the family.
+
+| Datatable | Component | Host drawer / surface |
+| --- | --- | --- |
+| Partner ledger | `partner-ledger-panel.tsx` (via customer + supplier wrappers) | Customer drawer Ledger tab; `SupplierDetailDrawer` → `SupplierWorkspace` |
+| Customer orders | `partner-customer-orders-panel.tsx` | Same customer drawer |
+| Supplier POs | `supplier-purchase-orders.tsx` | Same supplier drawer / `/purchase/suppliers/[id]` |
+
+Customer URL `/customers/[id]` opens the **Customers** list plus `AgainPartnerDrawer` (not a separate grid).
+
+---
+
+## Not this family (do not treat as Again List Datatable)
+
+- Most **HRM** screens (`HrmEntityPage` HTML tables), except Employees above
+- Catalog **filters / attributes / spec templates** (`catalog-filter-grid`, `attribute-profile-grid`, `spec-templates-grid`) — custom lists, not AG Grid
+- Attribute profile **sortable** editor (`sortable-attribute-grid.tsx`) — drag editor, not the list footer
+- Dashboard widgets (`dashboard-grid.tsx`)
+- Storefront / portal tables
+- Document **line** editors (PO lines, etc.) — use `ProductSearchAdd`, not this list
+
+When those screens are rebuilt as lists, they must join this family via `AgainListGrid`.
+
+---
+
+## Checklist for a new list
+
+- [ ] Use `AgainListGrid` from `@/components/shared/again-list-grid` — do not copy another grid’s chrome
+- [ ] `ListGridHeaderStart` for the page name
+- [ ] Pass columns + rows + `filterBar` / `headerLeftActions`; sheets as children
+- [ ] Native pager is owned by the shell (page size 25, selector `[10, 25, 50, 100]`)
+- [ ] `GridRefLink` on record refs
+- [ ] Large datasets: server `limit`/`offset` + `serverPaging` (Customers pattern)
+- [ ] Add a row to **this file**

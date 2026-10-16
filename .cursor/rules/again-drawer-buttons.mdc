@@ -1,0 +1,40 @@
+---
+description: Again ERP drawers — all corners must be square, never rounded.
+globs: apps/web/src/components/**/*drawer*.tsx,apps/web/src/components/again/**/*.tsx,apps/web/src/components/shared/again-*.tsx,apps/web/src/components/customers/partner-*.tsx
+alwaysApply: false
+---
+
+# Again drawer UI — square shape only
+
+In Again drawers (partner/customer, customer groups, sales nested drawers, etc.) **nothing is rounded**. Buttons, list boxes, pills, close icons, resize grips, and cards use sharp square corners (`rounded-none`).
+
+## Forbidden
+
+- `rounded-sm`, `rounded`, `rounded-md`, `rounded-lg`, `rounded-xl`, `rounded-full`, pills
+
+## Action buttons
+
+Use shared constants from `apps/web/src/components/again/again-drawer.tsx`:
+
+- `AGAIN_DRAWER_PRIMARY_BTN` — Save / Confirm (purple via `AGAIN_DRAWER_PRIMARY_COLOR`)
+- `AGAIN_DRAWER_ACTION_BTN` — Discard / Cancel / secondary
+
+Both already use `rounded-none`.
+
+## Lists & panels
+
+Group lists, status chips, and bordered containers inside these drawers must use `rounded-none` (not `rounded-sm`).
+
+## Close / icon buttons
+
+Override the default UI `Button` radius:
+
+```tsx
+<Button variant="ghost" size="icon" className="h-8 w-8 rounded-none" />
+```
+
+## Do not
+
+- Soft radii on Save/Discard or any drawer chrome
+- Rounded group list wrappers or drag rows
+- Pill-shaped status badges in Again drawers

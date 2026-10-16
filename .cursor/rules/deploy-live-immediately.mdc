@@ -1,0 +1,27 @@
+---
+description: Preview on local first; deploy live only after user confirms
+alwaysApply: true
+---
+
+# Local first, live only after confirm
+
+Do **not** deploy to production after finishing work.
+
+## Required workflow
+
+1. Make changes locally
+2. Run / use the **local** admin + API and show the user how to check (e.g. `http://localhost:3210`)
+3. Deploy live (Vercel `vercel --prod --yes`, Railway API, etc.) **only after the user explicitly confirms** — e.g. “live push”, “deploy live”, “confirm”, “ok live e dao”
+4. Until they confirm, leave changes local / in the working tree
+5. When they do confirm, deploy AgainERP admin (`erp.againerp.com`) from the repo root and tell them the live URL briefly after success
+6. If the API also changed for that same confirm, deploy the Railway API when that workflow is already established in the session
+
+## Forbidden
+
+- Auto-deploying “so they can see it” without a clear live/confirm ask
+- Treating “fix it” / “show me” as permission to deploy production
+
+## Notes
+
+- Prefer deploying the working tree that includes the fix (CLI upload), same as prior sessions
+- Still do not force-push git, commit, or open PRs unless the user asks

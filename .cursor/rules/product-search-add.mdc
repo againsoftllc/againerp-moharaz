@@ -1,0 +1,23 @@
+---
+description: Document line product add must use the PO ProductSearchAdd bar (filter + SKU search + plus)
+globs: apps/web/src/components/**/*.{tsx,ts}
+alwaysApply: true
+---
+
+# Product add on documents
+
+Wherever the user adds a **product line** (PO, sales, stock, invoice, RMA, …), use the purchase-order format. Do not invent a plain search, “Add line” only, or a filter-less bar.
+
+Canonical: `ProductSearchAdd` in `apps/web/src/components/products/product-search-add.tsx` (also `docs/ERP-UI-COMMON.md` §6).
+
+```tsx
+// ✅ [ ListFilter ][ 🔍 Name, SKU, barcode, or serial     + ]
+// ❌ <input />  or  <button>Add product</button>  or  search without filter/plus
+```
+
+- Left: brand/category filter (`h-8 w-8`, `border-r-0`; active `#00a09d`)
+- Middle: typeahead SKU/name, **barcode scan**, or **serial number** (adds the matching product)
+- Right: plus → quick-add product
+- Square `h-8`, `rounded-none`. Extract/reuse; do not fork.
+
+Not for catalog “New product” pages or merchandising/portal browse pickers.

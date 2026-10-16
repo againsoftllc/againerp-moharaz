@@ -1,0 +1,14 @@
+# Railway service should host FastAPI (Postgres plugin + this service).
+# Admin web stays on Vercel (https://erp.againerp.com).
+#
+# Previously this file pointed at Dockerfile.web, so the public Railway domain
+# served Next.js instead of the API — login failed with "Cannot reach API".
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.api"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"

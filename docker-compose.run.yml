@@ -1,0 +1,65 @@
+# AgainERP standalone run (ports / DB / container names)
+# Rebuild after web changes:
+#   docker compose -f docker-compose.run.yml build web && docker compose -f docker-compose.run.yml up -d --no-deps web
+# Usage: docker compose -f docker-compose.run.yml up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: againerp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: againerp
+      POSTGRES_PASSWORD: againerp
+      POSTGRES_DB: againerp
+    ports:
+      - "5440:5432"
+    volumes:
+      - againerp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U againerp -d againerp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: againerp-api:latest
+    container_name: againerp-api
+    restart: unless-stopped
+    ports:
+      - "8010:8010"
+    environment:
+      DATABASE_URL: postgresql+psycopg://againerp:againerp@postgres:5432/againerp
+      CORS_ORIGINS: http://localhost:3210,http://127.0.0.1:3210,http://localhost:3010,http://127.0.0.1:3010,http://localhost:3000,http://127.0.0.1:3000
+      APP_ENV: development
+      APP_DEBUG: "true"
+      APP_NAME: AgainERP API
+      API_PORT: "8010"
+    volumes:
+      - againerp_api_uploads:/app/uploads
+    command: uvicorn main:app --host 0.0.0.0 --port 8010
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    image: againerp-web:latest
+    container_name: againerp-web
+    restart: unless-stopped
+    ports:
+      - "3210:3210"
+    environment:
+      # Browser uses same-origin /api/v1; Next proxies via API_PROXY_TARGET (service DNS)
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:8010
+      NEXT_PUBLIC_STOREFRONT_URL: http://127.0.0.1:3010
+      API_PROXY_TARGET: http://api:8010
+    command: npm run dev -- --hostname 0.0.0.0 --port 3210
+    depends_on:
+      - api
+
+volumes:
+  againerp_pgdata:
+  againerp_api_uploads:

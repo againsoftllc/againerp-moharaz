@@ -1,0 +1,46 @@
+---
+description: Storefront product cards/lists must keep marked UI — wishlist, rating, SOLD, Repurchase.
+globs: apps/frontstore/src/components/storefront/**/*.{tsx,ts}
+alwaysApply: false
+---
+
+# Product card marked UI (SkyBuy common design)
+
+## Grid / rail / card rows
+
+Use `apps/frontstore/src/components/storefront/product/product-grid-card.tsx`.
+
+Do **not** invent a one-off product card layout for homepage, China browse, More to love, category rails, search grids, etc.
+
+## List views (e.g. Related Products sidebar)
+
+Compact rows must still include the **same marked meta**:
+
+1. **Wishlist** — heart on thumbnail top-right
+2. **Price (left) + ★ rating (right)**
+3. **SOLD** + **Repurchase** chips
+
+Reuse formatters from `product-card-info.tsx` and `ProductWishlistButton` / seed helpers from `product-grid-card.tsx`. See `product-sidebar.tsx`.
+
+## Required marked UI
+
+1. **Wishlist** — heart overlay on image top-right
+2. **Price (left) + ★ rating (right)** on one row
+3. **SOLD** + **Repurchase** chips under the title
+
+Supporting pieces:
+
+- `product-grid-card.tsx` — canonical grid card
+- `product-card-image.tsx` — square thumbnail
+- `product-card-info.tsx` — price / rating / title / chips
+- `product-wishlist-button.tsx` — heart overlay
+
+## Exceptions
+
+- CMS category catalog cards (`catalog-view.tsx`) may keep CMS Buy now / compare toggles until migrated.
+- PDP gallery / purchase panel are not product cards.
+
+## When adding a new product surface
+
+- Grid → `ProductGridCard`
+- List → same marked fields as sidebar (wishlist + price/rating + SOLD/Repurchase)

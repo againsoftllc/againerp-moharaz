@@ -1,0 +1,37 @@
+---
+description: Admin UI must use square corners only — no rounded shapes
+alwaysApply: true
+---
+
+# Square shapes only (no round)
+
+AgainERP admin UI uses a squared visual language. Do not introduce rounded corners, pills, or circular chips.
+
+Part of global UI rules — see `docs/ERP-UI-COMMON.md` and `.cursor/rules/erp-ui-common.mdc`.
+
+## Required
+
+- Prefer `rounded-none` on buttons, inputs, selects, cards, tables, dialogs, sheets, badges, and chips
+- Status / role labels: squared borders (`border border-border`), not `rounded-full` pills
+- Avatars / status dots: use squares (`rounded-none`), not circles
+- Override shared primitives when needed: e.g. `Badge` → `className="rounded-none"`; icon buttons → `rounded-none`
+
+## Forbidden
+
+- `rounded-full`, `rounded-xl`, `rounded-lg`, `rounded-md`, `rounded-sm` on new or edited admin UI
+- Pill-shaped filters, tags, or status toggles
+- Soft “card” radius on list/table wrappers
+
+## Examples
+
+```tsx
+// ❌ BAD
+<button className="rounded-full px-3 py-1">Active</button>
+<div className="rounded-lg border">…</div>
+
+// ✅ GOOD
+<button className="rounded-none border border-border px-2 py-0.5">Active</button>
+<div className="rounded-none border border-border">…</div>
+```
+
+Exception: only keep radius if an upstream library forces it and cannot be overridden — then neutralize with `[&_*]:rounded-none` / theme overrides where practical.

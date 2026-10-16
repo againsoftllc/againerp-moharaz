@@ -1,0 +1,38 @@
+# Next.js admin (apps/web) — build context must be the repo root because
+# apps/web imports plugin source from ../../plugins/china-import.
+FROM node:20-alpine AS builder
+
+WORKDIR /repo
+
+COPY apps/web/package.json apps/web/package-lock.json ./apps/web/
+RUN cd apps/web && npm ci
+
+COPY plugins ./plugins
+COPY apps/web ./apps/web
+
+# Railway injects service variables at build time only when declared as ARG.
+# At runtime, prefer API_PROXY_TARGET (Docker service DNS or Railway HTTPS).
+# Browser always uses same-origin /api/v1 — never bake localhost into client fetches.
+ARG NEXT_PUBLIC_API_URL
+ARG API_PROXY_TARGET
+ARG NEXT_PUBLIC_CHINA_IMPORT_PLUGIN
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+    API_PROXY_TARGET=$API_PROXY_TARGET \
+    NEXT_PUBLIC_CHINA_IMPORT_PLUGIN=$NEXT_PUBLIC_CHINA_IMPORT_PLUGIN \
+    NEXT_TELEMETRY_DISABLED=1
+
+RUN cd apps/web && npm run build
+
+FROM node:20-alpine AS runner
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1
+
+WORKDIR /repo/apps/web
+
+COPY --from=builder /repo/apps/web ./
+COPY --from=builder /repo/plugins /repo/plugins
+
+EXPOSE 3000
+
+CMD ["sh", "-c", "npx next start -H 0.0.0.0 -p ${PORT:-3000}"]

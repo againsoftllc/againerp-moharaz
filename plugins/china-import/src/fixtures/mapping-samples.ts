@@ -1,0 +1,117 @@
+/** Sample Elim API product detail JSON — run mapping without live API. */
+export const ELIM_SAMPLE_PRODUCT = {
+  success: true,
+  code: 200,
+  message: "ok",
+  id: "683802263680",
+  mp_id: "683802263680",
+  title: "无线蓝牙耳机 降噪运动款",
+  titleEn: "Wireless Bluetooth Earbuds Noise Cancelling Sport",
+  description:
+    "High quality TWS earbuds with active noise cancellation, 30h battery life, IPX5 waterproof.",
+  quote_type: "by_sku",
+  price: 89.0,
+  promotion_price: 68.5,
+  quantity: 5000,
+  unit: "件",
+  shop_id: "shop_88231",
+  shop_name: "Shenzhen Audio Tech Co.",
+  moq: 2,
+  category_id: "50011975",
+  category_name: "蓝牙耳机",
+  img_urls: [
+    "https://img.alicdn.com/bao/uploaded/i3/example/earbuds-main.jpg",
+    "https://img.alicdn.com/bao/uploaded/i3/example/earbuds-side.jpg",
+  ],
+  video_urls: {
+    thumbnail_url: "https://img.alicdn.com/bao/uploaded/i3/example/earbuds-video-thumb.jpg",
+    detail_url: "https://video.alicdn.com/example/earbuds.mp4",
+  },
+  sold: 12840,
+  review: { good: 98, neutral: 2, bad: 0 },
+  level: 4,
+  seller_type: "factory",
+  status: "active",
+  skus: [
+    {
+      id: 10001,
+      mp_id: 683802263680,
+      price: 89.0,
+      promotion_price: 68.5,
+      quantity: 2000,
+      status: "active",
+      img_url: "https://img.alicdn.com/bao/uploaded/i3/example/earbuds-black.jpg",
+      options: { Color: "Black", Model: "Pro" },
+    },
+    {
+      id: 10002,
+      mp_id: 683802263680,
+      price: 89.0,
+      promotion_price: 72.0,
+      quantity: 1500,
+      status: "active",
+      img_url: "https://img.alicdn.com/bao/uploaded/i3/example/earbuds-white.jpg",
+      options: { Color: "White", Model: "Pro" },
+    },
+  ],
+  attributes: [
+    { name: "Brand", value: "AudioPro" },
+    { name: "Material", value: "ABS + Silicone" },
+    { name: "Battery", value: "30 hours" },
+    { name: "Waterproof", value: "IPX5" },
+  ],
+  shipping_info: [{ weight: 0.15, width: 8, length: 12, height: 4 }],
+  extra_info: [{ key: "warranty", value: "12 months" }],
+  currency: "CNY",
+} as const;
+
+/** Sample Mock provider product JSON. */
+export const MOCK_SAMPLE_PRODUCT = {
+  id: "mock-1001",
+  title: "Wireless Earbuds Pro",
+  titleEn: "Wireless Earbuds Pro",
+  price: 28.5,
+  salePrice: 24.9,
+  currency: "CNY",
+  imageUrl: "https://placehold.co/400x400/png?text=Earbuds",
+  images: [
+    "https://placehold.co/400x400/png?text=Earbuds+1",
+    "https://placehold.co/400x400/png?text=Earbuds+2",
+  ],
+  supplier: { supplierId: "sup-001", name: "Mock Shenzhen Audio", rating: 4.8, country: "CN" },
+  brand: { providerBrandId: "brand-audio", name: "MockAudio", country: "CN" },
+  category: { id: "cat-audio", name: "Audio", path: ["Electronics", "Audio"] },
+  description: "Demo product for universal mapping without live API.",
+  moq: 2,
+  unit: "pcs",
+  stock: 500,
+  weight: 0.12,
+  attributes: [
+    { name: "Color", value: "Black" },
+    { name: "Battery", value: "30h" },
+  ],
+  variants: [
+    {
+      id: "v1",
+      sku: "EB-PRO-BLK",
+      price: 28.5,
+      salePrice: 24.9,
+      stock: 300,
+      attributes: [{ name: "Color", value: "Black" }],
+      img_url: "https://placehold.co/200x200/png?text=Black",
+    },
+    {
+      id: "v2",
+      sku: "EB-PRO-WHT",
+      price: 28.5,
+      stock: 200,
+      attributes: [{ name: "Color", value: "White" }],
+      img_url: "https://placehold.co/200x200/png?text=White",
+    },
+  ],
+} as const;
+
+export const MAPPING_FIXTURES = [
+  { id: "elim", label: "Elim sample", provider: "elim" as const, raw: ELIM_SAMPLE_PRODUCT },
+  { id: "mock", label: "Mock sample", provider: "mock" as const, raw: MOCK_SAMPLE_PRODUCT },
+];

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Send to AgainERP</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <img src="icons/icon32.png" alt="" width="20" height="20" />
+      <strong>Send to AgainERP</strong>
+      <button id="open-settings" class="link" title="Connection settings">Settings</button>
+    </header>
+
+    <!-- Connect -->
+    <section id="view-login" hidden>
+      <p class="muted">Sign in once with your AgainERP admin account.</p>
+      <label>API address
+        <input id="api-base" type="url" placeholder="https://api.yourstore.com" />
+      </label>
+      <label>Admin panel address <span class="muted">(for the “Open” link)</span>
+        <input id="web-base" type="url" placeholder="https://admin.yourstore.com" />
+      </label>
+      <label>Email or username
+        <input id="login-email" type="text" autocomplete="username" />
+      </label>
+      <label>Password
+        <input id="login-password" type="password" autocomplete="current-password" />
+      </label>
+      <button id="login" class="primary">Sign in</button>
+      <p id="login-error" class="error" hidden></p>
+      <p id="signed-in" class="muted" hidden></p>
+      <button id="logout" class="link" hidden>Sign out</button>
+    </section>
+
+    <!-- Capture -->
+    <section id="view-capture" hidden>
+      <div id="reading" class="muted">Reading this page…</div>
+      <p id="read-error" class="error" hidden></p>
+
+      <div id="captured" hidden>
+        <div class="card page">
+          <img id="page-image" alt="" hidden />
+          <div>
+            <div id="page-title" class="title"></div>
+            <div class="muted small"><span id="page-domain"></span> · <span id="page-source"></span></div>
+          </div>
+        </div>
+
+        <div class="grid">
+          <label>Price
+            <input id="price" type="number" min="0" step="any" />
+          </label>
+          <label>Regular price
+            <input id="regular-price" type="number" min="0" step="any" placeholder="—" />
+          </label>
+          <label>Stock
+            <select id="stock">
+              <option value="true">In stock</option>
+              <option value="false">Out of stock</option>
+              <option value="">Unknown</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="competitor-box" class="card"></div>
+
+        <h3>Which of your products is this?</h3>
+        <input id="product-search" type="search" placeholder="Search your products by name or SKU" />
+        <div id="product-list" class="list"></div>
+
+        <button id="save" class="primary" disabled>Save price</button>
+        <p id="save-result" hidden></p>
+      </div>
+    </section>
+
+    <!-- Auto-sync -->
+    <section id="view-sync" hidden>
+      <h3>Auto-sync</h3>
+      <label class="check">
+        <input id="sync-enabled" type="checkbox" />
+        Update saved competitor links automatically
+      </label>
+      <label>Every
+        <select id="sync-hours">
+          <option value="1">1 hour</option>
+          <option value="3">3 hours</option>
+          <option value="6">6 hours</option>
+          <option value="12">12 hours</option>
+          <option value="24">24 hours</option>
+        </select>
+      </label>
+      <label>Which links
+        <select id="sync-mode">
+          <option value="blocked">Only sites that block the server (recommended)</option>
+          <option value="all">Every site</option>
+        </select>
+      </label>
+      <label>Tabs at once
+        <select id="sync-tabs">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3 (recommended)</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+      </label>
+      <div id="sync-perm" class="card warn" hidden>
+        <span id="sync-perm-text"></span>
+        <button id="sync-allow" class="small">Allow</button>
+      </div>
+      <div id="sync-status" class="muted small"></div>
+      <p id="bridge-status" class="small"></p>
+      <div id="sync-items" class="list small"></div>
+      <button id="sync-now" class="small">Sync now</button>
+      <p class="muted small">Runs while Chrome is open, in a minimized window. Never more than 3 tabs on one site; a site that starts showing bot checks drops to one tab. The server updates the other sites itself.</p>
+    </section>
+
+    <script src="extract.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

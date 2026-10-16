@@ -1,0 +1,48 @@
+from datetime import datetime
+
+AI_APPROVAL_SEED = [
+    {
+        "id": "apr_001",
+        "agent": "Catalog Agent",
+        "tool": "catalog.propose_product_update",
+        "summary": "Update price: ৳599 → ৳649 (+8.3%)",
+        "reason": "Competitor avg ৳655; margin remains 22%",
+        "risk": "medium",
+        "status": "pending",
+        "entity": "Premium Cotton T-Shirt",
+        "requested_at": datetime(2026, 6, 15, 10, 42),
+    },
+    {
+        "id": "apr_002",
+        "agent": "Inventory Agent",
+        "tool": "inventory.propose_reorder",
+        "summary": "Reorder 120 units · Wireless Earbuds Pro",
+        "reason": "Stock below safety level; 14-day velocity rising",
+        "risk": "high",
+        "status": "pending",
+        "entity": "SKU WEB-PRO-002",
+        "requested_at": datetime(2026, 6, 15, 9, 18),
+    },
+    {
+        "id": "apr_003",
+        "agent": "Marketing Agent",
+        "tool": "marketing.draft_campaign",
+        "summary": "Summer Sale email campaign draft",
+        "reason": "Segment: inactive 30d customers (2,140)",
+        "risk": "low",
+        "status": "pending",
+        "entity": "Campaign draft",
+        "requested_at": datetime(2026, 6, 15, 8, 55),
+    },
+    {
+        "id": "apr_004",
+        "agent": "SEO Agent",
+        "tool": "seo.propose_meta_update",
+        "summary": "Meta title update for /electronics",
+        "reason": "Missing primary keyword; CTR below category avg",
+        "risk": "low",
+        "status": "pending",
+        "entity": "Electronics category",
+        "requested_at": datetime(2026, 6, 14, 16, 30),
+    },
+]

@@ -1,0 +1,21 @@
+---
+description: Image upload uses the product MediaGallery Add tile everywhere
+alwaysApply: true
+---
+
+# Image upload — one Add tile
+
+Part of global UI rules — see `docs/ERP-UI-COMMON.md` §9 and `.cursor/rules/erp-ui-common.mdc`.
+
+Wherever the user **picks or uploads an image** (company logo, invoice logo, signature/seal, category image, …), use the product media gallery **Add** tile. Do not invent a wide preview, a thumbnail + “Media” button, or a plain file input.
+
+Canonical single-image field: `MediaPickTile` in `apps/web/src/components/media/media-pick-tile.tsx`. Multi-image grids stay `MediaGallery` in `apps/web/src/components/products/media-gallery.tsx`.
+
+```tsx
+// ✅ [ square dashed tile — ImagePlus + Add ]
+// ❌ <input type="file" /> or preview rectangle + “Media / Change”
+```
+
+- Empty: `rounded-none`, dashed `border-border`, `ImagePlus`, label **Add**
+- Filled: same square, `object-contain` image, corner X to remove
+- Click opens the media library; drop a file to upload

@@ -1,0 +1,34 @@
+---
+description: Plugin DB tables must be named plugin_<name> (never <name>_plugin)
+globs: apps/api/app/models/**/*.py,apps/api/scripts/init_db.py,apps/api/app/routers/plugins_*.py,apps/api/app/services/**/*plugin*.py
+alwaysApply: false
+---
+
+# Plugin table naming
+
+Plugin config / settings tables in Postgres **must** start with `plugin_`.
+
+## Required
+
+- Table name: `plugin_<slug>` (snake_case)
+- SQLAlchemy: `__tablename__ = "plugin_<slug>"`
+- Raw SQL / migrations: use the same name
+
+## Examples
+
+```text
+✅ plugin_zkteco
+✅ plugin_cloudflare
+✅ plugin_bkash
+✅ plugin_again_drop_api
+
+❌ zkteco_plugin
+❌ cloudflare_plugin
+❌ again_drop_api_plugin
+```
+
+## Do not rename (not plugin-config tables)
+
+- Payment / transaction rows: `bkash_payments`, `stripe_payments`, …
+- Device / domain data: `zkteco_attendance_logs`, …
+- Only **plugin install/config** tables use the `plugin_` prefix.

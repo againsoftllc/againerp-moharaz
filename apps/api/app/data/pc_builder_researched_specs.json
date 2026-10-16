@@ -1,0 +1,2247 @@
+{
+ "oc-prod-10034": {
+  "name": "DeepCool AG400 Digital CPU Cooler",
+  "values": {
+   "cooler_height": 153
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG400-DIGITAL-Temperature-Display-Cooler-1851-1700-AM5/2023/17686.shtml"
+ },
+ "oc-prod-10161": {
+  "name": "6500X",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.buildcores.com/products/PCCase/p66c3p5qb/"
+ },
+ "oc-prod-10162": {
+  "name": "6500X",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.buildcores.com/products/PCCase/p66c3p5qb/"
+ },
+ "oc-prod-10166": {
+  "name": "2500X",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.memoryexpress.com/Products/MX00131967"
+ },
+ "oc-prod-10167": {
+  "name": "2500X",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.memoryexpress.com/Products/MX00131967"
+ },
+ "oc-prod-10173": {
+  "name": "CORSAIR A115 Twin Tower CPU Air Cooler",
+  "values": {
+   "cooler_height": 165,
+   "cooler_tdp_rating": 270
+  },
+  "source": "https://www.anandtech.com/show/21240"
+ },
+ "oc-prod-10189": {
+  "name": "480T",
+  "values": {
+   "case_max_cooler_height": 165,
+   "case_max_gpu_length": 400,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.corsair.com/us/en/p/pc-cases/cc-9011272-ww/480t-rgb-airflow-tempered-glass-mid-tower-case-cc-9011272-ww"
+ },
+ "oc-prod-10208": {
+  "name": "Deepcool AK500 Digital WH 120mm ARGB White Air CPU Cooler",
+  "values": {
+   "cooler_height": 160
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK500-DIGITAL-WH-CPU-Cooler-With-Status-Display-1851-1700-AM5/2023/17314.shtml"
+ },
+ "oc-prod-10209": {
+  "name": "Deepcool AG620 Digital WH ARGB 120mm White Air CPU Cooler",
+  "values": {
+   "cooler_height": 161
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG620-DIGITAL-WH-ARGB-Temperature-Display-Cooler-1851-1700-AM5/2023/17666.shtml"
+ },
+ "oc-prod-10296": {
+  "name": "ACER V930B BLACK ATX GAMING CASE",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_cooler_height": 165,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.rokomari.com/electronics/465767/acer-gadget-v930b-black-atx-gaming-case"
+ },
+ "oc-prod-10297": {
+  "name": "Acer V930W White ATX Gaming Case",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_cooler_height": 165,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.rokomari.com/electronics/465767/acer-gadget-v930b-black-atx-gaming-case"
+ },
+ "oc-prod-10298": {
+  "name": "ACER V950B BLACK ATX GAMING CASE",
+  "values": {
+   "case_max_gpu_length": 410,
+   "case_max_cooler_height": 163,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.rokomari.com/electronics/465765/acer-gadget-v950b-black-atx-gaming-case"
+ },
+ "oc-prod-10299": {
+  "name": "Acer V920B Black Micro ATX Gaming Case",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_cooler_height": 165,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.rokomari.com/electronics/465769/acer-gadget-v920b-black-micro-atx-gaming-case"
+ },
+ "oc-prod-10301": {
+  "name": "Acer V920W White Micro ATX Gaming Case",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_cooler_height": 165,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.rokomari.com/electronics/465770/acer-gadget-v920w-white-micro-atx-gaming-case"
+ },
+ "oc-prod-10306": {
+  "name": "ACER V950W WHITE ATX GAMING CASE",
+  "values": {
+   "case_max_gpu_length": 410,
+   "case_max_cooler_height": 163,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.rokomari.com/electronics/465766/acer-gadget-v950w-white-atx-gaming-case"
+ },
+ "oc-prod-10525": {
+  "name": "Antec C5 BLACK ARGB CONSTELLATION SERIES Mid Tower ATX Gaming Case",
+  "values": {
+   "case_max_gpu_length": 410,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.pccasegear.com/products/65661/antec-constellation-c5-argb-tg-case-black"
+ },
+ "oc-prod-10526": {
+  "name": "Antec C3 Black ARGB Constellation Series ATX Mid Tower Gaming Casing",
+  "values": {
+   "case_max_cooler_height": 160
+  },
+  "source": "https://www.jib.co.th/web/product/readProduct/67312/CASE--เคส--ANTEC-C3--BLACK---ATX-"
+ },
+ "oc-prod-10527": {
+  "name": "Antec C3 Black ARGB Constellation Series ATX Mid Tower Gaming Casing",
+  "values": {
+   "case_max_cooler_height": 160
+  },
+  "source": "https://www.jib.co.th/web/product/readProduct/67312/CASE--เคส--ANTEC-C3--BLACK---ATX-"
+ },
+ "oc-prod-10610": {
+  "name": "GT302",
+  "values": {
+   "case_max_gpu_length": 407,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.asus.com/motherboards-components/cases/tuf-gaming/tuf-gaming-gt302-argb/techspec/"
+ },
+ "oc-prod-1066": {
+  "name": "Corsair A500 High Performance Dual Fan CPU Cooler",
+  "values": {
+   "cooler_height": 169,
+   "cooler_tdp_rating": 250
+  },
+  "source": "https://bit-tech.net/reviews/tech/cooling/corsair-a500-review/1/ ; https://www.guru3d.com/review/corsair-a500-air-cooler-review/page-2/"
+ },
+ "oc-prod-10685": {
+  "name": "ASRock B650M Pro RS WiFi AM5 Micro ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/AMD/B650M%20Pro%20RS%20WiFi/index.asp"
+ },
+ "oc-prod-10708": {
+  "name": "Arctic Freezer 36 ARGB Black Air CPU Cooler",
+  "values": {
+   "cooler_tdp_rating": 200
+  },
+  "source": "https://www.ocinside.de/review/arctic_freezer_36_argb/2/ (retailer/review tables: cooling capacity 200 W)"
+ },
+ "oc-prod-10736": {
+  "name": "Arctic Freezer 36 ARGB Black Air CPU Cooler",
+  "values": {
+   "cooler_tdp_rating": 200
+  },
+  "source": "https://www.ocinside.de/review/arctic_freezer_36_argb/2/ (retailer/review tables: cooling capacity 200 W)"
+ },
+ "oc-prod-10773": {
+  "name": "ASUS PRIME A520M-A II AMD Ryzen micro ATX Motherboard",
+  "values": {
+   "max_ram": 128,
+   "ram_slots": 4
+  },
+  "source": "https://asus.com/de/motherboards-components/motherboards/prime/prime-a520m-a-ii/techspec"
+ },
+ "oc-prod-10806": {
+  "name": "ASUS Pro WS TRX50-SAGE WIFI Workstation Motherboard",
+  "values": {
+   "max_ram": 1024
+  },
+  "source": "https://www.bestbuy.com/product/asus-pro-ws-trx50-sage-wifi-a-workstation-motherboard/JJGHGPGQZF"
+ },
+ "oc-prod-10836": {
+  "name": "CG02XZ",
+  "values": {
+   "case_max_cooler_height": 165,
+   "case_max_gpu_length": 350
+  },
+  "source": "https://www.startech.com.bd/carbono-cg02xz-mid-tower-gaming-casing"
+ },
+ "oc-prod-10940": {
+  "name": "ACER U320BG BLACK MICRO ATX BUSINESS CASE",
+  "values": {
+   "case_max_gpu_length": 310,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.rokomari.com/electronics/465502/acer-gadget-u320bg-black-micro-atx-business-case"
+ },
+ "oc-prod-10941": {
+  "name": "ACER U320WG WHITE MICRO ATX BUSINESS CASE",
+  "values": {
+   "case_max_gpu_length": 310,
+   "case_max_cooler_height": 135
+  },
+  "source": "https://www.ryans.com/acer-u320wg-mid-tower-desktop-casing"
+ },
+ "oc-prod-10942": {
+  "name": "ACER U300B BLACK MICRO ATX BUSINESS CASE",
+  "values": {
+   "case_max_gpu_length": 310,
+   "case_max_cooler_height": 135,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.rokomari.com/electronics/465759/acer-gadget-u300b-black-micro-atx-business-case"
+ },
+ "oc-prod-10943": {
+  "name": "ACER U300W WHITE MICRO ATX BUSINESS CASE",
+  "values": {
+   "case_max_gpu_length": 310,
+   "case_max_cooler_height": 135,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.rokomari.com/electronics/465759/acer-gadget-u300b-black-micro-atx-business-case"
+ },
+ "oc-prod-1096": {
+  "name": "Asrock B450M Steel Legend AMD Micro-ATX Motherboard",
+  "values": {
+   "m2_slots": 2,
+   "max_ram": 128,
+   "ram_slots": 4,
+   "sata_ports": 4
+  },
+  "source": "https://www.asrock.com/mb/AMD/B450M%20Steel%20Legend/index.asp"
+ },
+ "oc-prod-1108": {
+  "name": "220T White",
+  "values": {
+   "case_max_cooler_height": 160,
+   "case_max_gpu_length": 300,
+   "case_max_radiator": 360,
+   "case_motherboard_support": "ATX,Micro-ATX,Mini-ITX"
+  },
+  "source": "https://www.buildcores.com/products/PCCase/oh2xastp1/"
+ },
+ "oc-prod-1109": {
+  "name": "220T Black",
+  "values": {
+   "case_max_cooler_height": 160,
+   "case_max_gpu_length": 300,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.buildcores.com/products/PCCase/oh2xastp1/"
+ },
+ "oc-prod-11132": {
+  "name": "ACER U351W WHITE MICRO ATX BUSINESS CASE",
+  "values": {
+   "case_max_gpu_length": 350,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.rokomari.com/electronics/465484/acer-gadget-u351w-white-micro-atx-business-case"
+ },
+ "oc-prod-11133": {
+  "name": "ACER GADGET U510B BLACK ATX BUSINESS CASE",
+  "values": {
+   "case_max_gpu_length": 320,
+   "case_max_cooler_height": 160,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.rokomari.com/electronics/465763/acer-gadget-u510b-black-u510b-business-case"
+ },
+ "oc-prod-11134": {
+  "name": "ACER GADGET U510W WHITE ATX BUSINESS CASE",
+  "values": {
+   "case_max_gpu_length": 320,
+   "case_max_cooler_height": 160,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.rokomari.com/electronics/465764/acer-gadget-u510w-white-atx-business-case"
+ },
+ "oc-prod-11152": {
+  "name": "1ST PLAYER SP7-EMOTION VIEW WHITE Casing",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_cooler_height": 185,
+   "case_max_radiator": 360
+  },
+  "source": "https://1stplayer.com/?p=6930"
+ },
+ "oc-prod-11160": {
+  "name": "1ST Player TS1 360MM Black LIQUID CPU COOLER",
+  "values": {
+   "cooler_tdp_rating": 305
+  },
+  "source": "https://1stplayer.com/productdetails/id/278.html"
+ },
+ "oc-prod-11165": {
+  "name": "1ST Player TS1 240MM Black LIQUID CPU COOLER",
+  "values": {
+   "cooler_tdp_rating": 270
+  },
+  "source": "https://1stplayer.com/productdetails/id/278.html"
+ },
+ "oc-prod-11183": {
+  "name": "ACER U351B BLACK MICRO ATX BUSINESS CASE",
+  "values": {
+   "case_max_gpu_length": 350,
+   "case_max_cooler_height": 160,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.rokomari.com/electronics/465484/acer-gadget-u351w-white-micro-atx-business-case"
+ },
+ "oc-prod-11199": {
+  "name": "Asus PRIME B650M-F AM5 mATX Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://asus.com.cn/motherboards-components/motherboards/prime/prime-b650m-f/techspec"
+ },
+ "oc-prod-11273": {
+  "name": "Gunnir B580 index 12Gb Graphics Card",
+  "values": {
+   "gpu_length": 244
+  },
+  "source": "https://www.buildcores.com/products/GPU/sj5emyni5/GUNNIR-Intel-Arc-B580-Index-12G"
+ },
+ "oc-prod-1130": {
+  "name": "Gigabyte Aorus GeForce RTX 3090 Master 24G GDDR6X Graphics Card",
+  "values": {
+   "gpu_length": 319
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N3090AORUS-M-24GD-rev-20/sp"
+ },
+ "oc-prod-11350": {
+  "name": "ASRock Z790 Pro RS WiFi 14th, 13th and 12th Gen DDR5 ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/Z790%20Pro%20RS%20WiFi/index.asp"
+ },
+ "oc-prod-11354": {
+  "name": "ASRock X870 Pro RS WiFi AM5 DDR5 ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/AMD/X870%20Pro%20RS%20WiFi/index.asp"
+ },
+ "oc-prod-11355": {
+  "name": "ASROCK X870 STEEL LEGEND WIFI AMD X870 Chipset ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/AMD/X870%20Steel%20Legend%20WiFi/index.asp"
+ },
+ "oc-prod-11373": {
+  "name": "ASROCK Z890 PRO-A WIFI LGA 1851 ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://inside-tech.co.uk/product/asrock-z890-pro-a-wifi-intel-z890-1851-atx-4-ddr5-hdmi-dp-tb4-wi-fi-6e-2-5g-lan-4x-m-2"
+ },
+ "oc-prod-1138": {
+  "name": "CORSAIR H100I RGB PLATINUM SE AIO LIQUID CPU COOLER",
+  "values": {
+   "cooler_radiator_size": 240,
+   "socket_support": "lga_1150,lga_1151,am4"
+  },
+  "source": "https://www.corsair.com/se/sv/p/refurb-cpu-coolers/cw-9060042-ww-rf/corsair-hydro-series-h100i-rgb-platinum-240mm-radiator-dual-140mm-pwm-fans-liquid-cpu-cooler-refurbish-2-cw-9060042-ww-rf"
+ },
+ "oc-prod-11406": {
+  "name": "Corsair iCUE LINK TITAN 360 RX RGB AIO Liquid CPU Cooler Black",
+  "values": {
+   "socket_support": "am5,am4,lga_1851,lga_1700"
+  },
+  "source": "https://www.corsair.com/us/en/p/cpu-coolers/cw-9061018-ww/icue-link-titan-360-rx-rgb-aio-liquid-cpu-cooler-cw-9061018-ww"
+ },
+ "oc-prod-11425": {
+  "name": "CORSAIR iCUE LINK TITAN 240 RX RGB AIO Liquid CPU Cooler",
+  "values": {
+   "socket_support": "am5,am4,lga_1851,lga_1700"
+  },
+  "source": "https://www.corsair.com/us/en/explorer/diy-builder/cpu-coolers/corsair-icue-link-titan-rx-rgb-aios-everything-you-need-to-know/"
+ },
+ "oc-prod-11474": {
+  "name": "ASUS PRIME Z890M-PLUS WIFI-CSM LGA 1851 mATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://asus.com/motherboards-components/motherboards/csm/prime-z890m-plus-wifi-csm/techspec"
+ },
+ "oc-prod-11500": {
+  "name": "ASUS B650M-AYW WIFI AMD AM5 DDR5 Micro-ATX Motherboard",
+  "values": {
+   "max_ram": 96,
+   "ram_slots": 2
+  },
+  "source": "https://www.pccasegear.com/products/70678/asus-b650m-ayw-wifi-motherboard"
+ },
+ "oc-prod-11538": {
+  "name": "Frame 4000D RS",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 430,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.memoryexpress.com/Products/MX00132441"
+ },
+ "oc-prod-11558": {
+  "name": "Frame 4000D RS",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 430,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.memoryexpress.com/Products/MX00132441"
+ },
+ "oc-prod-11742": {
+  "name": "ACER GADGET U510 MS BLACK ATX BUSINESS CASE",
+  "values": {
+   "case_max_gpu_length": 320,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.rokomari.com/electronics/465762/acer-gadget-u510-ms-black-atx-business-case"
+ },
+ "oc-prod-11754": {
+  "name": "ASUS B760M-AYW WIFI mATX Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.jbhifi.com.au/products/asus-b760m-ayw-wifi-ddr5-lga-1700-matx-motherboard-b760m-ayw-wifi"
+ },
+ "oc-prod-11917": {
+  "name": "ARKTEK RX 580 8GB GDDR5 GRAPHICS CARD",
+  "values": {
+   "gpu_recommended_psu": 550
+  },
+  "source": "https://www.ryans.com/arktek-amd-radeon-rx-580-256bit-8gb-gddr5-graphics-card"
+ },
+ "oc-prod-1211": {
+  "name": "Gigabyte GeForce RTX 3060 Eagle OC 12G Graphics Card",
+  "values": {
+   "gpu_length": 242
+  },
+  "source": "https://www.gigabyte.com/se/Graphics-Card/GV-N3060EAGLE-12GD-rev-20/sp"
+ },
+ "oc-prod-1223": {
+  "name": "CM MasterAir MA610P RGB Air Cooler",
+  "values": {
+   "cooler_height": 167
+  },
+  "source": "https://www.alza.sk/cooler-master-masterair-ma610p-d5343295.htm (166.5 mm)"
+ },
+ "oc-prod-12237": {
+  "name": "CG192XG",
+  "values": {
+   "case_max_gpu_length": 350
+  },
+  "source": "https://www.startech.com.bd/carbono-cg192xg-mid-tower-gaming-casing"
+ },
+ "oc-prod-12327": {
+  "name": "1STPLAYER X-240 ARGB Liquid CPU Cooler",
+  "values": {
+   "cooler_tdp_rating": 250
+  },
+  "source": "https://1stplayer.com/product/x-240-x-360-liquid-cooler/"
+ },
+ "oc-prod-12328": {
+  "name": "1STPLAYER X-240 ARGB Liquid CPU Cooler",
+  "values": {
+   "cooler_tdp_rating": 250
+  },
+  "source": "https://1stplayer.com/product/x-240-x-360-liquid-cooler/"
+ },
+ "oc-prod-12330": {
+  "name": "1STPLAYER X-360 ARGB Liquid CPU Cooler White",
+  "values": {
+   "cooler_tdp_rating": 300
+  },
+  "source": "https://1stplayer.com/product/x-240-x-360-liquid-cooler/"
+ },
+ "oc-prod-12333": {
+  "name": "1STPLAYER Go6 ATX Gaming Casing black",
+  "values": {
+   "case_max_gpu_length": 320,
+   "case_max_radiator": 360
+  },
+  "source": "https://1stplayer.com/product/pc-case-go6/"
+ },
+ "oc-prod-12639": {
+  "name": "1STPLAYER H2 M-ATX Gaming Case (White)",
+  "values": {
+   "case_max_gpu_length": 310,
+   "case_max_radiator": 240
+  },
+  "source": "https://1stplayer.com/product/pc-case-h2/"
+ },
+ "oc-prod-12715": {
+  "name": "ASRock B850M-X WiFi AM5 DDR5 Micro ATX Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.asrock.com/mb/AMD/B850M-X%20WiFi/index.asp"
+ },
+ "oc-prod-12718": {
+  "name": "ASRock B850M STEEL LEGEND WIFI AM5 DDR5 mATX Motherboard",
+  "values": {
+   "m2_slots": 3,
+   "max_ram": 256,
+   "ram_slots": 4,
+   "sata_ports": 4
+  },
+  "source": "https://www.asrock.com/mb/AMD/B850M%20Steel%20Legend%20WiFi/index.asp"
+ },
+ "oc-prod-12731": {
+  "name": "Asus PRIME A520M-R AM4 micro ATX Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.asus.com/motherboards-components/motherboards/prime/prime-a520m-r/techspec/"
+ },
+ "oc-prod-12733": {
+  "name": "ASUS PRIME H610M-R DDR5 LGA1700 mATX Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://asus.com/motherboards-components/motherboards/prime/prime-h610m-r/techspec"
+ },
+ "oc-prod-12739": {
+  "name": "ASUS PRIME H610M-F D4 R2.0 DDR4 LGA1700 mATX Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.asus.com/motherboards-components/motherboards/prime/prime-h610m-f-d4-r2-0/techspec/"
+ },
+ "oc-prod-12740": {
+  "name": "Asus B850M AYW GAMING WIFI AM5 m-ATX Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.asus.com.cn/motherboards-components/motherboards/others/b850m-ayw-gaming-wifi/techspec"
+ },
+ "oc-prod-12775": {
+  "name": "ASUS ROG Strix GeForce RTX 5070 Ti 16GB GDDR7 OC Edition Graphics Card",
+  "values": {
+   "gpu_length": 332
+  },
+  "source": "https://netcodex.ph/product/asus-rog-strix-nvidia-geforce-rtx-5070-ti-16gb-gddr7-oc-edition-graphics-card/"
+ },
+ "oc-prod-12784": {
+  "name": "Deepcool AG400 BK ARGB V2 CPU Cooler",
+  "values": {
+   "cooler_height": 154
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG400-BK-ARGB-V2-CPU-Cooler-with-Top-Cover-Light-1851-1700-AM5/2025/20061.shtml"
+ },
+ "oc-prod-12788": {
+  "name": "Deepcool AG400 BK ARGB V2 CPU Cooler",
+  "values": {
+   "cooler_height": 154
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG400-BK-ARGB-V2-CPU-Cooler-with-Top-Cover-Light-1851-1700-AM5/2025/20061.shtml"
+ },
+ "oc-prod-12961": {
+  "name": "1STPLAYER TS4 240MM ARGB LIQUID CPU COOLER WHITE",
+  "values": {
+   "cooler_tdp_rating": 250
+  },
+  "source": "https://1stplayer.com/productdetails/id/345.html"
+ },
+ "oc-prod-12962": {
+  "name": "1STPLAYER TS4 240MM ARGB LIQUID CPU COOLER WHITE",
+  "values": {
+   "cooler_tdp_rating": 250
+  },
+  "source": "https://1stplayer.com/productdetails/id/345.html"
+ },
+ "oc-prod-12963": {
+  "name": "1STPLAYER CRYO CY12LD ARGB Black Dual Tower Air CPU Cooler",
+  "values": {
+   "cooler_height": 160,
+   "cooler_tdp_rating": 275
+  },
+  "source": "https://www.1stplayer.com/productdetails/id/329"
+ },
+ "oc-prod-12964": {
+  "name": "1STPLAYER CRYO CY12LD ARGB Black Dual Tower Air CPU Cooler",
+  "values": {
+   "cooler_height": 160,
+   "cooler_tdp_rating": 275
+  },
+  "source": "https://www.1stplayer.com/productdetails/id/329"
+ },
+ "oc-prod-12966": {
+  "name": "1STPLAYER CY12L ARGB SINGLE TOWER CPU AIR COOLER",
+  "values": {
+   "cooler_height": 155,
+   "cooler_tdp_rating": 225
+  },
+  "source": "https://www.1stplayer.com/productdetails/id/329"
+ },
+ "oc-prod-12967": {
+  "name": "1STPLAYER CY12 SINGLE TOWER CPU AIR COOLER",
+  "values": {
+   "cooler_height": 155,
+   "cooler_tdp_rating": 225
+  },
+  "source": "https://1stplayer.com/productdetails/id/329 (via search summary of official CY12 page)"
+ },
+ "oc-prod-12970": {
+  "name": "Acer Gadget ZUOOS SmartVision Ultra+ Front Curved Mid Tower Gaming Case (Black)",
+  "values": {
+   "case_max_radiator": 360
+  },
+  "source": "https://www.startech.com.bd/acer-gadget-zuoos-smartvision-ultra-plus-gaming-casing"
+ },
+ "oc-prod-1302": {
+  "name": "680X",
+  "values": {
+   "case_max_cooler_height": 180,
+   "case_max_gpu_length": 330,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.digitec.ch/en/s1/product/corsair-680x-rgb-atx-e-atx-matx-mini-itx-pc-case-10703163"
+ },
+ "oc-prod-13116": {
+  "name": "Asus PRIME B550M-K ARGB AMD AM4 mATX DDR4 Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.jbhifi.com.au/products/asus-prime-b550m-k-argb-am4-micro-atx-motherboard"
+ },
+ "oc-prod-13163": {
+  "name": "DeepCool AK400 DIGITAL SE ARGB Single Tower Air CPU Cooler",
+  "values": {
+   "cooler_height": 157
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK400-DIGITAL-SE-CPU-Cooler-With-A-Status-Display/2025/21645.shtml"
+ },
+ "oc-prod-13165": {
+  "name": "DeepCool AK400 DIGITAL SE ARGB Single Tower Air CPU Cooler",
+  "values": {
+   "cooler_height": 157
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK400-DIGITAL-SE-CPU-Cooler-With-A-Status-Display/2025/21645.shtml"
+ },
+ "oc-prod-13191": {
+  "name": "Antec VCX300 ARGB Mid Tower ATX Gaming Casing",
+  "values": {
+   "case_max_radiator": 240
+  },
+  "source": "https://microcenterindia.com/products/antec-vcx300-argb-black-panoramic-glass-atx-mid-tower-cabinet-with-5-argb-fans"
+ },
+ "oc-prod-13194": {
+  "name": "DeepCool AK500S DIGITAL SE CPU Cooler",
+  "values": {
+   "cooler_height": 160
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK500S-DIGITAL-SE-CPU-Cooler-With-A-Status-Display/2025/21631.shtml"
+ },
+ "oc-prod-13195": {
+  "name": "DeepCool AK620 DIGITAL SE WH ARGB Dual Tower Air CPU Cooler",
+  "values": {
+   "cooler_height": 161
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK620-DIGITAL-SE-WH-Performance-CPU-Cooler-With-A-Status-Display/2025/21604.shtml"
+ },
+ "oc-prod-13199": {
+  "name": "Antec AX67 ARGB Mid Tower ATX Gaming Casing",
+  "values": {
+   "case_max_radiator": 360
+  },
+  "source": "https://www.antec.com/product/case/ax67-argb"
+ },
+ "oc-prod-13204": {
+  "name": "DeepCool AK620 DIGITAL SE WH ARGB Dual Tower Air CPU Cooler",
+  "values": {
+   "cooler_height": 161
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK620-DIGITAL-SE-WH-Performance-CPU-Cooler-With-A-Status-Display/2025/21604.shtml"
+ },
+ "oc-prod-1325": {
+  "name": "Gigabyte AORUS GeForce RTX 2070 XTREME 8GB GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 290,
+   "gpu_recommended_psu": 550
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N2070AORUS-X-8GC/sp"
+ },
+ "oc-prod-1326": {
+  "name": "Gigabyte Aorus Geforce Rtx 2080 Super 8GB Graphics Card",
+  "values": {
+   "gpu_length": 290,
+   "gpu_recommended_psu": 650
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N208SAORUS-8GC/sp"
+ },
+ "oc-prod-1328": {
+  "name": "Gigabyte GeForce RTX 2070 Windforce 8GB GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 280,
+   "gpu_recommended_psu": 550
+  },
+  "source": "https://www.gigabyte.com/se/Graphics-Card/GV-N2070WF3-8GC-rev-10/sp"
+ },
+ "oc-prod-1329": {
+  "name": "Gigabyte Geforce Rtx 2080 Ti Windforce OC 11G Graphics Card",
+  "values": {
+   "gpu_length": 280,
+   "gpu_recommended_psu": 750
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N208TWF3OC-11GC/sp"
+ },
+ "oc-prod-13364": {
+  "name": "ASRock B850M Pro RS WiFi AM5 mATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/AMD/B850M%20Pro%20RS%20WiFi/index.asp"
+ },
+ "oc-prod-13392": {
+  "name": "Deepcool AK400 G2 Wood Grain Top Cover CPU Cooler",
+  "values": {
+   "socket_support": "lga_1851,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK400-G2-Wood-Grain-Top-Cover-CPU-Cooler/2025/21908.shtml"
+ },
+ "oc-prod-13393": {
+  "name": "Deepcool AK400 G2 Wood Grain Top Cover CPU Cooler",
+  "values": {
+   "socket_support": "lga_1851,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK400-G2-Wood-Grain-Top-Cover-CPU-Cooler/2025/21908.shtml"
+ },
+ "oc-prod-13437": {
+  "name": "Asus PRIME B760M-F WIFI mATX Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.asus.com/motherboards-components/motherboards/prime/prime-b760m-f-wifi/techspec/"
+ },
+ "oc-prod-13438": {
+  "name": "ASUS Pro Q570M-C/CSM LGA1200 mATX Motherboard",
+  "values": {
+   "m2_slots": 2,
+   "ram_slots": 4
+  },
+  "source": "https://www.asus.com/Motherboards-Components/Motherboards/Business/Pro-Q570M-C-CSM/techspec"
+ },
+ "oc-prod-13439": {
+  "name": "Asus Pro WS WRX90E-SAGE SE AMD sTR5 EEB Workstation Motherboard",
+  "values": {
+   "ram_slots": 8
+  },
+  "source": "https://www.shi.com/product/47534657/ASUS-PRO-WS-WRX90E-SAGE-SE"
+ },
+ "oc-prod-1364": {
+  "name": "Gigabyte AORUS GeForce RTX 3070 MASTER 8GB Graphics Card( bundle with full pc)",
+  "values": {
+   "gpu_length": 290
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N3070AORUS-M-8GD-rev-20/sp"
+ },
+ "oc-prod-13691": {
+  "name": "1STPLAYER IF8 RGB ATX Gaming Casing",
+  "values": {
+   "case_max_radiator": 420
+  },
+  "source": "https://1stplayer.com/product/if8/"
+ },
+ "oc-prod-13692": {
+  "name": "1STPLAYER IF8 RGB ATX Gaming Casing",
+  "values": {
+   "case_max_radiator": 420
+  },
+  "source": "https://1stplayer.com/product/if8/"
+ },
+ "oc-prod-13696": {
+  "name": "1STPLAYER BV5 ARGB M-ATX Gaming Casing",
+  "values": {
+   "case_max_gpu_length": 320,
+   "case_max_radiator": 240
+  },
+  "source": "https://1stplayer.com/productdetails/id/367.html"
+ },
+ "oc-prod-13697": {
+  "name": "1STPLAYER H2 M-ATX Gaming Case (White)",
+  "values": {
+   "case_max_gpu_length": 310,
+   "case_max_radiator": 240
+  },
+  "source": "https://1stplayer.com/product/pc-case-h2/"
+ },
+ "oc-prod-13782": {
+  "name": "DeepCool AK500 G2 Air CPU Cooler",
+  "values": {
+   "cooler_height": 159
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK500-G2-Wood-Grain-Top-Cover-CPU-Cooler/2025/21986.shtml"
+ },
+ "oc-prod-13787": {
+  "name": "DeepCool AK500 G2 DIGITAL NYX Air CPU Cooler",
+  "values": {
+   "cooler_height": 159
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK500-G2-DIGITAL-NYX-AI-Dynamic-Adjustment-CPU-Cooler-with-Digital-Display/2025/21985.shtml"
+ },
+ "oc-prod-13866": {
+  "name": "Asus B850M MAX GAMING WIFI AM5 mATX Motherboard",
+  "values": {
+   "ram_slots": 4,
+   "sata_ports": 4
+  },
+  "source": "https://www.paradigit.ie/asus-b850m-max-gaming-wifi/21815258/product"
+ },
+ "oc-prod-13888": {
+  "name": "DeepCool AK500 G2 Air CPU Cooler",
+  "values": {
+   "cooler_height": 159
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK500-G2-Wood-Grain-Top-Cover-CPU-Cooler/2025/21986.shtml"
+ },
+ "oc-prod-14053": {
+  "name": "DEEPCOOL AG400 G2 SINGLE TOWER 2ND GEN CPU COOLER",
+  "values": {
+   "cooler_height": 152
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG400-G2-Superior-Performance-4-Heatpipe-Single-Tower-CPU-Cooler/2025/22515.shtml"
+ },
+ "oc-prod-14054": {
+  "name": "DDEEPCOOL AG400 G2 PLUS CPU COOLER",
+  "values": {
+   "cooler_height": 152
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG400-G2-PLUS-Superior-Performance-4-Heatpipe-Single-Tower-CPU-Cooler/2026/22666.shtml"
+ },
+ "oc-prod-14055": {
+  "name": "DEEPCOOL AG620 G2 DUAL TOWER 2ND GEN 260W 120mm CPU COOLER",
+  "values": {
+   "cooler_height": 159
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG620-G2-Superior-Performance-6-Heatpipe-Dual-Tower-CPU-Cooler/2025/22513.shtml"
+ },
+ "oc-prod-14058": {
+  "name": "Deepcool AG600 Single Tower 260W 120mm CPU Cooler",
+  "values": {
+   "cooler_tdp_rating": 260,
+   "socket_support": "lga_1851,lga_1700,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG600-Superior-Performance-6-Heatpipe-Single-Tower-CPU-Cooler/2025/22609.shtml"
+ },
+ "oc-prod-14063": {
+  "name": "Asus H810M AYW GAMING WIFI LGA 1851 mATX Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.asus.com/motherboards-components/motherboards/others/h810m-ayw-gaming-wifi/"
+ },
+ "oc-prod-14089": {
+  "name": "ARCTIC Freezer 4U-SP5 - Server CPU Cooler",
+  "values": {
+   "cooler_height": 145,
+   "cooler_tdp_rating": 360
+  },
+  "source": "https://www.galaxus.nl/en/s1/product/arctic-freezer-4u-sp5-145-mm-cpu-coolers-52643686 (socket is SP5, not in allowed list)"
+ },
+ "oc-prod-14094": {
+  "name": "ARCTIC Xtender Premium E-ATX Mid Tower PC Case with Vertical GPU Mounting",
+  "values": {
+   "case_max_cooler_height": 171,
+   "case_max_gpu_length": 482,
+   "case_max_radiator": 420
+  },
+  "source": "https://arvutitark.ee/en/pc-components/cases/arctic-xtender-pc-gehause-midi-tower-e-atx-rgb-tempered-1490039"
+ },
+ "oc-prod-14095": {
+  "name": "Arctic Xtender VG Clear Glass Premium E-ATX Gaming Case with 420mm Cpu Cooler",
+  "values": {
+   "case_max_cooler_height": 171,
+   "case_max_gpu_length": 482,
+   "case_max_radiator": 420
+  },
+  "source": "https://arvutitark.ee/en/pc-components/cases/arctic-xtender-pc-gehause-midi-tower-e-atx-rgb-tempered-1490042"
+ },
+ "oc-prod-1417": {
+  "name": "Gigabyte Radeon RX 6800 XT Gaming OC 16GB GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 286,
+   "gpu_recommended_psu": 750
+  },
+  "source": "https://www.buildcores.com/products/GPU/useszlmf8/Gigabyte-Radeon-RX-6800-XT-GAMING-OC-16G"
+ },
+ "oc-prod-14203": {
+  "name": "Asus PRIME B860M-K-CSM LGA 1851 micro-ATX Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.asus.com/in/motherboards-components/motherboards/csm/prime-b860m-k-csm/techspec/"
+ },
+ "oc-prod-14208": {
+  "name": "Asus PRIME B860M-A WIFI-CSM LGA 1851 micro-ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.jbhifi.com.au/products/asus-prime-b860m-a-wifi-csm-matx-motherboard-prime-b860m-a-wifi-csm"
+ },
+ "oc-prod-14209": {
+  "name": "ASUS B760M MAX GAMING WIFI mATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asus.com/uk/motherboards-components/motherboards/others/b760m-max-gaming-wifi/techspec/"
+ },
+ "oc-prod-14233": {
+  "name": "Asus ROG CROSSHAIR X870E GLACIAL AMD AM5 ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://rog.asus.com/motherboards/rog-crosshair/rog-crosshair-x870e-glacial/spec/"
+ },
+ "oc-prod-14286": {
+  "name": "Deepcool AG400 G2 WH Processor Air Cooler",
+  "values": {
+   "socket_support": "lga_1851,lga_1700,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG400-G2-ARGB-Superior-Performance-4-Heatpipe-Single-Tower-CPU-Cooler/2026/22744.shtml"
+ },
+ "oc-prod-14287": {
+  "name": "Deepcool AG400 G2 ARGB 120mm Air Cooler",
+  "values": {
+   "socket_support": "lga_1851,lga_1700,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG400-G2-ARGB-Superior-Performance-4-Heatpipe-Single-Tower-CPU-Cooler/2026/22744.shtml"
+ },
+ "oc-prod-14309": {
+  "name": "1st Player MV5-TP Mid Tower Micro-ATX White Gaming Case",
+  "values": {
+   "case_max_radiator": 240
+  },
+  "source": "https://1stplayer.com/product/pc-case-mv5-tp/"
+ },
+ "oc-prod-14449": {
+  "name": "Asus ROG CROSSHAIR X870E DARK HERO AMD AM5 ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://rog.asus.com/ch-de/motherboards/rog-crosshair/rog-crosshair-x870e-dark-hero/spec/"
+ },
+ "oc-prod-14481": {
+  "name": "Antec P30 ARGB ATX Mid Tower Gaming Casing",
+  "values": {
+   "case_max_radiator": 360
+  },
+  "source": "https://antec.com/product/case/p30-argb"
+ },
+ "oc-prod-14482": {
+  "name": "Antec P30 AIR Mid-Tower ATX Gaming Case",
+  "values": {
+   "case_max_radiator": 360
+  },
+  "source": "https://www.watercoolinguk.co.uk/product/antec-p30-air-pc-case-mid-tower-atx-tempered-glass-black/"
+ },
+ "oc-prod-14486": {
+  "name": "Antec C5 Curve ARGB Mid Tower Black ATX Gaming Desktop Case",
+  "values": {
+   "case_max_gpu_length": 410,
+   "case_max_cooler_height": 160,
+   "case_max_radiator": 360
+  },
+  "source": "https://antec.com/product/case/c5-curve-argb"
+ },
+ "oc-prod-1468": {
+  "name": "460X",
+  "values": {
+   "case_max_gpu_length": 370,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.corsair.com/us/en/p/pc-cases/cc-9011129-ww/crystal-series-460x-rgb-compact-atx-mid-tower-case-white-cc-9011129-ww"
+ },
+ "oc-prod-1469": {
+  "name": "5000X W",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 420,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.dateks.lv/en/cenas/korpusi/673162-corsair-icue-5000x-rgb-tempered-glass-white"
+ },
+ "oc-prod-14697": {
+  "name": "1ST PLAYER FT12DSL-6 Dual Tower CPU Air Cooler With Display Black",
+  "values": {
+   "cooler_tdp_rating": 275
+  },
+  "source": "https://1stplayer.com/product/cpu-air-cooler-ft12/"
+ },
+ "oc-prod-14698": {
+  "name": "1stPlayer FT12DSL-6 White CPU Cooler Dual Tower 6 Heatpipes LCD Screen 275W",
+  "values": {
+   "cooler_tdp_rating": 275
+  },
+  "source": "https://1stplayer.com/product/cpu-air-cooler-ft12/"
+ },
+ "oc-prod-14699": {
+  "name": "1STPLAYER FB12DS-6 DUAL TOWER CPU AIR COOLER Black FB12DS-6-BK",
+  "values": {
+   "cooler_height": 162
+  },
+  "source": "https://1stplayer.com/productdetails/id/408.html"
+ },
+ "oc-prod-14700": {
+  "name": "1STPLAYER FB12DS-6 DUAL TOWER CPU AIR COOLER White",
+  "values": {
+   "cooler_height": 162
+  },
+  "source": "https://1stplayer.com/productdetails/id/408.html"
+ },
+ "oc-prod-14701": {
+  "name": "1stplayer FB12-5 Single Tower CPU Air Cooler Black",
+  "values": {
+   "cooler_height": 157,
+   "cooler_tdp_rating": 220
+  },
+  "source": "https://1stplayer.com/productdetails/id/408.html"
+ },
+ "oc-prod-14702": {
+  "name": "1stplayer FB12-5 Single Tower CPU Air Cooler Black",
+  "values": {
+   "cooler_height": 157,
+   "cooler_tdp_rating": 220
+  },
+  "source": "https://1stplayer.com/productdetails/id/408.html"
+ },
+ "oc-prod-14703": {
+  "name": "1stplayer FB12-4 Single Tower CPU AIR Cooler",
+  "values": {
+   "cooler_height": 157,
+   "cooler_tdp_rating": 210
+  },
+  "source": "https://1stplayer.com/productdetails/id/408.html"
+ },
+ "oc-prod-14704": {
+  "name": "1stplayer FB12-4 Single Tower CPU AIR Cooler",
+  "values": {
+   "cooler_height": 157,
+   "cooler_tdp_rating": 210
+  },
+  "source": "https://1stplayer.com/productdetails/id/408.html"
+ },
+ "oc-prod-1472": {
+  "name": "175R",
+  "values": {
+   "case_max_cooler_height": 160
+  },
+  "source": "https://assets.corsair.com/image/upload/corsairmedia/sys_master/productcontent/WW_CARBIDE_SERIES_175R_RGB_QSG_revAC.pdf"
+ },
+ "oc-prod-14765": {
+  "name": "PA401 Beige",
+  "values": {
+   "case_max_gpu_length": 315
+  },
+  "source": "https://www.dateks.lv/en/cenas/korpusi/1300204-asus-proart-pa401-wood-edition-beige"
+ },
+ "oc-prod-14766": {
+  "name": "PA401 Black",
+  "values": {
+   "case_max_gpu_length": 315
+  },
+  "source": "https://dateks.lv/en/cenas/korpusi/1195686-asus-proart-pa401-tempered-glass-wood-edition"
+ },
+ "oc-prod-14769": {
+  "name": "ASUS A31 PLUS Tempered Glass ARGB BTF Ready Mid Tower Casing Black",
+  "values": {
+   "case_max_gpu_length": 380
+  },
+  "source": "https://www.dateks.lv/en/cenas/korpusi/1204040-asus-a31-plus-tempered-glass-black"
+ },
+ "oc-prod-14770": {
+  "name": "ASUS A31 PLUS Tempered Glass ARGB BTF Ready Mid Tower Casing Black",
+  "values": {
+   "case_max_gpu_length": 380
+  },
+  "source": "https://www.dateks.lv/en/cenas/korpusi/1204040-asus-a31-plus-tempered-glass-black"
+ },
+ "oc-prod-14775": {
+  "name": "ASUS Prime AP202",
+  "values": {
+   "case_max_gpu_length": 420
+  },
+  "source": "https://www.asus.com/motherboards-components/cases/prime/asus-prime-ap202"
+ },
+ "oc-prod-14776": {
+  "name": "ASUS Prime AP202",
+  "values": {
+   "case_max_gpu_length": 420
+  },
+  "source": "https://www.asus.com/motherboards-components/cases/prime/asus-prime-ap202"
+ },
+ "oc-prod-14777": {
+  "name": "ASUS Prime AP303",
+  "values": {
+   "case_max_gpu_length": 360
+  },
+  "source": "https://www.pccasegear.com/products/72478/asus-prime-ap303-tempered-glass-case-black"
+ },
+ "oc-prod-1551": {
+  "name": "Gigabyte GeForce RTX 3060 GAMING OC 12G Graphics Card",
+  "values": {
+   "gpu_length": 282
+  },
+  "source": "https://www.gigabyte.com/es/Graphics-Card/GV-N3060GAMING-OC-12GD-rev-10/sp"
+ },
+ "oc-prod-1568": {
+  "name": "ASRock B560M-HDV 10th and 11th Gen Micro ATX Motherboard",
+  "values": {
+   "m2_slots": 2,
+   "ram_slots": 2,
+   "sata_ports": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/B560M-HDV/index.asp"
+ },
+ "oc-prod-1570": {
+  "name": "ASRock H470M-HDV 10th Gen Intel M-ATX Motherboard",
+  "values": {
+   "sata_ports": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/H470M-HDV/index.asp"
+ },
+ "oc-prod-1571": {
+  "name": "ASRock B560 Pro4 10th and 11th Gen ATX Motherboard",
+  "values": {
+   "m2_slots": 3,
+   "sata_ports": 6
+  },
+  "source": "https://www.asrock.com/mb/Intel/B560%20Pro4/index.asp"
+ },
+ "oc-prod-1572": {
+  "name": "ASRock Z590M Phantom Gaming 4 10th and 11th Gen ATX Motherboard",
+  "values": {
+   "m2_slots": 2,
+   "sata_ports": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/Z590M%20Phantom%20Gaming%204/index.asp"
+ },
+ "oc-prod-1581": {
+  "name": "ASRock Z590 Extreme Wi-Fi 6E 10th and 11th Gen ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/Z590%20Extreme/index.asp"
+ },
+ "oc-prod-1582": {
+  "name": "ASRock Z590 PG Velocita 10th and 11th Gen ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/Z590%20PG%20Velocita/index.asp"
+ },
+ "oc-prod-1583": {
+  "name": "ASRock Z590 Taichi Wi-Fi 10th and 11th Gen ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/Z590%20Taichi/index.asp"
+ },
+ "oc-prod-1584": {
+  "name": "ASRock B560M Steel Legend 10th and 11th Gen Micro ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/B560M%20Steel%20Legend/index.asp"
+ },
+ "oc-prod-1585": {
+  "name": "Gigabyte AORUS GeForce RTX 3060 ELITE 12G GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 296
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N3060AORUS-E-12GD-rev-20/sp"
+ },
+ "oc-prod-1688": {
+  "name": "Aigo DarkFlash DLM23 Tempered Glass m-ATX Gaming Casing",
+  "values": {
+   "case_max_gpu_length": 330,
+   "case_max_cooler_height": 160,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.darkflash.com/product/dlm23matx"
+ },
+ "oc-prod-1710": {
+  "name": "Corsair Hydro Series H55 RGB AIO Liquid CPU Cooler",
+  "values": {
+   "cooler_radiator_size": 120
+  },
+  "source": "https://www.corsair.com/eu/ro/explorer/diy-builder/cpu-coolers/corsair-h55-h100-and-h150-rgb-aio-coolers-everything-you-need-to-know/"
+ },
+ "oc-prod-1721": {
+  "name": "5000X B",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 420,
+   "case_max_radiator": 360,
+   "case_motherboard_support": "E-ATX,ATX,Micro-ATX,Mini-ITX",
+   "case_psu_support": "ATX"
+  },
+  "source": "https://memoryexpress.com/Products/MX00117701"
+ },
+ "oc-prod-1742": {
+  "name": "280X",
+  "values": {
+   "case_max_cooler_height": 150,
+   "case_max_gpu_length": 300,
+   "case_max_radiator": 280
+  },
+  "source": "https://www.microcenter.com/quickView/509617/"
+ },
+ "oc-prod-1753": {
+  "name": "Asrock H81M-VG4 R4.0 Motherboard",
+  "values": {
+   "max_ram": 16,
+   "ram_slots": 2,
+   "sata_ports": 2
+  },
+  "source": "https://www.asrock.com/mb/Intel/H81M-VG4%20R4.0/index.asp"
+ },
+ "oc-prod-1816": {
+  "name": "GT301",
+  "values": {
+   "case_max_cooler_height": 160,
+   "case_max_gpu_length": 320,
+   "case_max_radiator": 360
+  },
+  "source": "https://asus.com/motherboards-components/cases/tuf-gaming/tuf-gaming-gt301/techspec"
+ },
+ "oc-prod-1944": {
+  "name": "Antec DF700 FLUX Mid Tower ATX Gaming Case",
+  "values": {
+   "case_max_cooler_height": 175,
+   "case_max_gpu_length": 405
+  },
+  "source": "https://antec.com/product/case/df700-flux"
+ },
+ "oc-prod-2057": {
+  "name": "Asrock H110M-HDV R3.0 Super Alloy Micro ATX Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.asrock.com/mb/Intel/H110M-HDV%20R3.0/index.asp"
+ },
+ "oc-prod-2059": {
+  "name": "ASRock H310M-HDV 9th Gen Micro ATX Motherboard",
+  "values": {
+   "sata_ports": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/H310M-HDV/index.asp"
+ },
+ "oc-prod-2060": {
+  "name": "ASRock A320M-HDV R4.0 AMD Motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.asrock.com/mb/AMD/A320M-HDV%20R4.0/index.asp"
+ },
+ "oc-prod-2062": {
+  "name": "ASRock B550 Steel Legend DDR4 AMD AM4 ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/AMD/B550%20Steel%20Legend/index.asp"
+ },
+ "oc-prod-2063": {
+  "name": "Asrock X570 Taichi AMD Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/AMD/X570%20Taichi/index.asp"
+ },
+ "oc-prod-2083": {
+  "name": "Aigo DarkFlash LEO TG ATX Gaming Casing",
+  "values": {
+   "case_max_cooler_height": 165,
+   "case_max_radiator": 240
+  },
+  "source": "https://darkflash.com/product/leoatx"
+ },
+ "oc-prod-2181": {
+  "name": "Gigabyte GeForce RTX 3070 Gaming OC 8GB Graphics Card",
+  "values": {
+   "gpu_length": 286
+  },
+  "source": "https://www.gigabyte.com/se/Graphics-Card/GV-N3070GAMING-OC-8GD-rev-10/sp"
+ },
+ "oc-prod-2201": {
+  "name": "Gigabyte GeForce RTX 3080 EAGLE OC 10GB Graphics Card",
+  "values": {
+   "gpu_length": 320
+  },
+  "source": "https://gigabyte.com/no/Graphics-Card/GV-N3080EAGLE-OC-10GD-rev-20/sp"
+ },
+ "oc-prod-2213": {
+  "name": "Gigabyte Aorus GeForce RTX 3080 Ti Xtreme 12G GDDR6X Graphics Card",
+  "values": {
+   "gpu_length": 319
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N308TAORUS-X-12GD/sp"
+ },
+ "oc-prod-2407": {
+  "name": "Corsair Hydro Series H100 Extreme Performance Liquid CPU Cooler",
+  "values": {
+   "cooler_radiator_size": 240
+  },
+  "source": "https://www.vortez.net/articles_pages/corsair_h100_hydro_series_extreme_performance_liquid_cpu_cooler,2.html"
+ },
+ "oc-prod-2486": {
+  "name": "7000X",
+  "values": {
+   "case_max_cooler_height": 190,
+   "case_max_gpu_length": 450,
+   "case_max_radiator": 480
+  },
+  "source": "https://www.corsair.com/us/en/p/pc-cases/cc-9011226-ww/icue-7000x-rgb-tempered-glass-full-tower-atx-pc-case-black-cc-9011226-ww"
+ },
+ "oc-prod-2490": {
+  "name": "Aigo DarkFlash DLM21 Tempered Glass Micro ATX Gaming Casing",
+  "values": {
+   "case_max_gpu_length": 330,
+   "case_max_cooler_height": 160,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.darkflash.com/product/dlm21mesh"
+ },
+ "oc-prod-2534": {
+  "name": "Gigabyte GeForce RTX 3080 EAGLE 10G Graphics Card",
+  "values": {
+   "gpu_length": 320
+  },
+  "source": "https://www.gigabyte.com/se/Graphics-Card/GV-N3080EAGLE-10GD-rev-10/sp"
+ },
+ "oc-prod-2580": {
+  "name": "Gigabyte Radeon RX 6700 XT 12G Graphics Card",
+  "values": {
+   "gpu_length": 267
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-R67XT-12GD-B/sp"
+ },
+ "oc-prod-2623": {
+  "name": "275R",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 370,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.corsair.com/us/en/p/pc-cases/cc-9011132-ww/carbide-series-275r-tempered-glass-mid-tower-gaming-case-black-cc-9011132-ww"
+ },
+ "oc-prod-2624": {
+  "name": "275R",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 370,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.corsair.com/us/en/p/pc-cases/cc-9011132-ww/carbide-series-275r-tempered-glass-mid-tower-gaming-case-black-cc-9011132-ww"
+ },
+ "oc-prod-3101": {
+  "name": "AORUS Radeon RX 6700 XT Elite 12G Graphics Card",
+  "values": {
+   "gpu_length": 296
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-R67XTAORUS-E-12GD/sp"
+ },
+ "oc-prod-3237": {
+  "name": "ASRock Z690 PG Riptide 12th Gen ATX Motherborad",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/Z690%20PG%20Riptide/index.asp"
+ },
+ "oc-prod-3238": {
+  "name": "ASRock Z690 Extreme 12th Gen ATX Motherborad",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/Z690%20Extreme/index.asp"
+ },
+ "oc-prod-3240": {
+  "name": "ASRock Z690 PG Velocita 12th Gen ATX Motherborad",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/Z690%20PG%20Velocita/index.asp"
+ },
+ "oc-prod-3241": {
+  "name": "ASRock Z690 Extreme WiFi 6E 12th Gen ATX Motherborad",
+  "values": {
+   "m2_slots": 3,
+   "ram_slots": 4,
+   "sata_ports": 8
+  },
+  "source": "https://www.asrock.com/mb/Intel/Z690%20Extreme%20WiFi%206E/index.asp"
+ },
+ "oc-prod-3256": {
+  "name": "678C",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 370,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.digitec.ch/en/s1/product/corsair-carbide-678c-atx-e-atx-matx-mini-itx-pc-case-10703155"
+ },
+ "oc-prod-3269": {
+  "name": "Gigabyte GeForce RTX 3090 GAMING OC 24GB GDDR6X Graphics Card",
+  "values": {
+   "gpu_length": 320
+  },
+  "source": "https://www.gigabyte.com/de/Graphics-Card/GV-N3090GAMING-OC-24GD/sp"
+ },
+ "oc-prod-3380": {
+  "name": "Cooler Master i50 Air CPU Cooler",
+  "values": {
+   "cooler_height": 60
+  },
+  "source": "https://www.coolermaster.com/en-global/products/i50.html"
+ },
+ "oc-prod-3417": {
+  "name": "GIGABYTE GeForce RTX 3070 Ti Vision OC 8G Graphics Card",
+  "values": {
+   "gpu_length": 320
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N307TVISION-OC-8GD/sp"
+ },
+ "oc-prod-3472": {
+  "name": "Gigabyte Geforce RTX 3050 Gaming OC 8GB GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 282
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N3050GAMING-OC-8GD/sp"
+ },
+ "oc-prod-3488": {
+  "name": "ASRock Z690 Phantom Gaming 4 12th Gen ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/Z690%20Phantom%20Gaming%204/index.asp"
+ },
+ "oc-prod-3490": {
+  "name": "ASRock X299 Taichi USB 3.1 ATX Intel Motherboard",
+  "values": {
+   "m2_slots": 3,
+   "sata_ports": 10
+  },
+  "source": "https://www.asrock.com/mb/Intel/X299%20Taichi/index.asp"
+ },
+ "oc-prod-3815": {
+  "name": "ASRock Z690 Steel Legend 12th Gen Intel Motherboard",
+  "values": {
+   "m2_slots": 3,
+   "sata_ports": 8
+  },
+  "source": "https://www.asrock.com/mb/Intel/Z690%20Steel%20Legend/index.asp"
+ },
+ "oc-prod-3846": {
+  "name": "DEEPCOOL AK400 CPU COOLER",
+  "values": {
+   "cooler_height": 155,
+   "cooler_tdp_rating": 220,
+   "socket_support": "lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK400-Performance-CPU-Cooler-1700-AM5/2021/15222.shtml"
+ },
+ "oc-prod-3923": {
+  "name": "1STPLAYER MT240 MOTHRA ARGB LIQUID COOLER (WHITEï¼‰",
+  "values": {
+   "cooler_radiator_size": 240,
+   "cooler_tdp_rating": 200
+  },
+  "source": "https://1stplayer.com/productdetails/id/174.html (MT240 200W per search summary)"
+ },
+ "oc-prod-3940": {
+  "name": "DEEPCOOL AK400 CPU COOLER",
+  "values": {
+   "cooler_height": 155,
+   "cooler_tdp_rating": 220,
+   "socket_support": "lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK400-Performance-CPU-Cooler-1700-AM5/2021/15222.shtml"
+ },
+ "oc-prod-4164": {
+  "name": "GIGABYTE Radeon RX 6500 XT GAMING OC 4GB GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 282
+  },
+  "source": "https://www.newegg.ca/p/27N-0022-000R4"
+ },
+ "oc-prod-4189": {
+  "name": "GIGABYTE GeForce RTX 3050 EAGLE OC 8G Graphics Card",
+  "values": {
+   "gpu_length": 213
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N3050EAGLE-OC-8GD/sp"
+ },
+ "oc-prod-4193": {
+  "name": "GIGABYTE AORUS GeForce RTX 3080 Master 12G Graphics Card",
+  "values": {
+   "gpu_length": 319
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N3080AORUS-M-12GD/sp"
+ },
+ "oc-prod-4194": {
+  "name": "GIGABYTE GeForce RTX 3080 GAMING OC 12G Graphics Card",
+  "values": {
+   "gpu_length": 320
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N3080GAMING-OC-12GD/sp"
+ },
+ "oc-prod-4195": {
+  "name": "GIGABYTE Radeon RX 6500 XT Eagle 4G Graphics Card",
+  "values": {
+   "gpu_length": 192
+  },
+  "source": "https://www.gigabyte.com/se/Graphics-Card/GV-R65XTEAGLE-4GD/sp"
+ },
+ "oc-prod-4196": {
+  "name": "GIGABYTE Radeon RX 6600 Eagle 8G Graphics Card",
+  "values": {
+   "gpu_length": 282
+  },
+  "source": "https://www.gigabyte.com/hn/Graphics-Card/GV-R66EAGLE-8GD/sp"
+ },
+ "oc-prod-4197": {
+  "name": "Gigabyte Radeon RX 6700 XT EAGLE 12G Graphics Card",
+  "values": {
+   "gpu_length": 282
+  },
+  "source": "https://www.gigabyte.com/de/Graphics-Card/GV-R67XTEAGLE-12GD/sp"
+ },
+ "oc-prod-4198": {
+  "name": "Gigabyte AORUS Radeon RX 6900 XT MASTER 16GB GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 322
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-R69XTAORUS-M-16GD-rev-20/sp"
+ },
+ "oc-prod-4268": {
+  "name": "Gigabyte Radeon RX 6650 XT EAGLE 8GB Graphics Card",
+  "values": {
+   "gpu_length": 282
+  },
+  "source": "https://www.jib.co.th/web/product/readProduct/53075/2187/"
+ },
+ "oc-prod-4269": {
+  "name": "Gigabyte GeForce RTX 3090 Ti Gaming OC 24G Graphics Card",
+  "values": {
+   "gpu_length": 331
+  },
+  "source": "https://www.gigabyte.com/de/Graphics-Card/GV-N309TGAMING-OC-24GD/sp"
+ },
+ "oc-prod-4346": {
+  "name": "Aigo DarkFlash DLM23 Tempered Glass Micro-ATX Case (White)",
+  "values": {
+   "case_max_gpu_length": 330,
+   "case_max_cooler_height": 160,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.darkflash.com/product/dlm23matx"
+ },
+ "oc-prod-4347": {
+  "name": "Aigo darkFlash DK151 ATX PC Case",
+  "values": {
+   "case_max_gpu_length": 290,
+   "case_max_cooler_height": 160,
+   "case_max_radiator": 120
+  },
+  "source": "https://darkflash.com/product/dk151atx"
+ },
+ "oc-prod-4470": {
+  "name": "Aigo DarkFlash C305 ATX Tempered Glass Gaming Case",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_cooler_height": 200,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.scom.hu/Szamitogephaz-Darkflash-C305-ATX-Feher"
+ },
+ "oc-prod-4471": {
+  "name": "Aigo DarkFlash C305 ATX Tempered Glass Gaming Case",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_cooler_height": 200,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.scom.hu/Szamitogephaz-Darkflash-C305-ATX-Feher"
+ },
+ "oc-prod-4475": {
+  "name": "Aigo DarkFlash J3 ATX Case With N380 Power Supply (Black)",
+  "values": {
+   "case_max_gpu_length": 330,
+   "case_max_cooler_height": 160
+  },
+  "source": "https://www.startech.com.bd/aigo-darkflash-j3-atx-case"
+ },
+ "oc-prod-4518": {
+  "name": "ASRock B660M Phantom Gaming 4 12th Gen Micro ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/B660M%20Phantom%20Gaming%204/index.asp"
+ },
+ "oc-prod-4597": {
+  "name": "Gigabyte Radeon RX 6400 EAGLE 4G Graphics Card",
+  "values": {
+   "gpu_length": 192
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-R64EAGLE-4GD/sp"
+ },
+ "oc-prod-4653": {
+  "name": "ASUS Dual GeForce RTX 3050 OC Edition 8GB GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 200
+  },
+  "source": "https://asus.com/Motherboards-Components/Graphics-Cards/Dual/DUAL-RTX3050-O8G/techspec"
+ },
+ "oc-prod-4763": {
+  "name": "ASRock B660M Pro RS 12th Gen Micro ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/B660M%20Pro%20RS/index.asp"
+ },
+ "oc-prod-4764": {
+  "name": "ASRock B660 Steel Legend 12th Gen ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/B660%20Steel%20Legend/index.asp"
+ },
+ "oc-prod-4765": {
+  "name": "ASRock X570S PG Riptide AMD AM4 ATX Motherboard",
+  "values": {
+   "ram_slots": 4
+  },
+  "source": "https://www.asrock.com/mb/AMD/X570S%20PG%20Riptide/index.asp"
+ },
+ "oc-prod-4835": {
+  "name": "Deepcool AG400 LED CPU Air Cooler",
+  "values": {
+   "cooler_height": 150,
+   "cooler_tdp_rating": 220,
+   "socket_support": "lga_1851,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/GAMMAXX-AG400-LED-Single-Tower-CPU-Cooler-1851-1700-AM5/2024/15899.shtml"
+ },
+ "oc-prod-4836": {
+  "name": "Deepcool AG620 Dual-tower 120mm CPU Air Cooler",
+  "values": {
+   "cooler_height": 157,
+   "cooler_tdp_rating": 260,
+   "socket_support": "lga_1851,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/GAMMAXX-AG620-Dual-Tower-CPU-Cooler-1851-1700-AM5/2024/15900.shtml"
+ },
+ "oc-prod-4862": {
+  "name": "5000T W",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 400,
+   "case_max_radiator": 360
+  },
+  "source": "https://memoryexpress.com/Products/MX00121874"
+ },
+ "oc-prod-4863": {
+  "name": "5000T",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 400,
+   "case_max_radiator": 360
+  },
+  "source": "https://memoryexpress.com/Products/MX00121556"
+ },
+ "oc-prod-5326": {
+  "name": "DeepCool AG400 PLUS CPU Cooler",
+  "values": {
+   "cooler_height": 150,
+   "cooler_tdp_rating": 220
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG400-PLUS-Dual-Fan-CPU-Cooler-1851-1700-AM5/2022/16123.shtml"
+ },
+ "oc-prod-5409": {
+  "name": "Gigabyte AORUS GeForce RTX 4090 MASTER 24GB GDDR6X Graphics Card",
+  "values": {
+   "gpu_length": 358
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N4090AORUS-M-24GD/sp"
+ },
+ "oc-prod-5443": {
+  "name": "4000D TG",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 360,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.buildcores.com/products/PCCase/9bmjwovwg/Corsair-4000D-Tempered-Glass-Mid-Tower-ATX-Case---Black"
+ },
+ "oc-prod-5444": {
+  "name": "4000D TG",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 360,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.buildcores.com/products/PCCase/9bmjwovwg/Corsair-4000D-Tempered-Glass-Mid-Tower-ATX-Case---Black"
+ },
+ "oc-prod-5595": {
+  "name": "DeepCool AG400 ARGB CPU Cooler",
+  "values": {
+   "cooler_height": 150,
+   "cooler_tdp_rating": 220
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG400-ARGB-120mm-CPU-Cooler-1851-1700-AM5/2022/16084.shtml"
+ },
+ "oc-prod-5728": {
+  "name": "Deepcool AG400 CPU COOLER",
+  "values": {
+   "cooler_height": 150,
+   "cooler_tdp_rating": 220,
+   "socket_support": "lga_1851,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/GAMMAXX-AG400-Single-Tower-CPU-Cooler-1851-1700-AM5/2024/15898.shtml"
+ },
+ "oc-prod-5792": {
+  "name": "Gigabyte GeForce RTX 3060 GAMING OC 8G GDDR6 8 GB Graphics Card",
+  "values": {
+   "gpu_length": 198
+  },
+  "source": "https://www.pbtech.com/product/VGAGBV331617/about"
+ },
+ "oc-prod-5803": {
+  "name": "Gigabyte GeForce RTX 3060 WINDFORCE OC 12GB GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 198
+  },
+  "source": "https://arvutitark.ee/en/pc-components/graphics-cards-vga/gigabyte-nvidia-geforce-rtx-3060-12-gb-1145220"
+ },
+ "oc-prod-5913": {
+  "name": "DEEPCOOL AG400 WH ARGB 120MM CPU COOLER",
+  "values": {
+   "cooler_height": 150,
+   "cooler_tdp_rating": 220
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG400-ARGB-120mm-CPU-Cooler-1851-1700-AM5/2022/16084.shtml"
+ },
+ "oc-prod-6065": {
+  "name": "Gigabyte GeForce RTX 3060 Eagle 12G GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 242
+  },
+  "source": "https://www.gigabyte.com/se/Graphics-Card/GV-N3060EAGLE-12GD-rev-20/sp"
+ },
+ "oc-prod-6116": {
+  "name": "Antec AX90 Mid-Tower ATX Gaming Case",
+  "values": {
+   "case_max_gpu_length": 385,
+   "case_max_cooler_height": 160
+  },
+  "source": "https://antec.com/product/case/ax90"
+ },
+ "oc-prod-6241": {
+  "name": "ACER B700 Mid Tower ARGB Gaming Case",
+  "values": {
+   "case_max_gpu_length": 310,
+   "case_max_cooler_height": 150,
+   "case_max_radiator": 280
+  },
+  "source": "https://www.techlandbd.com/acer-b700-mesh-rgb-gaming-case"
+ },
+ "oc-prod-6245": {
+  "name": "GIGABYTE GeForce RTX 4070 Ti AERO OC 12G Graphics Card",
+  "values": {
+   "gpu_length": 336
+  },
+  "source": "https://www.gigabyte.com/de/Graphics-Card/GV-N407TAERO-OC-12GD/sp"
+ },
+ "oc-prod-6246": {
+  "name": "GIGABYTE GeForce RTX 4070 Ti EAGLE OC 12G Graphics Card",
+  "values": {
+   "gpu_length": 301
+  },
+  "source": "https://www.gigabyte.com/ec/Graphics-Card/GV-N407TEAGLE-OC-12GD-rev-10/sp"
+ },
+ "oc-prod-6408": {
+  "name": "Gigabyte Radeon RX 6900 XT GAMING OC 16G 16GB GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 286
+  },
+  "source": "https://pangoly.com/en/product/gigabyte-radeon-rx-6900-xt-gaming-oc-16g"
+ },
+ "oc-prod-6576": {
+  "name": "1STPLAYER MT240 INFINITE SPACE ARGB LIQUID COOLER (BLACK)",
+  "values": {
+   "cooler_radiator_size": 240,
+   "cooler_tdp_rating": 200
+  },
+  "source": "https://1stplayer.com/productdetails/id/174.html"
+ },
+ "oc-prod-6840": {
+  "name": "Gigabyte GeForce RTX 4070 Eagle OC 12G Graphics Card",
+  "values": {
+   "gpu_length": 261
+  },
+  "source": "https://www.gigabyte.com/se/Graphics-Card/GV-N4070EAGLE-OC-12GD/sp"
+ },
+ "oc-prod-6841": {
+  "name": "Gigabyte GeForce RTX 4070 Gaming OC 12G Graphics Card",
+  "values": {
+   "gpu_length": 300
+  },
+  "source": "https://www.gigabyte.com/de/Graphics-Card/GV-N4070GAMING-OC-12GD/sp"
+ },
+ "oc-prod-6842": {
+  "name": "Gigabyte GeForce RTX 4070 AERO OC 12G Graphics Card",
+  "values": {
+   "gpu_length": 300
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N4070AERO-OC-12GD/sp"
+ },
+ "oc-prod-6966": {
+  "name": "2000D",
+  "values": {
+   "case_max_gpu_length": 365,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.corsair.com/ca/cf/explorer/diy-builder/cases/corsair-2000d-rgb-airflow-case/"
+ },
+ "oc-prod-6970": {
+  "name": "2000D RGB AIRFLOW Mini-ITX PC Case - White",
+  "values": {
+   "case_max_gpu_length": 365,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.corsair.com/us/en/p/pc-cases/cc-9011246-ww/2000d-rgb-airflow-mini-itx-pc-case-white-cc-9011246-ww"
+ },
+ "oc-prod-7181": {
+  "name": "Corsair iCUE H100x RGB Elite Liquid CPU Cooler",
+  "values": {
+   "socket_support": "am5,am4,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155"
+  },
+  "source": "https://www.corsair.com/us/en/p/cw-9060065-ww2 (Corsair lists LGA 115X)"
+ },
+ "oc-prod-7355": {
+  "name": "Deepcool AK500 120mm CPU Air Cooler (Black)",
+  "values": {
+   "cooler_height": 158,
+   "cooler_tdp_rating": 240,
+   "socket_support": "lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK500-High-Performance-CPU-Cooler/2022/16040.shtml"
+ },
+ "oc-prod-7373": {
+  "name": "GIGABYTE AORUS GeForce RTX 4060 Ti ELITE 8G GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 301
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N406TAORUS-E-8GD/sp"
+ },
+ "oc-prod-7374": {
+  "name": "Gigabyte GeForce RTX 4060 Ti AERO OC 8G GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 281
+  },
+  "source": "https://www.gigabyte.com/se/Graphics-Card/GV-N406TAERO-OC-8GD/sp"
+ },
+ "oc-prod-7375": {
+  "name": "GIGABYTE GeForce RTXÂ­Â­ 4060 Ti GAMING OC 8G Graphics Card",
+  "values": {
+   "gpu_length": 281
+  },
+  "source": "https://www.gigabyte.com/de/Graphics-Card/GV-N406TGAMING-OC-8GD/sp"
+ },
+ "oc-prod-7376": {
+  "name": "GIGABYTE GeForce RTX 4060 Ti EAGLE OC 8G GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 272
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N406TEAGLE-OC-8GD/sp"
+ },
+ "oc-prod-7377": {
+  "name": "GIGABYTE GeForce RTX 4060 Ti EAGLE 8G Graphics Card",
+  "values": {
+   "gpu_length": 272
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N406TEAGLE-8GD/sp"
+ },
+ "oc-prod-7399": {
+  "name": "DEEPCOOL AK620 DIGITAL CPU Air Cooler",
+  "values": {
+   "cooler_height": 162,
+   "socket_support": "lga_1851,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK620-Digital-Performance-CPU-Cooler-With-Status-Display-1851-1700-AM5/2024/17202.shtml"
+ },
+ "oc-prod-745": {
+  "name": "Gigabyte GeForce RTX 3080 GAMING OC 10GB Graphics Card",
+  "values": {
+   "gpu_length": 320
+  },
+  "source": "https://www.gigabyte.com/nl/Graphics-Card/GV-N3080GAMING-OC-10GD-rev-10/sp"
+ },
+ "oc-prod-7458": {
+  "name": "DeepCool AK400 ZERO DARK CPU Air Cooler",
+  "values": {
+   "cooler_height": 155,
+   "cooler_tdp_rating": 220,
+   "socket_support": "lga_1851,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK400-ZERO-DARK-Performance-CPU-Cooler-1851-1700-AM5/2022/16140.shtml"
+ },
+ "oc-prod-746": {
+  "name": "Gigabyte GeForce RTX 3080 Vision OC 10GB GDDR6X Graphics Card",
+  "values": {
+   "gpu_length": 320
+  },
+  "source": "https://www.pccasegear.com/products/51766"
+ },
+ "oc-prod-7518": {
+  "name": "Gigabyte Radeon RX 7900 XTX Gaming OC 24G GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 331
+  },
+  "source": "https://www.gigabyte.com/de/Graphics-Card/GV-R79XTXGAMING-OC-24GD/sp"
+ },
+ "oc-prod-7519": {
+  "name": "Gigabyte Radeon RX 6650 XT GAMING OC 8G GDDR6 Graphics Card",
+  "values": {
+   "gpu_length": 282
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-R665XTGAMING-OC-8GD/sp"
+ },
+ "oc-prod-7522": {
+  "name": "Gigabyte AORUS GeForce RTX 4070 Master 12G GDDR6X Graphics Card",
+  "values": {
+   "gpu_length": 342
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N4070AORUS-M-12GD/sp"
+ },
+ "oc-prod-760": {
+  "name": "MB400L",
+  "values": {
+   "case_max_cooler_height": 166,
+   "case_max_gpu_length": 344,
+   "case_max_radiator": 280
+  },
+  "source": "https://www.memoryexpress.com/Products/MX00120610"
+ },
+ "oc-prod-761": {
+  "name": "4000X",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 360,
+   "case_max_radiator": 360
+  },
+  "source": "https://memoryexpress.com/Products/MX00115534"
+ },
+ "oc-prod-7624": {
+  "name": "Asus Prime B450-PLUS AMD AM4 ATX Motherboard",
+  "values": {
+   "m2_slots": 1,
+   "sata_ports": 6
+  },
+  "source": "https://www.asus.com/motherboards-components/motherboards/prime/prime-b450-plus/techspec"
+ },
+ "oc-prod-7653": {
+  "name": "DeepCool AK500 DIGITAL CPU Air Cooler",
+  "values": {
+   "cooler_height": 160,
+   "socket_support": "lga_1851,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK500-DIGITAL-CPU-Cooler-With-Status-Display-1851-1700-AM5/2023/17236.shtml"
+ },
+ "oc-prod-7654": {
+  "name": "DeepCool AK400 DIGITAL CPU Air Cooler",
+  "values": {
+   "cooler_height": 156,
+   "socket_support": "lga_1851,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK400-Digital-CPU-Cooler-With-A-Status-Display-1851-1700-AM5/2024/17203.shtml"
+ },
+ "oc-prod-7677": {
+  "name": "Aigo darkFlash DK151 ATX PC Case",
+  "values": {
+   "case_max_gpu_length": 290,
+   "case_max_cooler_height": 160,
+   "case_max_radiator": 120
+  },
+  "source": "https://darkflash.com/product/dk151atx"
+ },
+ "oc-prod-7715": {
+  "name": "Acer Predator BiFrost Intel Arc A750 OC 8GB Graphics Card",
+  "values": {
+   "gpu_length": 267
+  },
+  "source": "https://www.buildcores.com/products/GPU/m2l1asiss/Acer-Predator-BiFrost-OC-Arc-A750-8-GB"
+ },
+ "oc-prod-779": {
+  "name": "GIGABYTE GeForce RTX 3070 Vision OC 8G Graphics Card",
+  "values": {
+   "gpu_length": 286
+  },
+  "source": "https://gigabyte.com/kz/Graphics-Card/GV-N3070VISION-OC-8GD-rev-10/sp"
+ },
+ "oc-prod-791": {
+  "name": "Gigabyte GeForce RTX 3070 Eagle 8G Graphics Card",
+  "values": {
+   "gpu_length": 282
+  },
+  "source": "https://www.gigabyte.com/se/Graphics-Card/GV-N3070EAGLE-8GD-rev-10/sp"
+ },
+ "oc-prod-793": {
+  "name": "Aigo DarkFlash DLX21 MESH LUXURY ATX Gaming PC Case With Graphics Card Stand",
+  "values": {
+   "case_max_gpu_length": 400,
+   "case_max_cooler_height": 180,
+   "case_max_radiator": 360
+  },
+  "source": "https://www.darkflash.com/product/dlx21mesh"
+ },
+ "oc-prod-7945": {
+  "name": "ASRock Z790 Pro RS/D4 13th Gen & 12th Gen ATX Motherboard",
+  "values": {
+   "m2_slots": 4,
+   "ram_slots": 4,
+   "sata_ports": 8
+  },
+  "source": "https://www.pccasegear.com/products/59855/asrock-z790-pro-rs-ddr4-motherboard"
+ },
+ "oc-prod-8006": {
+  "name": "ASRock B760 Pro RS 14th, 13th and 12th Gen ATX Motherboard",
+  "values": {
+   "m2_slots": 3,
+   "sata_ports": 4
+  },
+  "source": "https://www.asrock.com/mb/Intel/B760%20Pro%20RS/index.asp"
+ },
+ "oc-prod-839": {
+  "name": "ASRock B550M-HDV DDR4 AMD Motherboard",
+  "values": {
+   "m2_slots": 1,
+   "max_ram": 64,
+   "ram_slots": 2,
+   "sata_ports": 4
+  },
+  "source": "https://www.asrock.com/mb/AMD/B550M-HDV/index.asp"
+ },
+ "oc-prod-8455": {
+  "name": "1ST PLAYER Mi8 ATX WHITE CASING",
+  "values": {
+   "case_max_gpu_length": 425,
+   "case_max_cooler_height": 180,
+   "case_max_radiator": 360
+  },
+  "source": "https://1stplayer.com/product/pc-case-mi8/"
+ },
+ "oc-prod-8470": {
+  "name": "1ST PLAYER TS2 ARGB 240 BLACK LIQUID CPU COOLER",
+  "values": {
+   "socket_support": "am5,am4,lga_1851,lga_1700,lga_1151,lga_1150,lga_1155"
+  },
+  "source": "https://1stplayer.com/product/cpu-liquid-cooler-ts2/"
+ },
+ "oc-prod-8607": {
+  "name": "ASUS EX- B650M V7 micro-ATX motherboard",
+  "values": {
+   "ram_slots": 2
+  },
+  "source": "https://www.asus.com/motherboards-components/motherboards/expedition/ex-b650m-v7/techspec/"
+ },
+ "oc-prod-8746": {
+  "name": "DEEPCOOL AK620 DIGITAL CPU Air Cooler",
+  "values": {
+   "cooler_height": 162,
+   "socket_support": "lga_1851,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK620-Digital-Performance-CPU-Cooler-With-Status-Display-1851-1700-AM5/2024/17202.shtml"
+ },
+ "oc-prod-8747": {
+  "name": "Deepcool AK500 Zero Dark CPU Air Cooler",
+  "values": {
+   "cooler_height": 158,
+   "cooler_tdp_rating": 240,
+   "socket_support": "lga_1851,lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK500-ZERO-DARK-High-Performance-CPU-Cooler-1851-1700-AM5/2022/16396.shtml"
+ },
+ "oc-prod-891": {
+  "name": "Gigabyte Radeon RX 5600 XT GAMING OC 6G Graphics Card",
+  "values": {
+   "gpu_length": 280,
+   "gpu_recommended_psu": 450
+  },
+  "source": "https://www.gigabyte.com/us/Graphics-Card/GV-R56XTGAMING-OC-6GD/sp"
+ },
+ "oc-prod-9039": {
+  "name": "Deepcool AK400 DIGITAL WH CPU Cooler",
+  "values": {
+   "cooler_height": 156
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AK400-Digital-WH-CPU-Cooler-With-A-Status-Display-1851-1700-AM5/2024/17273.shtml"
+ },
+ "oc-prod-9077": {
+  "name": "DEEPCOOL AG620 BK ARGB DUAL TOWER CPU COOLER",
+  "values": {
+   "cooler_height": 157,
+   "cooler_tdp_rating": 260
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG620-BK-ARGB-Dual-Tower-CPU-Cooler-1851-1700-AM5/2022/16082.shtml"
+ },
+ "oc-prod-946": {
+  "name": "4000D Airflow",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 360,
+   "case_max_radiator": 360,
+   "case_motherboard_support": "E-ATX,ATX,Micro-ATX,Mini-ITX"
+  },
+  "source": "https://www.pbtech.com/product/CHACOR04000/reg"
+ },
+ "oc-prod-948": {
+  "name": "4000D Airflow",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 360,
+   "case_max_radiator": 360,
+   "case_motherboard_support": "E-ATX,ATX,Micro-ATX,Mini-ITX"
+  },
+  "source": "https://www.pbtech.com/product/CHACOR04000/reg"
+ },
+ "oc-prod-954": {
+  "name": "Aigo DarkFlash DLM21 Tempered Glass Micro ATX Gaming Casing",
+  "values": {
+   "case_max_gpu_length": 330,
+   "case_max_cooler_height": 160,
+   "case_max_radiator": 240
+  },
+  "source": "https://www.darkflash.com/product/dlm21mesh"
+ },
+ "oc-prod-9634": {
+  "name": "GIGABYTE GeForce RTX 4070 SUPER AERO OC 12G GDDR6X Graphics Card",
+  "values": {
+   "gpu_length": 300
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N407SAERO-OC-12GD/sp"
+ },
+ "oc-prod-9635": {
+  "name": "GIGABYTE RTX 4070 SUPER  Windforce OC 12G Graphics Card",
+  "values": {
+   "gpu_length": 261
+  },
+  "source": "https://dvecloud.com.au/products/vcg-n407swf3oc-12gd"
+ },
+ "oc-prod-9668": {
+  "name": "GIGABYTE GeForce RTX 4070 SUPER GAMING OC 12GB GDDR6X Graphics Card",
+  "values": {
+   "gpu_length": 300
+  },
+  "source": "https://www.gigabyte.com/de/Graphics-Card/GV-N407SGAMING-OC-12GD/sp"
+ },
+ "oc-prod-9669": {
+  "name": "GIGABYTE GeForce RTX 4070 SUPER EAGLE OC 12GB GDDR6X Graphics Card",
+  "values": {
+   "gpu_length": 261
+  },
+  "source": "https://www.gigabyte.com/de/Graphics-Card/GV-N407SEAGLE-OC-12GD/sp"
+ },
+ "oc-prod-9671": {
+  "name": "GIGABYTE AORUS GeForce RTX 4080 SUPER MASTER 16G GDDR6X Graphics Card",
+  "values": {
+   "gpu_length": 357
+  },
+  "source": "https://www.gigabyte.com/Graphics-Card/GV-N408SAORUS-M-16GD/sp"
+ },
+ "oc-prod-974": {
+  "name": "4000X",
+  "values": {
+   "case_max_cooler_height": 170,
+   "case_max_gpu_length": 360,
+   "case_max_radiator": 360
+  },
+  "source": "https://memoryexpress.com/Products/MX00115534"
+ },
+ "oc-prod-9785": {
+  "name": "PA602",
+  "values": {
+   "case_max_gpu_length": 440,
+   "case_max_radiator": 420
+  },
+  "source": "https://www.asus.com/motherboards-components/cases/proart/proart-pa602/techspec"
+ },
+ "oc-prod-9803": {
+  "name": "Asus PRIME H610M-CS DDR4 12th Gen Micro-ATX Intel Motherboard",
+  "values": {
+   "m2_slots": 1,
+   "sata_ports": 4
+  },
+  "source": "https://www.terabyteshop.com.br/produto/35506/placa-mae-asus-prime-h610m-cs-d4-chipset-h610-intel-lga-1700-matx-ddr4-90mb1b60-c1bay0"
+ },
+ "oc-prod-9905": {
+  "name": "1STPLAYER CC 240 ARGB Liquid CPU Cooler",
+  "values": {
+   "cooler_tdp_rating": 200
+  },
+  "source": "https://1stplayer.com/product/cpu-liquid-cooler-cc-240-cc-360/"
+ },
+ "oc-prod-9906": {
+  "name": "1STPLAYER CC 240 ARGB Liquid CPU Cooler",
+  "values": {
+   "cooler_tdp_rating": 200
+  },
+  "source": "https://1stplayer.com/product/cpu-liquid-cooler-cc-240-cc-360/"
+ },
+ "oc-prod-9950": {
+  "name": "Deepcool AG620 DIGITAL Hydro Bearing CPU Cooler",
+  "values": {
+   "cooler_height": 161,
+   "socket_support": "lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG620-DIGITAL-Temperature-Display-Cooler-1700-AM5/2023/17667.shtml"
+ },
+ "oc-prod-9951": {
+  "name": "Deepcool AG620 DIGITAL Hydro Bearing CPU Cooler",
+  "values": {
+   "cooler_height": 161,
+   "socket_support": "lga_1700,lga_1200,lga_1151,lga_1150,lga_1155,am5,am4"
+  },
+  "source": "https://www.deepcool.com/products/Cooling/cpuaircoolers/AG620-DIGITAL-Temperature-Display-Cooler-1700-AM5/2023/17667.shtml"
+ }
+}

@@ -1,0 +1,1256 @@
+@import "tailwindcss";
+@import "../design-system/css/tokens.css";
+/* AG Grid CSS loads from components/providers/ag-grid-provider (grid pages only) */
+
+/* Dark Tailwind utilities only inside admin panel — storefront ignores html.dark */
+@custom-variant dark (&:where(.admin-site.dark, .admin-site.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-popover: var(--popover);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--color-success);
+  --color-warning: var(--color-warning);
+  --color-danger: var(--color-danger);
+  --color-info: var(--color-info);
+  --color-surface: var(--color-surface);
+  --font-sans: var(--font-geist-sans);
+}
+
+html {
+  font-size: 14px;
+}
+
+*,
+*::before,
+*::after {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+html.storefront-site body,
+body.storefront-site {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Module top navbar (Dashboard, Catalog, Sales, …) — compact global height */
+[data-component="again_main_navbar"] {
+  height: 34px !important;
+  min-height: 34px !important;
+}
+
+/* Soft page body entrance (keeps shell stable during navigation) */
+@keyframes route-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Facebook-style shimmer for data loading skeletons */
+@keyframes fb-shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+
+.fb-shimmer {
+  background-color: color-mix(in srgb, var(--muted) 85%, var(--background));
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--muted-foreground) 8%, transparent) 40%,
+    color-mix(in srgb, var(--background) 55%, transparent) 50%,
+    color-mix(in srgb, var(--muted-foreground) 8%, transparent) 60%,
+    transparent 100%
+  );
+  background-size: 800px 100%;
+  background-repeat: no-repeat;
+  animation: fb-shimmer 1.35s ease-in-out infinite;
+}
+
+.dark .fb-shimmer {
+  background-color: color-mix(in srgb, var(--muted) 70%, #000);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--foreground) 6%, transparent) 40%,
+    color-mix(in srgb, var(--background) 40%, transparent) 50%,
+    color-mix(in srgb, var(--foreground) 6%, transparent) 60%,
+    transparent 100%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[route-fade-in_160ms_ease-out\] {
+    animation: none !important;
+  }
+  .fb-shimmer {
+    animation: none !important;
+  }
+}
+
+/* Shared control border — matches catalog/products live search */
+.control-border {
+  border: 1px solid var(--input);
+}
+
+/* Again form underline fields — box-shadow avoids global * { border-color } override */
+[data-again-underline-field] {
+  box-shadow: inset 0 -1px 0 0 color-mix(in srgb, var(--border) 70%, transparent);
+  transition: box-shadow 150ms ease;
+}
+
+[data-again-underline-field]:focus-within:not([data-readonly="true"]),
+[data-again-underline-field][data-active="true"] {
+  box-shadow: inset 0 -1px 0 0 #00a09d;
+}
+
+.ag-theme-quartz {
+  --ag-font-family: inherit;
+  --ag-font-size: 12px;
+  --ag-grid-size: 4px;
+  --ag-row-height: 34px;
+  --ag-header-height: 34px;
+  --ag-list-item-height: 28px;
+  --ag-active-color: var(--primary);
+  --ag-border-color: var(--input);
+  --ag-secondary-border-color: var(--input);
+  --ag-background-color: var(--card);
+  --ag-foreground-color: var(--foreground);
+  --ag-header-background-color: var(--muted);
+  --ag-row-border-color: var(--input);
+  --ag-header-column-separator-color: var(--input);
+  --ag-input-border-color: var(--input);
+  --ag-checkbox-background-color: var(--card);
+  --ag-checkbox-unchecked-color: var(--muted-foreground);
+  --ag-row-hover-color: color-mix(in srgb, var(--primary) 8%, transparent);
+  --ag-selected-row-background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+  --ag-menu-background-color: var(--card);
+  --ag-panel-background-color: var(--card);
+  --ag-popup-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --ag-range-selection-border-color: color-mix(in srgb, var(--primary) 32%, var(--input));
+  --ag-input-focus-border-color: color-mix(in srgb, var(--primary) 32%, var(--input));
+  --ag-input-focus-box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 12%, transparent);
+  --ag-range-selection-background-color: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+/* Dark mode — match app tokens; works with ag-theme-quartz-dark class */
+.dark .ag-theme-quartz,
+.dark .ag-theme-quartz.ag-theme-quartz-dark,
+.ag-theme-quartz.ag-theme-quartz-dark {
+  color-scheme: dark;
+  --ag-active-color: var(--primary);
+  --ag-background-color: var(--card);
+  --ag-foreground-color: var(--foreground);
+  --ag-border-color: var(--input);
+  --ag-secondary-border-color: var(--input);
+  --ag-header-background-color: var(--muted);
+  --ag-tooltip-background-color: var(--muted);
+  --ag-control-panel-background-color: var(--muted);
+  --ag-row-border-color: var(--input);
+  --ag-header-column-separator-color: var(--input);
+  --ag-input-border-color: var(--input);
+  --ag-input-background-color: var(--background);
+  --ag-input-disabled-background-color: color-mix(in srgb, var(--card), var(--foreground) 6%);
+  --ag-input-disabled-border-color: var(--input);
+  --ag-checkbox-background-color: var(--card);
+  --ag-checkbox-unchecked-color: var(--muted-foreground);
+  --ag-checkbox-border-color: var(--input);
+  --ag-odd-row-background-color: color-mix(in srgb, var(--card), #000 8%);
+  --ag-row-hover-color: color-mix(in srgb, var(--primary) 14%, transparent);
+  --ag-selected-row-background-color: color-mix(in srgb, var(--primary) 18%, transparent);
+  --ag-menu-background-color: var(--card);
+  --ag-menu-border-color: var(--input);
+  --ag-panel-background-color: var(--card);
+  --ag-panel-border-color: var(--input);
+  --ag-modal-overlay-background-color: rgba(0, 0, 0, 0.55);
+  --ag-card-shadow: 0 1px 12px rgba(0, 0, 0, 0.45);
+  --ag-popup-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  --ag-icon-font-color: var(--muted-foreground);
+  --ag-disabled-foreground-color: color-mix(in srgb, var(--foreground) 45%, transparent);
+  --ag-range-selection-border-color: color-mix(in srgb, var(--primary) 38%, var(--input));
+  --ag-input-focus-border-color: color-mix(in srgb, var(--primary) 38%, var(--input));
+  --ag-input-focus-box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 14%, transparent);
+  --ag-range-selection-background-color: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.dark .ag-theme-quartz .ag-paging-panel,
+.dark .ag-theme-quartz-dark .ag-paging-panel {
+  border-top-color: var(--input);
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+.dark .ag-theme-quartz .ag-picker-field-wrapper,
+.dark .ag-theme-quartz-dark .ag-picker-field-wrapper,
+.dark .ag-theme-quartz .ag-select,
+.dark .ag-theme-quartz-dark .ag-select {
+  background-color: var(--background);
+  border-color: var(--input);
+  color: var(--foreground);
+}
+
+.dark .ag-theme-quartz .ag-header-cell-text,
+.dark .ag-theme-quartz-dark .ag-header-cell-text {
+  color: var(--foreground);
+}
+
+.dark .ag-theme-quartz .ag-cell,
+.dark .ag-theme-quartz-dark .ag-cell {
+  color: var(--foreground);
+}
+
+/* Force dark surfaces — overrides AG Grid v35 default light programmatic theme */
+.dark .ag-theme-quartz .ag-root-wrapper,
+.dark .ag-theme-quartz.ag-theme-quartz-dark .ag-root-wrapper,
+.dark .ag-theme-quartz .ag-body-viewport,
+.dark .ag-theme-quartz.ag-theme-quartz-dark .ag-body-viewport,
+.dark .ag-theme-quartz .ag-center-cols-viewport,
+.dark .ag-theme-quartz.ag-theme-quartz-dark .ag-center-cols-viewport,
+.dark .ag-theme-quartz .ag-header,
+.dark .ag-theme-quartz.ag-theme-quartz-dark .ag-header,
+.dark .ag-theme-quartz .ag-row,
+.dark .ag-theme-quartz.ag-theme-quartz-dark .ag-row {
+  background-color: var(--card);
+}
+
+.dark .ag-theme-quartz .ag-header,
+.dark .ag-theme-quartz.ag-theme-quartz-dark .ag-header {
+  background-color: var(--muted);
+}
+
+.dark .ag-theme-quartz .ag-row-odd,
+.dark .ag-theme-quartz.ag-theme-quartz-dark .ag-row-odd {
+  background-color: color-mix(in srgb, var(--card), #000 8%);
+}
+
+/* Column resize handle — easier to grab */
+.ag-theme-quartz .ag-header-cell-resize,
+.ag-theme-quartz-dark .ag-header-cell-resize {
+  width: 6px;
+  cursor: col-resize;
+}
+
+/* Duplicate / reserved slug — live grid alert */
+.ag-theme-quartz .ag-cell.slug-cell-invalid,
+.ag-theme-quartz-dark .ag-cell.slug-cell-invalid {
+  box-shadow: inset 0 0 0 1.5px hsl(var(--destructive));
+  background-color: hsl(var(--destructive) / 0.08);
+}
+
+.ag-theme-quartz .ag-header-cell-resize::after,
+.ag-theme-quartz-dark .ag-header-cell-resize::after {
+  opacity: 0.35;
+}
+
+.ag-theme-quartz .ag-header-cell:hover .ag-header-cell-resize::after,
+.ag-theme-quartz-dark .ag-header-cell:hover .ag-header-cell-resize::after {
+  opacity: 0.7;
+}
+
+.ag-theme-quartz .ag-header-cell,
+.ag-theme-quartz-dark .ag-header-cell {
+  cursor: grab;
+}
+
+.ag-theme-quartz .ag-header-cell:active,
+.ag-theme-quartz-dark .ag-header-cell:active {
+  cursor: grabbing;
+}
+
+.ag-theme-quartz .ag-header-cell.product-grid-select-col,
+.ag-theme-quartz-dark .ag-header-cell.product-grid-select-col,
+.ag-theme-quartz .ag-cell.product-grid-select-col,
+.ag-theme-quartz-dark .ag-cell.product-grid-select-col {
+  padding-left: 3px;
+  padding-right: 0;
+  justify-content: center;
+}
+
+.ag-theme-quartz .ag-header-cell.product-grid-select-col .ag-header-cell-comp-wrapper,
+.ag-theme-quartz-dark .ag-header-cell.product-grid-select-col .ag-header-cell-comp-wrapper {
+  justify-content: center;
+}
+
+.ag-theme-quartz .ag-header-cell.product-grid-icon-col,
+.ag-theme-quartz-dark .ag-header-cell.product-grid-icon-col,
+.ag-theme-quartz .ag-cell.product-grid-icon-col,
+.ag-theme-quartz-dark .ag-cell.product-grid-icon-col {
+  padding-left: 0;
+  padding-right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ag-theme-quartz .ag-cell.product-grid-category-col,
+.ag-theme-quartz-dark .ag-cell.product-grid-category-col {
+  display: flex;
+  align-items: center;
+}
+
+.ag-theme-quartz .ag-cell.product-grid-category-col .ag-cell-wrapper,
+.ag-theme-quartz-dark .ag-cell.product-grid-category-col .ag-cell-wrapper,
+.ag-theme-quartz .ag-cell.product-grid-category-col .ag-cell-value,
+.ag-theme-quartz-dark .ag-cell.product-grid-category-col .ag-cell-value {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+}
+
+.ag-theme-quartz .ag-cell.product-grid-stock-col,
+.ag-theme-quartz-dark .ag-cell.product-grid-stock-col {
+  display: flex;
+  align-items: center;
+}
+
+.ag-theme-quartz .ag-cell.product-grid-stock-col .ag-cell-wrapper,
+.ag-theme-quartz-dark .ag-cell.product-grid-stock-col .ag-cell-wrapper,
+.ag-theme-quartz .ag-cell.product-grid-stock-col .ag-cell-value,
+.ag-theme-quartz-dark .ag-cell.product-grid-stock-col .ag-cell-value {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Options (actions) column — first pinned col */
+.ag-theme-quartz .ag-header-cell.product-grid-actions-col,
+.ag-theme-quartz-dark .ag-header-cell.product-grid-actions-col,
+.ag-theme-quartz .ag-cell.product-grid-actions-col,
+.ag-theme-quartz-dark .ag-cell.product-grid-actions-col {
+  padding-left: 8px !important;
+  padding-right: 2px !important;
+}
+
+.ag-theme-quartz .ag-cell.product-grid-actions-col .ag-cell-wrapper,
+.ag-theme-quartz-dark .ag-cell.product-grid-actions-col .ag-cell-wrapper,
+.ag-theme-quartz .ag-cell.product-grid-actions-col .ag-cell-value,
+.ag-theme-quartz-dark .ag-cell.product-grid-actions-col .ag-cell-value {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin: 0;
+  padding: 0;
+}
+
+/* Selection + favorite — even spacing after options */
+.ag-theme-quartz .ag-header-cell.product-grid-controls-col,
+.ag-theme-quartz-dark .ag-header-cell.product-grid-controls-col,
+.ag-theme-quartz .ag-cell.product-grid-controls-col,
+.ag-theme-quartz-dark .ag-cell.product-grid-controls-col {
+  padding-left: 4px !important;
+  padding-right: 4px !important;
+}
+
+.ag-theme-quartz .ag-cell.product-grid-controls-col .ag-cell-wrapper,
+.ag-theme-quartz-dark .ag-cell.product-grid-controls-col .ag-cell-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+.ag-theme-quartz .ag-cell.product-grid-controls-col .ag-selection-checkbox,
+.ag-theme-quartz-dark .ag-cell.product-grid-controls-col .ag-selection-checkbox {
+  margin: 0 !important;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 100%;
+}
+
+.ag-theme-quartz .ag-cell.product-grid-controls-col .ag-selection-checkbox .ag-checkbox-input-wrapper,
+.ag-theme-quartz-dark .ag-cell.product-grid-controls-col .ag-selection-checkbox .ag-checkbox-input-wrapper {
+  margin: 0;
+}
+
+.ag-theme-quartz .ag-cell.product-grid-controls-col .ag-cell-value,
+.ag-theme-quartz-dark .ag-cell.product-grid-controls-col .ag-cell-value {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+.ag-theme-quartz .ag-header-cell.product-grid-controls-col .ag-header-select-all,
+.ag-theme-quartz-dark .ag-header-cell.product-grid-controls-col .ag-header-select-all {
+  margin: 0 !important;
+  padding-left: 0 !important;
+}
+
+.ag-theme-quartz .ag-header-cell.product-grid-controls-col .ag-header-cell-comp-wrapper,
+.ag-theme-quartz-dark .ag-header-cell.product-grid-controls-col .ag-header-cell-comp-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 0;
+}
+
+/* Category row drag */
+.ag-theme-quartz .ag-row,
+.ag-theme-quartz-dark .ag-row {
+  cursor: grab;
+}
+
+.ag-theme-quartz .ag-row-dragging,
+.ag-theme-quartz-dark .ag-row-dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+}
+
+.ag-theme-quartz .ag-row-drag,
+.ag-theme-quartz-dark .ag-row-drag {
+  cursor: grab;
+}
+
+/* Again / Odoo flat list view — no radius, no column borders, tight cells */
+.ag-theme-quartz.ag-theme-again-list,
+.ag-theme-quartz-dark.ag-theme-again-list {
+  --ag-border-radius: 0;
+  --ag-wrapper-border-radius: 0;
+  --ag-borders: none;
+  --ag-grid-size: 3px;
+  --ag-font-size: 11px;
+  --ag-header-height: 28px;
+  --ag-row-height: 28px;
+  --ag-cell-horizontal-padding: 8px;
+  --ag-header-column-separator-display: none;
+  --ag-header-column-separator-color: transparent;
+  --ag-row-border-color: var(--input);
+  --ag-background-color: var(--background);
+  --ag-header-background-color: var(--background);
+  --ag-odd-row-background-color: var(--background);
+  --ag-row-hover-color: color-mix(in srgb, var(--foreground) 6%, var(--background));
+  --ag-selected-row-background-color: color-mix(in srgb, var(--primary) 14%, var(--background));
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-root-wrapper,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-root-wrapper {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-body-viewport,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-body-viewport,
+.ag-theme-quartz.ag-theme-again-list .ag-center-cols-viewport,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-center-cols-viewport {
+  border: none !important;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-paging-panel,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-paging-panel {
+  border-left: none !important;
+  border-right: none !important;
+  border-bottom: none !important;
+  border-radius: 0 !important;
+  height: 27px !important;
+  min-height: 27px !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  line-height: 27px !important;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-paging-panel .ag-paging-page-summary-panel,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-paging-panel .ag-paging-page-summary-panel,
+.ag-theme-quartz.ag-theme-again-list .ag-paging-panel .ag-paging-page-size,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-paging-panel .ag-paging-page-size,
+.ag-theme-quartz.ag-theme-again-list .ag-paging-panel .ag-paging-row-summary-panel,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-paging-panel .ag-paging-row-summary-panel {
+  font-size: 11px !important;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-paging-panel .ag-icon,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-paging-panel .ag-icon {
+  font-size: 13px !important;
+  width: 15px !important;
+  height: 15px !important;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-paging-panel .ag-picker-field-wrapper,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-paging-panel .ag-picker-field-wrapper {
+  min-height: 20px !important;
+  height: 20px !important;
+  font-size: 11px !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-paging-panel .ag-picker-field-wrapper:focus-within,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-paging-panel .ag-picker-field-wrapper:focus-within {
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-paging-panel .ag-select,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-paging-panel .ag-select {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Product grid — fill viewport; column widths come from sizeColumnsToFit (no fake min-width gutter) */
+.product-grid-fill.ag-theme-quartz .ag-root-wrapper,
+.product-grid-fill.ag-theme-quartz .ag-root-wrapper-body,
+.product-grid-fill.ag-theme-quartz .ag-body,
+.product-grid-fill.ag-theme-quartz .ag-body-viewport,
+.product-grid-fill.ag-theme-quartz .ag-center-cols-viewport,
+.product-grid-fill.ag-theme-quartz .ag-header-viewport {
+  width: 100% !important;
+  max-width: 100% !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+/* Keep the 27px paging bar inside the grid instead of clipping it */
+.product-grid-fill.ag-theme-quartz .ag-root-wrapper,
+.product-grid-fill.ag-theme-quartz-dark .ag-root-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+.product-grid-fill.ag-theme-quartz .ag-root-wrapper-body,
+.product-grid-fill.ag-theme-quartz-dark .ag-root-wrapper-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+.product-grid-fill.ag-theme-quartz .ag-paging-panel,
+.product-grid-fill.ag-theme-quartz-dark .ag-paging-panel {
+  flex-shrink: 0 !important;
+}
+
+.product-grid-fill.ag-theme-quartz .ag-paging-panel,
+.product-grid-fill.ag-theme-quartz-dark .ag-paging-panel {
+  border-bottom: none !important;
+  margin-bottom: 0 !important;
+}
+
+/* Filter bars — compact + square (products, sales, customers, media, …) */
+.product-grid-filters {
+  gap: 0.375rem;
+  padding-top: 0.1875rem !important;
+  padding-bottom: 0.1875rem !important;
+  min-height: 0;
+}
+
+.product-grid-filters input,
+.product-grid-filters select,
+.product-grid-filters button {
+  border-radius: 0 !important;
+  height: 23px !important;
+  min-height: 23px !important;
+  font-size: 10px !important;
+  line-height: 1.2 !important;
+}
+
+.product-grid-filters input,
+.product-grid-filters select {
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
+}
+
+.product-grid-filters button {
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
+}
+
+.product-grid-filters svg {
+  width: 0.75rem !important;
+  height: 0.75rem !important;
+}
+
+/* Table stays edge-flush; only cell content gets left inset */
+.product-grid-fill.ag-theme-quartz .ag-pinned-left-header .ag-header-cell.ag-column-first,
+.product-grid-fill.ag-theme-quartz .ag-pinned-left-cols-container .ag-cell.ag-column-first,
+.product-grid-fill.ag-theme-quartz .ag-header-viewport .ag-header-cell.ag-column-first,
+.product-grid-fill.ag-theme-quartz .ag-center-cols-container .ag-cell.ag-column-first {
+  padding-left: 10px !important;
+}
+
+.product-grid-fill.ag-theme-quartz .ag-paging-panel {
+  padding-left: 10px !important;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header {
+  border-bottom: 1px solid var(--input);
+  background-color: var(--background);
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell,
+.ag-theme-quartz.ag-theme-again-list .ag-cell,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-cell {
+  border-right: none !important;
+  border-left: none !important;
+  font-size: var(--ag-font-size, 11px);
+}
+
+/* Badges inside list cells — compact so rows stay even */
+.ag-theme-quartz.ag-theme-again-list .ag-cell [class*="inline-flex items-center rounded-none border"],
+.ag-theme-quartz-dark.ag-theme-again-list .ag-cell [class*="inline-flex items-center rounded-none border"] {
+  padding: 0 5px !important;
+  font-size: calc(10px * var(--ag-list-zoom, 1)) !important;
+  font-weight: 500 !important;
+  line-height: calc(16px * var(--ag-list-zoom, 1)) !important;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-pinned-left-header,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-pinned-left-header,
+.ag-theme-quartz.ag-theme-again-list .ag-pinned-left-cols-container,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-pinned-left-cols-container,
+.ag-theme-quartz.ag-theme-again-list .ag-pinned-right-header,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-pinned-right-header,
+.ag-theme-quartz.ag-theme-again-list .ag-pinned-right-cols-container,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-pinned-right-cols-container {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell-resize::after,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell-resize::after {
+  display: block !important;
+  content: "";
+  position: absolute;
+  top: 18%;
+  bottom: 18%;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background-color: var(--foreground);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell-resize,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell-resize {
+  width: 8px;
+  cursor: col-resize;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell:hover .ag-header-cell-resize::after,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell:hover .ag-header-cell-resize::after,
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell-resize:hover::after,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell-resize:hover::after {
+  opacity: 0.55;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell {
+  cursor: default;
+  font-weight: 600;
+  font-size: 10px;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell-text,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell-text {
+  font-size: calc(10px * var(--ag-list-zoom, 1));
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Numeric headers: full-width label, text on the same right edge as cell values.
+   Sort icon sits to the left of the label so it does not push the heading inward. */
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell .ag-header-cell-comp-wrapper,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell .ag-header-cell-comp-wrapper,
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell .ag-cell-label-container,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell .ag-cell-label-container,
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell .ag-header-cell-label,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell .ag-header-cell-label {
+  width: 100%;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell.ag-right-aligned-header .ag-header-cell-comp-wrapper,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell.ag-right-aligned-header .ag-header-cell-comp-wrapper,
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell.ag-right-aligned-header .ag-cell-label-container,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell.ag-right-aligned-header .ag-cell-label-container {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell.ag-right-aligned-header .ag-header-cell-label,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell.ag-right-aligned-header .ag-header-cell-label {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell.ag-right-aligned-header .ag-header-cell-text,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell.ag-right-aligned-header .ag-header-cell-text {
+  text-align: right;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-cell.ag-right-aligned-cell,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-cell.ag-right-aligned-cell {
+  text-align: right;
+  justify-content: flex-end;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-row,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-row {
+  cursor: default;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell.ag-column-first,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell.ag-column-first,
+.ag-theme-quartz.ag-theme-again-list .ag-cell.ag-column-first,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-cell.ag-column-first {
+  padding-left: 12px;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell.again-list-checkbox-col,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell.again-list-checkbox-col,
+.ag-theme-quartz.ag-theme-again-list .ag-cell.again-list-checkbox-col,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-cell.again-list-checkbox-col,
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell.again-list-icon-col,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell.again-list-icon-col,
+.ag-theme-quartz.ag-theme-again-list .ag-cell.again-list-icon-col,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-cell.again-list-icon-col {
+  padding-left: 12px;
+  padding-right: 8px;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell.again-list-icon-col .ag-header-cell-comp-wrapper,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell.again-list-icon-col .ag-header-cell-comp-wrapper {
+  justify-content: center;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-selection-checkbox,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-selection-checkbox {
+  margin-right: 0;
+}
+
+/* Checkboxes — smaller and square */
+.ag-theme-quartz .ag-checkbox-input-wrapper,
+.ag-theme-quartz-dark .ag-checkbox-input-wrapper {
+  width: 12px;
+  height: 12px;
+  font-size: 12px;
+  line-height: 12px;
+  border-radius: 0 !important;
+}
+
+.ag-theme-quartz .ag-checkbox-input-wrapper::after,
+.ag-theme-quartz-dark .ag-checkbox-input-wrapper::after {
+  border-radius: 0 !important;
+}
+
+.ag-theme-quartz .ag-checkbox-input-wrapper input,
+.ag-theme-quartz-dark .ag-checkbox-input-wrapper input {
+  width: 12px;
+  height: 12px;
+}
+
+/* Dual-handle price range slider */
+.dual-range-thumb {
+  pointer-events: none;
+  height: 1.25rem;
+}
+
+.dual-range-thumb::-webkit-slider-thumb {
+  pointer-events: auto;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 14px;
+  width: 14px;
+  border-radius: 9999px;
+  border: 2px solid var(--primary);
+  background: var(--background);
+  cursor: grab;
+  margin-top: -5px;
+}
+
+.dual-range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  height: 14px;
+  width: 14px;
+  border-radius: 9999px;
+  border: 2px solid var(--primary);
+  background: var(--background);
+  cursor: grab;
+}
+
+.dual-range-thumb::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 4px;
+}
+
+.dual-range-thumb::-moz-range-track {
+  background: transparent;
+  height: 4px;
+}
+
+/* Compact page typography */
+.page-title {
+  @apply text-base font-semibold tracking-tight;
+}
+
+.page-subtitle {
+  @apply text-[11px] text-muted-foreground;
+}
+
+/* Native selects — readable option list in admin dark mode */
+html.admin-site.dark select option,
+html.admin-site[data-theme="dark"] select option {
+  background-color: var(--popover);
+  color: var(--foreground);
+}
+
+/* Business Settings — launcher & category workspace */
+.settings-hero {
+  isolation: isolate;
+}
+
+.settings-category-card:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.settings-save-bar {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+/* Order print — overlay preview in admin, or standalone /sales/print page */
+@media print {
+  .print-hide {
+    display: none !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #sales-print-area,
+  #sales-print-area *,
+  .sales-print-doc,
+  .sales-print-doc *,
+  #ledger-print-area,
+  #ledger-print-area *,
+  .ledger-print-doc,
+  .ledger-print-doc *,
+  #invoice-print-area,
+  #invoice-print-area *,
+  .invoice-print-doc,
+  .invoice-print-doc *,
+  #purchase-print-area,
+  #purchase-print-area *,
+  .purchase-print-doc,
+  .purchase-print-doc *,
+  #payment-print-area,
+  #payment-print-area *,
+  .payment-print-doc,
+  .payment-print-doc *,
+  #balance-sheet-print-area,
+  #balance-sheet-print-area *,
+  .balance-sheet-doc,
+  .balance-sheet-doc * {
+    visibility: visible;
+  }
+
+  #sales-print-area,
+  .sales-print-doc,
+  #ledger-print-area,
+  .ledger-print-doc,
+  #invoice-print-area,
+  .invoice-print-doc,
+  #purchase-print-area,
+  .purchase-print-doc,
+  #payment-print-area,
+  .payment-print-doc,
+  #balance-sheet-print-area,
+  .balance-sheet-doc {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  .print-app-root {
+    background: white !important;
+  }
+
+  .sales-print-doc,
+  .ledger-print-doc,
+  .invoice-print-doc,
+  .purchase-print-doc,
+  .payment-print-doc,
+  .balance-sheet-doc {
+    box-shadow: none !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+
+  @page {
+    margin: 10mm;
+    size: A4;
+  }
+}
+
+@media screen {
+  .print-app-root {
+    background: #ececec;
+  }
+}
+
+/* Storefront — AgainERP customer shop theme (light only, white page) */
+html.storefront-site,
+html.storefront-site.dark,
+html.storefront-site[data-theme="dark"] {
+  color-scheme: light !important;
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --color-background: #ffffff;
+  --color-surface: #ffffff;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-border: #e2e8f0;
+}
+
+body.storefront-site {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.storefront {
+  --background: #ffffff;
+  --color-background: #ffffff;
+  --radius: 0.375rem;
+  --sf-max: 90rem;
+  --primary: #eb6626;
+  --primary-foreground: #ffffff;
+  --ring: color-mix(in srgb, #eb6626 35%, var(--border));
+  background-color: #ffffff;
+  font-size: inherit;
+  line-height: inherit;
+  color-scheme: light;
+}
+
+.storefront h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+
+@media (min-width: 640px) {
+  .storefront h1 {
+    font-size: 1.5rem;
+  }
+}
+
+.storefront h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.storefront .sf-container {
+  width: 100%;
+  max-width: var(--sf-max);
+  margin-inline: auto;
+}
+
+.storefront .scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.storefront .scrollbar-thin::-webkit-scrollbar {
+  height: 4px;
+}
+
+.storefront .scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+/* Catalog price range — dual-thumb slider */
+.storefront .catalog-price-range-thumb {
+  height: 1.5rem;
+  margin: 0;
+  pointer-events: none;
+}
+
+.storefront .catalog-price-range-min {
+  z-index: 20;
+}
+
+.storefront .catalog-price-range-max {
+  z-index: 10;
+}
+
+.storefront .catalog-price-range-thumb::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  position: relative;
+  height: 1.125rem;
+  width: 1.125rem;
+  margin-top: -0.375rem;
+  border-radius: 9999px;
+  border: 2px solid hsl(var(--primary));
+  background: hsl(var(--background));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+  cursor: grab;
+}
+
+.storefront .catalog-price-range-thumb:active::-webkit-slider-thumb {
+  cursor: grabbing;
+  transform: scale(1.08);
+}
+
+.storefront .catalog-price-range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  height: 1.125rem;
+  width: 1.125rem;
+  border-radius: 9999px;
+  border: 2px solid hsl(var(--primary));
+  background: hsl(var(--background));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.15);
+  cursor: grab;
+}
+
+.storefront .catalog-price-range-thumb::-webkit-slider-runnable-track {
+  height: 0.375rem;
+  background: transparent;
+}
+
+.storefront .catalog-price-range-thumb::-moz-range-track {
+  height: 0.375rem;
+  background: transparent;
+}
+
+/* ── Animated rainbow border for PC Builder active slot ── */
+@keyframes rainbow-spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.rainbow-border-wrap {
+  position: relative;
+  padding: 2px;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.rainbow-border-wrap::before {
+  content: '';
+  position: absolute;
+  inset: -100%;
+  background: conic-gradient(
+    #ff0000, #ff6600, #ffff00, #00ff00,
+    #00ffff, #0000ff, #8b00ff, #ff0000
+  );
+  animation: rainbow-spin 3s linear infinite;
+}
+
+.rainbow-border-inner {
+  position: relative;
+  z-index: 1;
+  border-radius: 0.375rem;
+  background-color: var(--card) !important;
+}
+
+/* ── Floating AI avatar — internal motion only (FAB position stays fixed) ── */
+@keyframes ai-bot-blink {
+  0%, 42%, 48%, 100% { transform: scaleY(1); }
+  45% { transform: scaleY(0.08); }
+}
+
+@keyframes ai-bot-brow {
+  0%, 100% { transform: translateY(0); }
+  35% { transform: translateY(-1.2px); }
+  70% { transform: translateY(0.4px); }
+}
+
+@keyframes ai-bot-eye-dart {
+  0%, 55%, 100% { transform: translateX(0); }
+  62% { transform: translateX(1.2px); }
+  70% { transform: translateX(-1px); }
+  78% { transform: translateX(0); }
+}
+
+@keyframes ai-bot-mouth {
+  0%, 100% { transform: scaleX(1); }
+  40% { transform: scaleX(0.85); }
+  60% { transform: scaleX(1.08); }
+}
+
+@keyframes ai-bot-glow {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.85; }
+}
+
+@keyframes ai-bot-think {
+  0%, 100% { opacity: 0.4; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-1px); }
+}
+
+/* Every ~10s: frustrated grow (waiting for a command) — transform only, no layout shift */
+@keyframes ai-bot-frustrated {
+  0%, 88%, 100% { transform: scale(1); }
+  90% { transform: scale(1.22); }
+  93% { transform: scale(1.08); }
+  96% { transform: scale(1.28); }
+  98% { transform: scale(1.1); }
+}
+
+.ai-bot-idle .ai-bot-eye-lid {
+  animation: ai-bot-blink 3.4s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.ai-bot-idle .ai-bot-brow {
+  animation: ai-bot-brow 2.2s ease-in-out infinite;
+}
+
+.ai-bot-idle .ai-bot-pupils {
+  animation: ai-bot-eye-dart 3.6s ease-in-out infinite;
+}
+
+.ai-bot-idle .ai-bot-mouth {
+  animation: ai-bot-mouth 2.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.ai-bot-idle .ai-bot-glow {
+  animation: ai-bot-glow 2s ease-in-out infinite;
+}
+
+.ai-bot-fab-scale {
+  display: inline-flex;
+  transform-origin: center center;
+  animation: ai-bot-frustrated 10s ease-in-out infinite;
+}
+
+.ai-bot-busy .ai-bot-think-dot {
+  animation: ai-bot-think 0.9s ease-in-out infinite;
+}
+.ai-bot-busy .ai-bot-think-dot:nth-child(2) { animation-delay: 0.15s; }
+.ai-bot-busy .ai-bot-think-dot:nth-child(3) { animation-delay: 0.3s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-bot-idle .ai-bot-eye-lid,
+  .ai-bot-idle .ai-bot-brow,
+  .ai-bot-idle .ai-bot-pupils,
+  .ai-bot-idle .ai-bot-mouth,
+  .ai-bot-idle .ai-bot-glow,
+  .ai-bot-busy .ai-bot-think-dot,
+  .ai-bot-fab-scale {
+    animation: none !important;
+  }
+}
+
+/* Material Icons, used for Smart PC Builder slot icons (the storefront renders the same names). */
+@font-face {
+  font-family: "Material Icons";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url(https://fonts.gstatic.com/s/materialicons/v145/flUhRq6tzZclQEJ-Vdg-IuiaDsNc.woff2) format("woff2");
+}
+.material-icons {
+  font-family: "Material Icons";
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── One thin scrollbar everywhere in the admin (lists, grids, drawers, order lines) ──
+   Chromium / Safari use the ::-webkit-scrollbar rules (6px, no arrow buttons); Firefox uses the standard
+   properties instead. Elements that hide their scrollbar (scrollbar-width: none) keep doing so. */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--muted-foreground) 35%, transparent);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+}
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 35%, transparent) transparent;
+  }
+}
+
+/* Live edit: a cell the admin can edit in the table shows it on hover (double-click to edit) */
+.ag-theme-quartz .ag-cell.live-edit-cell {
+  cursor: text;
+}
+.ag-theme-quartz .ag-cell.live-edit-cell:not(.ag-cell-inline-editing):hover {
+  background-color: color-mix(in oklab, var(--primary) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 35%, transparent);
+}

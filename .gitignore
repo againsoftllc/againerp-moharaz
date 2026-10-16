@@ -1,0 +1,14 @@
+node_modules/
+.next/
+.DS_Store
+*.tsbuildinfo
+.env
+.env.local
+apps/api/uploads/
+.deploy/
+.vercel/
+.vercel
+.env*
+
+# Local Center bind / runtime data (may contain API keys)
+.data/

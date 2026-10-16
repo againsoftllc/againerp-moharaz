@@ -1,0 +1,37 @@
+---
+description: AgainERP HRM Workdo screens — structure, demo fields, cache clear
+alwaysApply: true
+---
+
+# HRM screens (Workdo parity)
+
+When building or updating HRM admin UI (`apps/web` HRM routes/components/mock data):
+
+## Structure (AgainERP, not Workdo chrome)
+
+- Reuse existing AgainERP patterns: `HrmEntityPage` / dedicated pages like employees & attendance records, ghost icon row actions (`Button variant="ghost" size="icon" className="h-7 w-7 rounded-none"`), resizable `Sheet` for view/edit, square UI (`rounded-none`).
+- Do **not** invent colored solid action pills, circular avatars, or Workdo-only chrome that fights ERP UI rules.
+- Prefer copying an existing dedicated HRM page (employees, attendance records, timesheet) over a new visual system.
+
+## Fields & data (Workdo demo)
+
+- Field sets, statuses, filters, and seed content come from Workdo HRM demo / user manual (e.g. [demo.workdo.io/hrm](https://demo.workdo.io/hrm/), Workdo HRM docs).
+- Match demo columns/actions/workflows with **mock data**; keep real API for later.
+
+## Search (always realtime)
+
+- Table/list **Search** filters the current dataset **as the user types** (bind filter to the input value; do not require clicking Search).
+- Keep a Search button only for Workdo chrome parity if needed; it must not be required for filtering.
+- On change: update search state + reset page to 1.
+
+## After UI/seed changes — clear cache so the user sees output instantly
+
+Always run before telling the user to check:
+
+```powershell
+docker compose stop web
+Remove-Item -Recurse -Force apps/web/.next -ErrorAction SilentlyContinue
+docker compose up -d --no-deps --force-recreate web
+```
+
+Then remind: **Ctrl+Shift+R** on the page.

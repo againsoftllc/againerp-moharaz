@@ -1,0 +1,65 @@
+---
+description: Global AgainERP admin UI — day/night, square shapes, skeletons, resizable drawers, product add search
+alwaysApply: true
+---
+
+# ERP UI common patterns (global)
+
+Source of truth (living doc): `docs/ERP-UI-COMMON.md`. When the user adds new common rules, update **both** that file and this rule.
+
+Apply on every admin / ERP UI change in `apps/web`.
+
+## Day / Night
+
+- Use theme tokens only (`bg-background`, `text-foreground`, `border-border`, `bg-muted`, `bg-accent`, …). No light-only hard-coded colors.
+- AG Grid / non-CSS: `useIsDark()` from `@/lib/use-is-dark`.
+
+## Square only (no round)
+
+- `rounded-none` on buttons, inputs, cards, dialogs, sheets, badges, chips, avatars.
+- Forbidden: `rounded-full`, `rounded-xl`, `rounded-lg`, `rounded-md`, `rounded-sm`.
+
+## Skeleton loading
+
+- List/data loading → `ContentDataSkeleton` from `@/components/layout/content-data-skeleton`.
+- Use in `loading.tsx`, Suspense fallbacks, lazy loaders. Square shimmer only; keep shell chrome outside.
+
+## Resizable drawers
+
+- Tooling sheets (columns, filters, live-edit, etc.) → `SheetContent` with `resizable`.
+- Do not lock with `max-w` that blocks drag; prefer `min-w-[160px] max-w-[720px]` + default `w-[…]`.
+- Close: always the shared squared X (`closeButton="inside"`). Do not use bordered chevron close.
+- Header actions (Save / New) sit at the start, left of the title.
+
+## One pattern globally
+
+- Reuse shared primitives; do not invent per-page visual systems.
+- Copy existing modules (e.g. product grid / sheet) when adding similar UI.
+- List datatable filter bars: wrap `headerLeftActions` in `ListGridHeaderStart` (`@/components/shared/list-grid-header-start`) so the **page name** sits left of New / primary actions (theme `text-foreground`).
+- Again List Datatable (Customers-style AG Grid lists): inventory in `docs/AGAIN-LIST-DATATABLE.md`. Use `AgainListGrid` from `@/components/shared/again-list-grid`. Change that shell / `.ag-theme-again-list` so every list updates together. Do not invent a new list chrome. New lists must be added to that catalog.
+
+## Product add (search bar)
+
+Wherever the user **adds a product onto a document** (PO, sales order, stock move, invoice, RMA, …), use the **same control** as purchase order lines — do not invent a plain input, “Add line” button, or filter-less search.
+
+Canonical: `ProductSearchAdd` in `apps/web/src/components/products/product-search-add.tsx` (PO Order Lines is the original screen).
+
+- One joined `h-8` square bar: **filter** (brand/category, `ListFilter`) + **search** (“Name, SKU, barcode, or serial”) + **plus** (create/quick-add product)
+- Filter sits left, `border-r-0`, active state teal `#00a09d`
+- Reuse or extract that component; `StockProductSearchAdd` is the old filter-less variant — upgrade it when touching those screens
+
+## List refs open drawers
+
+Datatable cells that **reference another record** (invoice #, order #, PO, customer, supplier, product, …) must be clickable and open that record’s drawer. Use `GridRefLink` from `@/components/shared/grid-ref-link`. Do not leave related names/numbers as dead text. Status, dates, and amounts stay plain.
+
+Never put Next.js `<Link>` in AG Grid cells. Viewport prefetch plus row-click `router.push` abort the RSC fetch and show `TypeError: Failed to fetch` / `navigateToUnknownRoute`. One click handler only (`GridRefLink` or a button).
+
+## Image upload (one Add tile)
+
+Wherever the user **picks or uploads an image** (logo, seal, signature, category image, …), use the same square tile as product `MediaGallery` **Add**. Do not invent a wide preview, a thumbnail + “Media” button, or `<input type="file">`.
+
+Canonical single-image field: `MediaPickTile` in `@/components/media/media-pick-tile`. Empty = dashed + `ImagePlus` + **Add**; filled = same square + image + X. Click opens the media library; drop uploads.
+
+## Drawers — save a draft on accidental close
+
+A "New X" drawer (create mode only) must not discard typed-in data on an accidental outside-click/Escape; explicit **Cancel** stays an intentional discard. Use `@/lib/hooks/use-drawer-draft` (`readDraft`/`writeDraft`/`clearDraft`/`draftAgeLabel`) — one `localStorage` draft per drawer type, do not invent a second mechanism. Wire `saveDraftIfDirty()` into `<SheetContent>`'s `onPointerDownOutside`/`onInteractOutside`/`onEscapeKeyDown` (side effect only, don't `preventDefault`); on open in create mode, `readDraft` and hydrate with a `toast.info(...)` + "Discard" action; on successful create, `clearDraft`. Reference implementation: `apps/web/src/components/suppliers/supplier-form-drawer.tsx`.
