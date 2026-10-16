@@ -38,6 +38,7 @@ from app.services.ecommerce.ecommerce_item_service import EcommerceItemService
 from app.services.inventory.inventory_item_service import InventoryItemService
 from app.services.items.catalog_item_bridge import ensure_default_variant
 from app.services.items.item_identity_service import ItemIdentityService
+from app.services.plugins import price_update_service as pus
 from scripts.opencart_common import COMPANY_ID, slugify
 
 USER_AGENT = "MoharazCatalogBot/1.0 (+contact: info@moharaz.com)"
@@ -75,6 +76,19 @@ def read_head_and_h1(client: httpx.Client, url: str) -> tuple[str, str] | None:
     return (og.group(1).strip().lower() if og else ""), title
 
 
+def link_source(db, product_id: str, url: str) -> bool:
+    """Save the product's source page as its Price Compare link for the competitor site that owns the address, so
+    the grid's sync icon can read that page's price and stock status."""
+    host = urlparse(url).netloc.lower().removeprefix("www.")
+    pus._ensure_default_competitors(db, COMPANY_ID)  # no-op once the plugin has its site list
+    site = next((s for s in pus.list_competitor_sites(db, COMPANY_ID) if (s.domain or "").lower().removeprefix("www.") == host), None)
+    if site is None:
+        return False
+    pus.set_manual_match(db, company_id=COMPANY_ID, product_id=product_id, competitor=site.id, url=url,
+                         verified=True, verified_by="competitor import")
+    return True
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("sitemap")
@@ -82,6 +96,7 @@ def main() -> None:
     ap.add_argument("--delay", type=float, default=1.5, help="seconds between page requests")
     ap.add_argument("--max-pages", type=int, default=400, help="stop after looking at this many pages (safety)")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--link-existing", action="store_true", help="also save the Price Compare link of every already imported product (use with --apply)")
     ap.add_argument("--reset-cursor", action="store_true")
     ap.add_argument("--start", type=int, default=0, help="never look before this sitemap position (the first product pages of the Star Tech sitemap start at ~1846; before that are category pages)")
     args = ap.parse_args()
@@ -147,6 +162,13 @@ def main() -> None:
             variant.price = 0
             variant.status = "draft"
             db.commit()
+            link_source(db, pid, url)
+
+        if args.apply and args.link_existing:
+            n = 0
+            for pid, url in db.execute(text("SELECT id, source_url FROM catalog_products WHERE source_url LIKE :p"), {"p": f"%{host}%"}).all():
+                n += 1 if link_source(db, pid, url) else 0
+            print(f"price compare links saved for {n} existing products")
 
     if args.apply:
         db.execute(text(
