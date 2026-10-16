@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -521,14 +522,16 @@ export function CatalogModuleNavbar() {
         data-component="again_main_navbar"
       >
       <WorkspaceNavDrawerToggle tone="dark" />
-      <button
-        type="button"
-        className="inline-flex h-[34px] shrink-0 items-center gap-1.5 px-2.5 text-[12px] font-bold text-white hover:bg-white/[0.06]"
-        onClick={() => router.push("/website/dashboard")}
+      <Link
+        href="/website/dashboard"
+        prefetch
+        aria-label="Website dashboard"
+        title="Website dashboard"
+        className="inline-flex h-[34px] shrink-0 items-center gap-1.5 px-2.5 text-[12px] font-bold text-white no-underline hover:bg-white/[0.06] hover:text-white"
       >
         <CatalogAppIcon />
         Website
-      </button>
+      </Link>
 
       <div className="flex min-w-0 flex-1 items-center overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {navMenus.map((menu) => (
