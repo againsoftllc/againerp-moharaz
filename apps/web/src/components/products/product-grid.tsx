@@ -28,7 +28,7 @@ import {
   archiveCatalogProducts,
   deleteCatalogProduct,
   duplicateCatalogProduct,
-  publishProductToApi,
+  publishProductToApi, runBulk,
   unpublishProductFromApi,
   updateCatalogProduct,
 } from "@/lib/api/use-catalog-products";
@@ -2485,16 +2485,18 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
             onClick={() => {
               void (async () => {
                 try {
-                  await Promise.all(selected.map((p) => publishProductToApi(p.id)));
-                  setRowData((rows) =>
-                    rows.map((r) =>
-                      selected.some((s) => s.id === r.id)
-                        ? publishProductToWebsite(r)
-                        : r,
-                    ),
+                  const { ok, failed } = await runBulk(
+                    selected,
+                    (p) => publishProductToApi(p.id),
+                    4,
+                    (d, n) => toast.loading("Publishing " + d + " of " + n + "…", { id: "bulk-status" }),
                   );
-                  toast.success(`Published ${selected.length} product${selected.length > 1 ? "s" : ""} to website`);
-                  setSelected([]);
+                  toast.dismiss("bulk-status");
+                  const okIds = new Set(ok.map((p) => p.id));
+                  setRowData((rows) => rows.map((r) => (okIds.has(r.id) ? publishProductToWebsite(r) : r)));
+                  if (ok.length) toast.success(`Published ${ok.length} product${ok.length > 1 ? "s" : ""} to website`);
+                  if (failed.length) toast.error(`${failed.length} failed: ${failed[0].error}`);
+                  setSelected(failed.map((x) => x.item));
                   onProductsChanged?.();
                 } catch (err) {
                   toast.error(err instanceof Error ? err.message : "Bulk publish failed");
@@ -2511,16 +2513,18 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
             onClick={() => {
               void (async () => {
                 try {
-                  await Promise.all(selected.map((p) => unpublishProductFromApi(p.id)));
-                  setRowData((rows) =>
-                    rows.map((r) =>
-                      selected.some((s) => s.id === r.id)
-                        ? removeProductFromWebsite(r)
-                        : r,
-                    ),
+                  const { ok, failed } = await runBulk(
+                    selected,
+                    (p) => unpublishProductFromApi(p.id),
+                    4,
+                    (d, n) => toast.loading("Removing " + d + " of " + n + "…", { id: "bulk-status" }),
                   );
-                  toast.success(`Removed ${selected.length} product${selected.length > 1 ? "s" : ""} from website`);
-                  setSelected([]);
+                  toast.dismiss("bulk-status");
+                  const okIds = new Set(ok.map((p) => p.id));
+                  setRowData((rows) => rows.map((r) => (okIds.has(r.id) ? removeProductFromWebsite(r) : r)));
+                  if (ok.length) toast.success(`Removed ${ok.length} product${ok.length > 1 ? "s" : ""} from website`);
+                  if (failed.length) toast.error(`${failed.length} failed: ${failed[0].error}`);
+                  setSelected(failed.map((x) => x.item));
                   onProductsChanged?.();
                 } catch (err) {
                   toast.error(err instanceof Error ? err.message : "Bulk unpublish failed");

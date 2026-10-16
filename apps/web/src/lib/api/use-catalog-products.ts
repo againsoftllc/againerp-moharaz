@@ -296,3 +296,32 @@ export async function publishProductToApi(id: string): Promise<ProductDetail> {
 export async function unpublishProductFromApi(id: string): Promise<ProductDetail> {
   return updateCatalogProduct(id, { status: "draft", visibility: "private" });
 }
+
+/** Runs `worker` over `items` a few at a time (a bulk action over hundreds of rows must not open hundreds of API
+    requests at once — the API's database pool is small and the rest would time out). One failure never stops the
+    others: the result lists what worked and what did not. */
+export async function runBulk<T>(
+  items: T[],
+  worker: (item: T) => Promise<unknown>,
+  limit = 4,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ ok: T[]; failed: { item: T; error: string }[] }> {
+  const ok: T[] = [];
+  const failed: { item: T; error: string }[] = [];
+  let next = 0;
+  let done = 0;
+  const lane = async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      try {
+        await worker(item);
+        ok.push(item);
+      } catch (err) {
+        failed.push({ item, error: err instanceof Error ? err.message : String(err) });
+      }
+      onProgress?.(++done, items.length);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+  return { ok, failed };
+}
