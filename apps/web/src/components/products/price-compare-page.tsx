@@ -26,6 +26,7 @@ import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { useViewerWriteUrlGuard } from "@/lib/hooks/use-viewer-write-url-guard";
 import { cn, formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
+import { fillProductFromSource } from "@/lib/api/catalog-ai-import";
 import {
   fetchPriceUpdateCompetitors,
   fetchPriceUpdateMatches,
@@ -123,6 +124,28 @@ function PriceUpdateContent({
   // backend to report finer progress, so everything in the current chunk lights up together.
   const [syncingPairs, setSyncingPairs] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
+  // Product Draft: ids whose AI import (fill from the source URL) is running
+  const [aiImporting, setAiImporting] = useState<Set<string>>(new Set());
+  const handleAiImport = async (product: Product) => {
+    setAiImporting((s) => new Set(s).add(product.id));
+    const toastId = toast.loading(`Reading the source page of "${product.name}"…`);
+    try {
+      const r = await fillProductFromSource(product.id);
+      toast.success(
+        `Filled "${r.name}" from its source: ${r.brand ?? "no brand"} · ${r.category ?? "no category"} · ${r.images} image${r.images === 1 ? "" : "s"}`,
+        { id: toastId },
+      );
+      void refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "AI import failed", { id: toastId });
+    } finally {
+      setAiImporting((s) => {
+        const next = new Set(s);
+        next.delete(product.id);
+        return next;
+      });
+    }
+  };
 
   const productIds = useMemo(() => products.map((p) => p.id), [products]);
   const [loadingStatus, setLoadingStatus] = useState(false);
@@ -876,7 +899,7 @@ function PriceUpdateContent({
           onEdit={handleEdit}
           // Only the product title opens the view drawer here — the rest of the row is
           // competitor links, prices and sync buttons that must not trigger it.
-          nameClickAction="view"
+          nameClickAction={draftOnly ? "edit" : "view"}
           rowClickOpensView={false}
           onProductsChanged={() => void refetch()}
           onAdvancedFilterCountChange={setAdvancedFilterCount}
@@ -887,6 +910,8 @@ function PriceUpdateContent({
           onBulkCheckCompetitorPrices={(products) => void handleRefreshCompetitorPrices(products.map((p) => p.id))}
           bulkCheckSitesLabel={allSitesPicked ? undefined : siteLabels(checkSites)}
           columnStateKey={columnStateKey}
+          onAiImport={draftOnly ? handleAiImport : undefined}
+          aiImportingIds={aiImporting}
           hideCatalogBulkActions={!draftOnly}
           layoutReady={competitorsLoaded}
           onSetCellPicks={(keys, picked) =>

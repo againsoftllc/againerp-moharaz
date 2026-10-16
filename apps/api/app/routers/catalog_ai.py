@@ -20,6 +20,7 @@ from app.schemas.catalog_ai_import import (
 from app.services.catalog_ai import spec_profile_service
 from app.services.catalog_ai.importer_service import create_product_from_draft, extract_from_url
 from app.services.catalog_ai.scraper import fetch_page
+from app.models.catalog_product import CatalogProduct
 from app.services.catalog_media_import import (
     CatalogImportImagesRequest,
     CatalogImportImagesResponse,
@@ -69,6 +70,53 @@ def catalog_ai_create(
     """Create the real catalog product from a (reviewed, possibly edited) draft."""
     row = create_product_from_draft(db, payload, user)
     return CatalogAiCreateResponse(id=row.id, sku=row.sku, slug=row.slug, name=row.name, status=row.status)
+
+
+class FillFromSourceResponse(BaseModel):
+    id: str
+    name: str
+    source_url: str
+    price: Optional[str] = None
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    images: int = 0
+    status: str
+
+
+@router.post("/products/{product_id}/fill-from-source", response_model=FillFromSourceResponse)
+def catalog_ai_fill_from_source(
+    product_id: str,
+    db: Session = Depends(get_db),
+    user: AuthUser = Depends(require_permission("catalog", "write")),
+    company_id: str = Depends(get_current_company_id),
+) -> FillFromSourceResponse:
+    """Fill a draft product from its own source URL — the AI chat's "import this product link" logic, applied to the
+    existing row (name, SKU, slug, status and Price Compare links stay; description, price, brand, category, specs,
+    images and SEO come from the source page)."""
+    row = db.get(CatalogProduct, product_id)
+    if not row or (row.company_id or "default") != company_id:
+        raise HTTPException(status_code=404, detail="Product not found")
+    url = (row.source_url or "").strip()
+    if not url.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="This product has no source URL — add one first")
+    extracted = extract_from_url(db, url, company_id=company_id)
+    if not extracted.draft.name.strip():
+        raise HTTPException(status_code=422, detail="No product found on the source page")
+    payload = CatalogAiCreateRequest(
+        draft=extracted.draft,
+        brand_id=extracted.matched_brand_id,
+        category_id=extracted.matched_category_id,
+        category_ids=extracted.matched_category_ids,
+        create_brand_if_missing=True,
+        create_category_if_missing=True,
+        import_images=True,
+        status=row.status if row.status in ("draft", "published") else "draft",
+    )
+    row = create_product_from_draft(db, payload, user, existing=row)
+    return FillFromSourceResponse(
+        id=row.id, name=row.name, source_url=url, price=str(row.price) if row.price is not None else None,
+        brand=row.brand, category=row.category, images=len(extracted.draft.images or []), status=row.status,
+    )
 
 
 class SpecFillField(BaseModel):

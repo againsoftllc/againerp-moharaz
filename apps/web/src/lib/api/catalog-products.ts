@@ -240,6 +240,7 @@ export function apiProductToProduct(row: ApiCatalogProduct): Product {
     name: row.name,
     slug: row.slug,
     sku: row.sku,
+    sourceUrl: row.source_url ?? null,
     model: row.model ?? null,
     price,
     compareAtPrice: compareAt,

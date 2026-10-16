@@ -14,6 +14,8 @@ export type Product = {
   name: string;
   slug: string;
   sku: string;
+  /** where the product was copied from (a competitor page); Product Draft's AI column reads it */
+  sourceUrl?: string | null;
   model?: string;
   price: number;
   compareAtPrice?: number;

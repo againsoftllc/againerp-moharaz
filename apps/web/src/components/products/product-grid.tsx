@@ -22,6 +22,8 @@ import {
   Link2,
   BadgeCheck,
   ExternalLink,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -1263,6 +1265,11 @@ type Props = {
   /** Price Compare plugin: `${productId}::${competitor}` keys currently being fetched by
    * an in-progress bulk check — spins that cell's sync icon live as the batch works through it. */
   competitorSyncingKeys?: Set<string>;
+  /** Product Draft: when set, adds an AI column — its icon fills that draft product from its source URL (the AI chat's
+   * import logic). Disabled for a row without a source URL. */
+  onAiImport?: (product: Product) => void | Promise<void>;
+  /** ids whose AI import is running right now (spins the icon) */
+  aiImportingIds?: Set<string>;
   /** Price Compare plugin: save a manually-pasted product-page URL for one product/competitor
    * pair, then re-check the price from it — the fallback for when search (Google + AI) still
    * can't find the right page on that site. */
@@ -1300,6 +1307,8 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   className,
   preset = "catalog",
   competitors,
+  onAiImport,
+  aiImportingIds,
   columnStateKey,
   hideCatalogBulkActions,
   layoutReady,
@@ -2201,8 +2210,44 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
             },
           }))
         : []),
+      ...(onAiImport
+        ? [
+            {
+              colId: "ai-import",
+              headerName: "AI",
+              headerTooltip: "Fill this product from its source URL with AI",
+              width: 64,
+              minWidth: 56,
+              maxWidth: 80,
+              sortable: false,
+              editable: false,
+              cellStyle: { display: "flex", alignItems: "center", justifyContent: "center" },
+              cellRenderer: (p: ICellRendererParams<Product>) => {
+                if (!p.data) return null;
+                const product = p.data;
+                const busy = aiImportingIds?.has(product.id) ?? false;
+                const url = product.sourceUrl;
+                return (
+                  <button
+                    type="button"
+                    disabled={busy || !canWrite || !url}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void onAiImport(product);
+                    }}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-none border border-violet-500/40 text-violet-600 hover:bg-violet-500/10 disabled:cursor-not-allowed disabled:opacity-40 dark:text-violet-400"
+                    title={url ? "Fill this product from its source URL with AI" : "Add a source URL first"}
+                    aria-label="Import this product's details from its source URL with AI"
+                  >
+                    {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  </button>
+                );
+              },
+            },
+          ]
+        : []),
     ],
-    [onView, onEdit, nameClickAction, visibleCols, resolvedLiveEdit, ProductControlsCell, ProductRowMenu, brands, canWrite, categories, categoryNames, toggleManageStock, isInventory, companyFormat, competitors, competitorMatches, onSyncCompetitor, competitorSyncingKeys, onSetManualUrl, savedColumnNameWidth, pickedCells, onToggleCellPick, onSetCellPicks],
+    [onView, onEdit, nameClickAction, visibleCols, resolvedLiveEdit, ProductControlsCell, ProductRowMenu, brands, canWrite, categories, categoryNames, toggleManageStock, isInventory, companyFormat, competitors, competitorMatches, onSyncCompetitor, competitorSyncingKeys, onSetManualUrl, savedColumnNameWidth, pickedCells, onToggleCellPick, onSetCellPicks, onAiImport, aiImportingIds],
   );
 
   const onCellValueChanged = useCallback(

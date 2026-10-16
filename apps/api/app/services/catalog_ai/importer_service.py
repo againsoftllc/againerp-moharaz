@@ -458,17 +458,19 @@ def _variant_attributes_json(draft: ProductDraft) -> Optional[str]:
 
 
 def create_product_from_draft(
-    db: Session, payload: CatalogAiCreateRequest, user: AuthUser
+    db: Session, payload: CatalogAiCreateRequest, user: AuthUser, existing: Optional[CatalogProduct] = None
 ) -> CatalogProduct:
+    """Create the catalog product from a draft — or, with `existing`, fill that product in place (its id, SKU, slug,
+    status and Price Compare links stay; every field the draft carries is written onto it)."""
     draft = payload.draft
     if not draft.name.strip():
         raise HTTPException(status_code=400, detail="Product name is required")
 
     identity_svc = ItemIdentityService(db)
     base_slug = slugify(draft.name) or "product"
-    slug = _unique_slug(db, base_slug, getattr(user, "company_id", None) or "default")
+    slug = existing.slug if existing is not None else _unique_slug(db, base_slug, getattr(user, "company_id", None) or "default")
     base_sku = re.sub(r"\s+", "-", draft.sku.strip()).upper()[:40] if draft.sku else _short_sku_seed(draft)
-    sku = _unique_sku(db, base_sku, identity_svc)
+    sku = existing.sku if existing is not None else _unique_sku(db, base_sku, identity_svc)
 
     company_id = getattr(user, "company_id", None) or "default"
 
@@ -513,9 +515,9 @@ def create_product_from_draft(
         thumbnail=draft.images[0] if draft.images else None,
     )
 
-    if identity_svc.sku_taken(create_payload.sku):
+    if existing is None and identity_svc.sku_taken(create_payload.sku):
         raise HTTPException(status_code=409, detail="Generated SKU already exists — retry")
-    if _slug_taken(db, create_payload.slug, company_id):
+    if existing is None and _slug_taken(db, create_payload.slug, company_id):
         raise HTTPException(status_code=409, detail="Generated slug already exists — retry")
 
     # Inventory / Item (barcode) / location fields are never set by an AI import draft.
@@ -529,9 +531,17 @@ def create_product_from_draft(
         if cat:
             data["category"] = cat.name
 
-    row = CatalogProduct(**data)
-    db.add(row)
-    db.flush()
+    if existing is not None:
+        row = existing
+        keep = {"id", "company_id", "sku", "slug", "status", "visibility", "name"}
+        for key, value in data.items():
+            if key not in keep and value is not None:
+                setattr(row, key, value)
+        db.flush()
+    else:
+        row = CatalogProduct(**data)
+        db.add(row)
+        db.flush()
     identity_svc.persist_and_mirror(row)
     if is_variable:
         # items SSOT has no "variable" item_type (only physical/digital/service/bundle), so
@@ -541,7 +551,8 @@ def create_product_from_draft(
         row.product_type = "variable"
         db.flush()
     item_id = row.item_id or row.id
-    on_item_created(db, item_id, created_by=user.id, source="ai_import", company_id=row.company_id)
+    if existing is None:
+        on_item_created(db, item_id, created_by=user.id, source="ai_import", company_id=row.company_id)
     if row.status == "published":
         on_item_published(db, item_id, performed_by=user.id, company_id=row.company_id)
     EcommerceItemService(db).sync_content_from_catalog(row, mirror_publish=(row.status == "published"))

@@ -58,6 +58,24 @@ export async function createProductFromDraft(payload: {
   });
 }
 
+export type FillFromSourceResult = {
+  id: string;
+  name: string;
+  source_url: string;
+  price: string | null;
+  brand: string | null;
+  category: string | null;
+  images: number;
+  status: string;
+};
+
+/** Fill a draft product from its own source URL — the AI chat's product-link import, applied to the existing row. */
+export async function fillProductFromSource(productId: string): Promise<FillFromSourceResult> {
+  return apiFetch<FillFromSourceResult>(`/api/v1/catalog/ai/products/${encodeURIComponent(productId)}/fill-from-source`, {
+    method: "POST",
+  });
+}
+
 export type SimpleCategory = { id: string; name: string };
 
 export async function fetchSimpleCategories(): Promise<SimpleCategory[]> {
