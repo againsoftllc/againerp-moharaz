@@ -60,6 +60,7 @@ def _to_read(row: SmsGatewayPlugin) -> SmsGatewayPluginRead:
         environment="production" if row.environment == "production" else "sandbox",
         api_key_set=bool(row.api_key),
         api_key_hint=_mask_hint(row.api_key),
+        api_key=row.api_key or "",
         api_secret_set=bool(row.api_secret),
         sender_id=row.sender_id or "",
         base_url=row.base_url or "",

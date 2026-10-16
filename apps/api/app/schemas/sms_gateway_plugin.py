@@ -18,6 +18,8 @@ class SmsGatewayPluginRead(BaseModel):
     environment: Literal["sandbox", "production"]
     api_key_set: bool = False
     api_key_hint: str = ""
+    # the saved key, for the admin's show / hide toggle (this router is admin-only)
+    api_key: str = ""
     api_secret_set: bool = False
     sender_id: str = ""
     base_url: str = ""

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Link2, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Link2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchSmsGatewayPlugin,
@@ -38,6 +38,7 @@ export function SmsGatewayPluginPanel({ pluginId, activeSection }: Props) {
 
   const [environment, setEnvironment] = useState<"sandbox" | "production">("sandbox");
   const [draftApiKey, setDraftApiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
   const [draftApiSecret, setDraftApiSecret] = useState("");
   const [senderId, setSenderId] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
@@ -51,6 +52,7 @@ export function SmsGatewayPluginPanel({ pluginId, activeSection }: Props) {
       setPlugin(row);
       setEnvironment(row.environment);
       setSenderId(row.sender_id);
+      setDraftApiKey(row.api_key ?? "");
       setBaseUrl(row.base_url);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load SMS plugin");
@@ -204,15 +206,28 @@ export function SmsGatewayPluginPanel({ pluginId, activeSection }: Props) {
         </div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor={`${pluginId}-key`}>API Key</Label>
-          <Input
-            id={`${pluginId}-key`}
-            type="password"
-            className="rounded-none"
-            value={draftApiKey}
-            disabled={!canWrite}
-            onChange={(e) => setDraftApiKey(e.target.value)}
-            placeholder={plugin.api_key_set ? `Saved ${plugin.api_key_hint || "••••"}` : "API key"}
-          />
+          <div className="flex gap-2">
+            <Input
+              id={`${pluginId}-key`}
+              type={showKey ? "text" : "password"}
+              autoComplete="off"
+              className="rounded-none"
+              value={draftApiKey}
+              disabled={!canWrite}
+              onChange={(e) => setDraftApiKey(e.target.value)}
+              placeholder={plugin.api_key_set ? `Saved ${plugin.api_key_hint || "••••"}` : "API key"}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-none"
+              onClick={() => setShowKey((v) => !v)}
+              aria-label={showKey ? "Hide API key" : "Show API key"}
+              title={showKey ? "Hide API key" : "Show API key"}
+            >
+              {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor={`${pluginId}-secret`}>API Secret (optional)</Label>

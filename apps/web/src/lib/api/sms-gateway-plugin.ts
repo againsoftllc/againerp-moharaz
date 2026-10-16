@@ -21,6 +21,7 @@ export type SmsGatewayPluginRecord = {
   environment: "sandbox" | "production";
   api_key_set: boolean;
   api_key_hint: string;
+  api_key: string;
   api_secret_set: boolean;
   sender_id: string;
   base_url: string;
