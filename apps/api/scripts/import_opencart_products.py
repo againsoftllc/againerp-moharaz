@@ -229,6 +229,9 @@ def main() -> None:
                 int(r.get("stock_status_id") or 0),
                 ("in_stock" if int(r.get("quantity") or 0) > 0 else "out_of_stock", "public", "(none)"),
             )
+            # the shop's theme shows "In Stock" whenever quantity > 0, whatever the status says (Out Of Stock / Upcoming)
+            if stock_status in ("out_of_stock", "coming_soon") and visibility == "public" and int(r.get("quantity") or 0) > 0:
+                stock_status = "in_stock"
 
             # Price: OpenCart shows the active special (struck-through regular price).
             regular = money(r.get("price"))

@@ -5,11 +5,12 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.staticfiles import StaticFiles  # noqa: F401
 
 from app.config import get_settings
 from app.database import SessionLocal
 from app.deps.auth import get_current_user, require_admin_user
+from app.services.r2_static import R2FallbackStaticFiles
 from app.middleware.rbac_guard import RbacGuardMiddleware
 from app.routers import (
     auth,
@@ -988,7 +989,7 @@ app.include_router(workspace_sites.router, prefix="/api/v1", dependencies=requir
 
 UPLOAD_ROOT = Path(__file__).resolve().parent / "uploads"
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_ROOT)), name="uploads")
+app.mount("/uploads", R2FallbackStaticFiles(directory=str(UPLOAD_ROOT)), name="uploads")
 
 
 @app.get("/")
