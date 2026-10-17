@@ -71,6 +71,26 @@ def _extract_json_ld(soup: BeautifulSoup) -> list[dict]:
     return blocks
 
 
+def _extract_breadcrumb(soup: BeautifulSoup, json_ld: list[dict]) -> list[str]:
+    """The page's own category trail ("Home > Networking > Router > TP-Link > <product>"): schema.org BreadcrumbList
+    first, else a .breadcrumb block. The shop's own categorisation is the most reliable category signal there is."""
+    for block in json_ld:
+        if str(block.get("@type")) == "BreadcrumbList":
+            items = sorted(block.get("itemListElement") or [], key=lambda i: int(i.get("position") or 0))
+            names = [str((i.get("name") or (i.get("item") or {}).get("name") or "")).strip() for i in items if isinstance(i, dict)]
+            if len([n for n in names if n]) >= 2:
+                return [n for n in names if n]
+    node = soup.select_one(".breadcrumb, nav.breadcrumb, [itemtype*=BreadcrumbList]")
+    if node is not None:
+        names = [a.get_text(" ", strip=True) for a in node.find_all(["a", "li", "span"]) if a.name == "a" or not a.find(["a", "li"])]
+        out: list[str] = []
+        for n in names:
+            if n and n not in out:
+                out.append(n)
+        return out
+    return []
+
+
 _SIZE_SUFFIX_RE = re.compile(r"[-_](\d{2,4})x(\d{2,4})(?=\.[a-zA-Z]{2,4}$)")
 
 
@@ -648,6 +668,7 @@ def fetch_page(url: str, *, timeout: float = FETCH_TIMEOUT) -> ScrapedPage:
 
     json_ld = _extract_json_ld(soup)
     structured = structured_product(soup, json_ld, title, str(response.url))
+    structured["breadcrumb"] = _extract_breadcrumb(soup, json_ld)
     # The product's own gallery block (found from its main photo), then its declared photos,
     # then whatever else the page shows.
     page_images = _extract_images(soup, str(response.url))

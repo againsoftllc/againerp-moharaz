@@ -176,7 +176,39 @@ def _match_category(db: Session, company_id: str, name: str) -> Optional[Catalog
     leaf = name.split(">")[-1].strip()
     if not leaf:
         return None
-    return _catalog_categories(db, company_id).filter(CatalogCategory.name.ilike(leaf)).first()
+    hit = _catalog_categories(db, company_id).filter(CatalogCategory.name.ilike(leaf)).first()
+    if hit is not None:
+        return hit
+    key = _cat_key(leaf)  # "Routers" == "Router", "UPS" == "ups"
+    return next((c for c in _catalog_categories(db, company_id).all() if _cat_key(c.name) == key), None) if key else None
+
+
+def _cat_key(text: str) -> str:
+    k = re.sub(r"[^a-z0-9]+", "", (text or "").lower())
+    return k[:-1] if len(k) > 3 and k.endswith("s") else k
+
+
+def _category_from_breadcrumb(db: Session, company_id: str, crumbs: list[str], draft: ProductDraft) -> Optional[str]:
+    """The category the SOURCE shop files the product under: its breadcrumb, deepest first, minus "Home", the brand
+    page and the product's own title. The deepest crumb that is one of OUR categories wins; with none of them known the
+    deepest crumb is proposed as the (new) category. None when the page has no usable trail."""
+    brand_key = _cat_key(draft.brand_name or "")
+    name_key = _cat_key(draft.name)
+    trail = []
+    for c in crumbs:
+        k = _cat_key(c)
+        if not k or k == "home" or k == brand_key:
+            continue
+        if k == name_key or (len(k) > 20 and k[:20] == name_key[:20]):  # the product's own title (last crumb)
+            continue
+        trail.append(c.strip())
+    if not trail:
+        return None
+    for crumb in reversed(trail):
+        hit = _match_category(db, company_id, crumb)
+        if hit is not None:
+            return hit.name
+    return trail[-1]
 
 
 def extract_from_url(
@@ -264,6 +296,15 @@ def extract_from_url(
         written = None
     if written:
         draft = draft.model_copy(update={"description": written})
+
+    # Rule A4: the category is the one the source shop itself files the product under (its breadcrumb), mapped to OUR
+    # category of the same name; the model's own guess is only the fallback for pages without a trail.
+    try:
+        crumb_cat = _category_from_breadcrumb(db, company_id, list(page.structured.get("breadcrumb") or []), draft)
+    except Exception:  # noqa: BLE001
+        crumb_cat = None
+    if crumb_cat:
+        draft = draft.model_copy(update={"category_name": crumb_cat, "category_names": []})
 
     warnings: list[str] = []
     matched_brand_id = None

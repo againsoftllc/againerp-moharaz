@@ -559,12 +559,14 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
             db.rollback()  # type: ignore[union-attr]
         return {
             "status": "filled",
-            "product": {"id": row.id, "name": row.name, "doc": f"doc://product/{row.id}"},
+            "product": {"id": row.id, "name": row.name},
+            "doc_link": f"doc://product/{row.id}",
+            "path": f"/website/products?edit={row.id}",
             "price": str(row.price), "compare_at_price": str(row.compare_at_price) if row.compare_at_price else None,
             "brand": row.brand, "category": row.category, "images": len(d.images or []),
             "images_kept": getattr(row, "_images_reused", 0), "image_warnings": getattr(row, "_image_warnings", []),
             "specifications": _spec_result(row, extracted),
-            "note": "Tell the user briefly what was filled (price/offer, brand, category, images, specs, description, SEO) and that the product stays a draft.",
+            "note": "Tell the user briefly what was filled (price/offer, brand, category, images, specs, description, SEO) and that the product stays a draft. To link the product use EXACTLY the doc_link value as the markdown link target (never invent a /catalog path).",
         }
 
     return [

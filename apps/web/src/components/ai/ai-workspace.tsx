@@ -785,7 +785,67 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
   const firstName = (user?.name || user?.email || "there").split(" ")[0];
 
   return (
-    <div className="flex h-full min-h-0 w-full bg-background text-foreground">
+    <div className="flex h-full min-h-0 w-full flex-col bg-background text-foreground">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-2">
+          {/* Workspace module drawer — every module chrome mounts this; the AI page has no navbar of its own. */}
+          <WorkspaceNavDrawerToggle tone="light" className="h-9 w-9 rounded-md" />
+          <button
+            type="button"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={() => setSidebarOpen((o) => !o)}
+            aria-label={sidebarOpen ? "Close chat list" : "Open chat list"}
+            title={sidebarOpen ? "Close chat list" : "Open chat list"}
+          >
+            {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+          </button>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-sm font-semibold">Aladin</span>
+            {activeTitle ? <span className="truncate text-sm text-muted-foreground">· {activeTitle}</span> : null}
+          </div>
+          <div className="ml-auto flex items-center gap-1">
+            <select
+              value={lang}
+              onChange={(e) => changeLang(e.target.value as ReplyLanguage)}
+              className="h-8 max-w-[150px] rounded-full border border-border bg-background px-2 text-xs text-muted-foreground outline-none hover:bg-muted focus:border-primary"
+              aria-label="Reply language"
+              title="Language Aladin replies in"
+            >
+              {LANG_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs",
+                webSearch ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted",
+              )}
+              onClick={() => setWebSearch((v) => !v)}
+              aria-pressed={webSearch}
+              title="Allow the assistant to search the web for this chat"
+            >
+              <Globe className="h-3.5 w-3.5" /> Web search {webSearch ? "on" : "off"}
+            </button>
+            {isAdmin ? (
+              <button
+                type="button"
+                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => void openSettings()}
+                aria-label="Aladin settings"
+                title="Aladin settings"
+              >
+                <Settings className="h-4 w-4" />
+              </button>
+            ) : null}
+            {/* Notifications / theme / user menu, same systray as the module navbars (styled for a dark strip). */}
+            <div className="ml-1 rounded-md bg-[#2b3a32] px-1">
+              <AgainSystray />
+            </div>
+          </div>
+      </header>
+      <div className="flex min-h-0 flex-1">
       {/* ---------------- Sidebar: chat history ---------------- */}
       <aside
         className={cn(
@@ -795,14 +855,6 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
         aria-label="Chat history"
       >
         <div className="flex items-center gap-1 px-2 pt-2">
-          <button
-            type="button"
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={() => setSidebarOpen(false)}
-            aria-label="Close sidebar"
-          >
-            <PanelLeftClose className="h-4 w-4" />
-          </button>
           <div className="ml-auto flex items-center gap-1">
             <button
               type="button"
@@ -901,76 +953,6 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
 
       {/* ---------------- Main: chat ---------------- */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-2">
-          {/* Workspace module drawer — every module chrome mounts this; the AI page has no navbar of its own. */}
-          <WorkspaceNavDrawerToggle tone="light" className="h-9 w-9 rounded-md" />
-          {!sidebarOpen ? (
-            <>
-              <button
-                type="button"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => setSidebarOpen(true)}
-                aria-label="Open sidebar"
-              >
-                <PanelLeftOpen className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => void openConversation(null)}
-                aria-label="New chat"
-              >
-                <SquarePen className="h-4 w-4" />
-              </button>
-            </>
-          ) : null}
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="text-sm font-semibold">Aladin</span>
-            {activeTitle ? <span className="truncate text-sm text-muted-foreground">· {activeTitle}</span> : null}
-          </div>
-          <div className="ml-auto flex items-center gap-1">
-            <select
-              value={lang}
-              onChange={(e) => changeLang(e.target.value as ReplyLanguage)}
-              className="h-8 max-w-[150px] rounded-full border border-border bg-background px-2 text-xs text-muted-foreground outline-none hover:bg-muted focus:border-primary"
-              aria-label="Reply language"
-              title="Language Aladin replies in"
-            >
-              {LANG_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs",
-                webSearch ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted",
-              )}
-              onClick={() => setWebSearch((v) => !v)}
-              aria-pressed={webSearch}
-              title="Allow the assistant to search the web for this chat"
-            >
-              <Globe className="h-3.5 w-3.5" /> Web search {webSearch ? "on" : "off"}
-            </button>
-            {isAdmin ? (
-              <button
-                type="button"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => void openSettings()}
-                aria-label="Aladin settings"
-                title="Aladin settings"
-              >
-                <Settings className="h-4 w-4" />
-              </button>
-            ) : null}
-            {/* Notifications / theme / user menu, same systray as the module navbars (styled for a dark strip). */}
-            <div className="ml-1 rounded-md bg-[#2b3a32] px-1">
-              <AgainSystray />
-            </div>
-          </div>
-        </header>
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
           {messagesLoading ? (
@@ -1209,6 +1191,7 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
           </div>
         </div>
       </section>
+      </div>
 
       {/* Rename dialog */}
       <Dialog.Root open={Boolean(renameTarget)} onOpenChange={(o) => !o && setRenameTarget(null)}>

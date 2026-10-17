@@ -3,6 +3,7 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { Check, Loader2, Send, Sparkles, X } from "lucide-react";
+import { AiDocumentDrawer, parseDocLink, type AiDocumentRef } from "@/components/ai/ai-document-drawer";
 import { MarkdownLite } from "@/components/ai/markdown-lite";
 import { Button } from "@/components/ui/button";
 import { streamAiChat } from "@/lib/api/ai-chat";
@@ -70,6 +71,11 @@ function AiProductDrawerInner({
   const abortRef = React.useRef<AbortController | null>(null);
   const endRef = React.useRef<HTMLDivElement>(null);
   const startedFor = React.useRef<string | null>(null);
+  const [docDrawer, setDocDrawer] = React.useState<AiDocumentRef | null>(null);
+  const openDoc = React.useCallback((href: string, label: string) => {
+    const ref = parseDocLink(href);
+    if (ref) setDocDrawer({ ...ref, label });
+  }, []);
 
   React.useEffect(() => setWidth(loadWidth()), []);
   React.useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [messages, status]);
@@ -192,7 +198,7 @@ function AiProductDrawerInner({
             </div>
           ) : (
             <div key={m.id} className="mb-4 text-sm">
-              {m.content ? <MarkdownLite text={m.content} /> : <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+              {m.content ? <MarkdownLite text={m.content} onOpenDocument={openDoc} /> : <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
               {m.approval && !sending ? (
                 <div className="mt-2 flex gap-2">
                   <Button size="sm" className="h-8 rounded-full px-3" onClick={() => void send("Yes, confirm.")}>
@@ -243,6 +249,7 @@ function AiProductDrawerInner({
           </Button>
         )}
       </form>
+      <AiDocumentDrawer doc={docDrawer} onClose={() => setDocDrawer(null)} />
     </aside>,
     document.body,
   );
