@@ -63,10 +63,12 @@ type Props = {
   initialCustomAttrs?: CustomSpecAttr[];
   /** The product's source page — default URL for Fill. */
   sourceUrl?: string | null;
+  /** Start with the attributes that have no value hidden (editing a product); new products show everything. */
+  defaultHideEmpty?: boolean;
   onChange?: (draft: ProductSpecsDraft) => void;
 };
 
-export function ProductSpecEditor({ initialProfileId, initialValues, initialCustomGroups, initialCustomAttrs, sourceUrl, onChange }: Props) {
+export function ProductSpecEditor({ initialProfileId, initialValues, initialCustomGroups, initialCustomAttrs, sourceUrl, defaultHideEmpty = false, onChange }: Props) {
   const { profiles, groups, attributes, loading, refetch: refetchProfiles } = useCatalogAttributeProfiles();
   const [listOpen, setListOpen] = useState(false);
   /** the profile opened from the specification list (edited in the Edit Profile drawer) */
@@ -97,6 +99,9 @@ export function ProductSpecEditor({ initialProfileId, initialValues, initialCust
   const [addProfileOpen, setAddProfileOpen] = useState(false);
   /* attrs hidden for this product */
   const [hiddenAttrIds, setHiddenAttrIds] = useState<Set<string>>(new Set());
+  // attributes without a value can be hidden; one the user has typed into stays visible even if cleared again
+  const [hideEmpty, setHideEmpty] = useState(defaultHideEmpty);
+  const [touchedIds, setTouchedIds] = useState<Set<string>>(new Set());
   const hideAttr = (id: string) => setHiddenAttrIds((s) => new Set([...s, id]));
   /* Fill from source page */
   const [fillOpen, setFillOpen] = useState(false);
@@ -251,6 +256,7 @@ export function ProductSpecEditor({ initialProfileId, initialValues, initialCust
   const setValue = (attributeId: string, val: string) => {
     const next = { ...values, [attributeId]: val };
     setValues(next);
+    setTouchedIds((s) => (s.has(attributeId) ? s : new Set(s).add(attributeId)));
     emitChange(next);
   };
 
@@ -469,6 +475,18 @@ export function ProductSpecEditor({ initialProfileId, initialValues, initialCust
             <Sparkles className="mr-1 h-3 w-3" /> Fill
           </Button>
         )}
+        {profileId && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => setHideEmpty((h) => !h)}
+            title="Attributes with no value"
+          >
+            {hideEmpty ? "Show empty fields" : "Hide empty fields"}
+          </Button>
+        )}
       </div>
 
       {fillOpen && (
@@ -567,7 +585,9 @@ export function ProductSpecEditor({ initialProfileId, initialValues, initialCust
                     onToggle={() => toggleGroup(group.id)}
                   >
                     {isOpen && (() => {
-                      const visibleProfileIds = orderedIds.filter((id) => !hiddenAttrIds.has(id));
+                      const visibleProfileIds = orderedIds.filter(
+                        (id) => !hiddenAttrIds.has(id) && (!hideEmpty || !!values[id]?.trim() || touchedIds.has(id)),
+                      );
                       const localIds = (localAttrs[group.id] ?? []).map((a) => a.id);
                       const combinedIds = [...visibleProfileIds, ...localIds];
                       return (
