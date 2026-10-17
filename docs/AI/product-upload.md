@@ -1,10 +1,176 @@
-# AI product upload — the instructions that run today
+# AI product upload — the rules, and how the import runs today
 
-> **Status:** a record of what the code does **right now** (2026-10-17). Nothing here is a proposal. The idea: read it,
-> tell us what to change, and the change goes into the file named in the last column of each table.
-> Section 12 collects the change requests.
+**How to read this file**
+
+| Part | What it is |
+|------|------------|
+| **A — The rules** | The standard every AI product upload must follow (your rules, field by field). This is the target. |
+| **B — Gap list** | For each rule: does the code already do it, or what still has to be built. |
+| **C — How the import runs today** | A record of what the code does now (2026-10-17): prompt, post-processing, defaults, chat tools. |
+
+Legend in the *Today* column: ✅ already done · 🟡 partly · ⬜ not done yet.
+Nothing is changed in the code by editing this file — tell us what to change and it goes into Part D (change requests).
 
 ---
+
+# Part A — The rules
+
+One principle runs through everything: **the AI never invents facts** (specs, prices, warranty), and **anything that
+creates a new shared record — a category, a brand, a warranty option, a specification profile / filter option —
+needs the admin's approval first**. Everything else is filled automatically.
+
+## A1. Images
+
+| Rule | Today |
+|------|-------|
+| Import **all** product images from the source page | 🟡 only the first **8** |
+| Keep the **same order** as the source (the first image stays the main image) | ✅ page order, first = thumbnail |
+| Keep the **same quality** (no downscaling, no lossy re-encode) | 🟡 stored as downloaded, each cut at 5 MB; no resizing / re-encoding is done |
+| **SEO-friendly file names** — e.g. `epson-m100-ink-tank-printer-1.jpg`, `-2.jpg`… (product name, then position) | ⬜ today `<random hex>_<source file name>` |
+| SEO-friendly **alt text and title** (product name + short differentiator, no seller name) | 🟡 derived from the file name |
+| Images are **auto-selected** onto the product (no manual picking) | ✅ |
+| Images inside the source *description* are also uploaded to our server and used in our rewritten description | ⬜ |
+
+## A2. Product name
+
+| Rule | Today |
+|------|-------|
+| Keep the **source product title as it is** | ✅ (unless a name preset rewrites it) |
+| If the title is **not SEO friendly** (all caps, junk, store name, "Price in BD…" suffix, too long), rewrite it to a **common standard**: `<Brand> <Model> <Key spec> <Product type>` — max 80 characters, no seller name | 🟡 only when a `catalog.product.name` preset exists (none set) |
+
+## A3. Slug / URL
+
+| Rule | Today |
+|------|-------|
+| The AI creates the slug from the product title: lowercase, hyphens, SEO friendly, unique | ✅ `slugify(name)`, made unique |
+| The slug is created **once** — **editing the product never changes it** | 🟡 not verified on edit; the editor must not regenerate it |
+| Changing a slug is **manual only**; when it is changed the **old URL → new URL goes into the SEO Redirects list** automatically (301) | ⬜ to verify / build |
+
+## A4. Category
+
+| Rule | Today |
+|------|-------|
+| Select the **whole chain**: parent category, sub category, 2nd sub category (whatever exists) | ✅ matched category **plus all its parents** |
+| If the right category **exists** → select it | ✅ |
+| If it does **not** exist → propose a **new category**; create it **only after admin approval** | 🟡 today it is **created automatically** (`create_category_if_missing`) |
+| At approval time show the **suggested category** and also **other options** (existing categories) so the admin can pick a different one or **type a custom category** when the suggestion does not match | ⬜ |
+| Creating a category creates the **whole path** (parent > sub > 2nd sub) — each missing level asked for approval | ⬜ |
+| A new category must follow the **category rules** (naming, slug, caption/SEO text, channel `catalog`, active) and be fully filled in | ⬜ |
+| Never use "Uncategorized" | 🟡 only with a preset |
+
+## A5. Brand
+
+| Rule | Today |
+|------|-------|
+| Match against our brands (case-insensitive); select it | ✅ |
+| Not found → propose a new brand; **create only after admin approval**, following the **brand rules** (name, slug, active, logo later) | 🟡 created automatically today |
+
+## A6. Warranty
+
+| Rule | Today |
+|------|-------|
+| **Detect the warranty from the source** (spec row, text, title) | ✅ |
+| **Select it from our warranty list** when it matches (e.g. "1 Year Official Warranty") | 🟡 the model is shown our list and told to reuse the exact wording; stored as text |
+| No match → propose a **new warranty option**; **add only after admin approval** | ⬜ |
+
+## A7. Origin
+
+Auto-select the country of origin when it is stated or detectable; **otherwise leave it empty** (never guess). — ✅
+
+## A8. Status, visibility, tags, prices, stock
+
+| Field | Rule | Today |
+|-------|------|-------|
+| Status | **draft** | ✅ |
+| Web (visibility on website) | **disabled** (private) | 🟡 AI import leaves visibility default (public) — the draft is not on the site because status is draft; set **private** explicitly |
+| Tags | AI adds them (up to 8, lowercase, brand + product type + key specs, no store names) | ✅ |
+| Price | the **source price** | ✅ |
+| Compare-at price | add when the source shows an old / regular price | ⬜ not read today |
+| Last selling price | **blank** | 🟡 left unset on a new product — verify it stays empty |
+| Stock status | the **source's** status (in stock / out of stock / pre-order / up coming) | ⬜ today always `in_stock` |
+| Manage stock | **not selected** | ✅ `track_quantity = false` |
+
+## A9. Short description
+
+**Exactly 4 bullet points**, one under the other, each a key selling spec, written for us (no seller name). — 🟡 today: the
+source's own highlights list, any length, copied.
+
+## A10. Description
+
+| Rule | Today |
+|------|-------|
+| **Never a copy-paste** — rewrite the source description so the content is **unique** | 🟡 copied verbatim unless a `catalog.product.description` preset exists |
+| **Minimum 300 words** | ⬜ |
+| The **focus keyphrase appears in the first paragraph** | ⬜ |
+| Structure: **2 × H2 and 3 × H3 headings** (minimum) | ⬜ |
+| **At least 2 internal links** (to our brand / category / related product pages) | ⬜ |
+| SEO friendly, natural, no seller name, no invented facts (use only the source's facts) | 🟡 seller name scrub ✅ |
+| Images from the source description are uploaded to our server and placed in the text | ⬜ |
+| **YouTube video** from the source is added to the product | ⬜ |
+
+## A11. Specifications and filters
+
+| Rule | Today |
+|------|-------|
+| **Match the source spec table to a specification profile** of ours and select that profile | 🟡 uses the category's profile when one exists |
+| Fill the **common attributes** (those the profile has) | ✅ values mapped by the AI; existing values are never overwritten |
+| Attributes that are **not** in the profile are kept **only for this product** as **custom attributes** | 🟡 custom specs stored; shown as "this product only" |
+| **Never drop an attribute** — everything on the source table is taken | 🟡 verify no row is lost in mapping |
+| **Keep the source order** of the attributes / groups | 🟡 verify |
+| Check which **filters** the product belongs to (filterable attributes) and **select them automatically** | 🟡 filter values are set through the filterable attribute |
+| When a needed filter option does not exist yet, **add the predefined value** — filters are attributes, so options must stay clean and consistent | ⬜ today only on explicit approval (`add_missing_options`) |
+| Attribute data can be **modified** later but **not restructured** (the filter system depends on them) | ✅ |
+| No profile for the category → propose one; creating it needs approval | ✅ |
+
+## A12. Product type and variants
+
+Single product → **simple**. Product with real selectable options (colour, size, storage…) → **variable**: create the
+variants, upload each variant's image and select it, fill every option the page offers. — 🟡 variants are created with
+their images; check prices / SKUs per variant.
+
+## A13. SEO fields
+
+| Field | Rule | Today |
+|-------|------|-------|
+| Focus keyphrase | auto, brand + model as shoppers search it (2–5 words, lowercase) | ✅ |
+| Meta title | auto, SEO friendly, **include "Price in BD" or "Price in Bangladesh"**, max ~60 chars | 🟡 default rule says *no price words*; change needed |
+| Meta description | auto, SEO friendly, written to rank (key specs, benefit, call to action, 150–155 chars) | ✅ |
+
+## A14. What needs the admin's approval (summary)
+
+| Needs approval | Everything else |
+|----------------|-----------------|
+| New **category** (every missing level of parent > sub > 2nd sub) — with the suggested one **and other options / a custom one** | name, slug, description, short description, tags |
+| New **brand** | price, compare-at price, stock status |
+| New **warranty** option | images, YouTube video |
+| New **specification profile** | custom attributes, filter selection |
+| New **filter option** (predefined value) added to a shared attribute | SEO fields |
+| Changing a slug later (manual, with redirect) | |
+
+---
+
+# Part B — Gap list (what has to be built to meet Part A)
+
+Ordered by how much of the rules it unlocks. Items 1–2 are pure configuration and need no code.
+
+| # | Work | Rules covered | Type |
+|---|------|---------------|------|
+| 1 | **Turn on the AI key** (`ANTHROPIC_API_KEY` or Aladin key in AI → Settings) | everything | config |
+| 2 | **Save the rules as admin presets** (AI → Settings → Presets: `catalog`, `catalog.product.name`, `.short_description`, `.description`, `.category`, `.tags`, `.warranty`, `.seo`) | A2, A8 (tags), A9, A10 (rewrite, 300 words, headings, links), A13 | config (text in Part A is the source) |
+| 3 | **Approval flow** for new category (with suggestions + custom), brand, warranty; whole-path category creation | A4, A5, A6, A14 | code (chat tool + draft-fill API return "needs approval" instead of auto-creating) |
+| 4 | **Images**: import all, SEO file names / alt, no re-encode, description images, YouTube | A1, A10 | code (`catalog_media_import`, `importer_service`) |
+| 5 | **Compare-at price, stock status, visibility private, last selling price empty** | A8 | code (`ProductDraft`, extractor schema, create) |
+| 6 | **Description generator** with checks: ≥300 words, keyphrase in paragraph 1, 2×H2 + 3×H3, ≥2 internal links; re-write until it passes | A10 | code (post-check after the model) |
+| 7 | **Short description = exactly 4 bullets** | A9 | code / preset |
+| 8 | **Specs & filters**: keep source order, never drop a row, auto-select filters, propose new predefined options for approval | A11 | code (`spec_profile_service`) |
+| 9 | **Slug is write-once; manual change creates an SEO redirect** | A3 | code (edit endpoint + `seo_redirects`) — verify first |
+| 10 | **Meta title with "Price in BD"** | A13 | preset / `DEFAULT_SEO_RULE` |
+
+---
+
+# Part C — How the import runs today (as of 2026-10-17)
+
+> A record of what the code does **right now**. Nothing in Part C is a proposal.
 
 ## 1. What it does
 
@@ -232,8 +398,11 @@ SKU / id; an ambiguous name returns the candidates and asks the user.
 
 ---
 
-## 12. Change requests (fill in)
+# Part D — Change requests (fill in)
 
-| # | What to change | Which part | Status |
-|---|----------------|------------|--------|
+Anything you want different from Part A or Part C goes here; the AI import follows Part A once the matching work in Part B
+is done.
+
+| # | What to change | Which rule / section | Status |
+|---|----------------|----------------------|--------|
 | 1 | | | |
