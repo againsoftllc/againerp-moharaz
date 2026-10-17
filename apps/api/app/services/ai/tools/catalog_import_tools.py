@@ -489,6 +489,84 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
             "path": f"/website/products?edit={product.id}",
         }
 
+    def fill_product_from_source(inp: dict) -> dict:
+        """Product Draft's AI button: fill an EXISTING draft from its own source URL (same pipeline as the import above,
+        applied to the row). It starts straight away; only a brand / category that does not exist yet needs approval."""
+        if not _can_write_catalog(db, user):
+            return {"error": "Filling products needs catalog write permission."}
+        res = _resolve_product(str(inp.get("product") or ""))
+        if "error" in res:
+            return res
+        row = res["ok"]
+        url = (row.source_url or "").strip()
+        if not url.lower().startswith(("http://", "https://")):
+            return {"error": f"'{row.name}' has no source URL - add one in Price Compare's Source column first."}
+        confirming = bool(inp.get("confirm"))
+        extracted = _cache_get(url) if confirming else None
+        if extracted is None:
+            try:
+                extracted = extract_from_url(db, url, company_id=company_id)  # type: ignore[arg-type]
+            except HTTPException as exc:
+                db.rollback()  # type: ignore[union-attr]
+                return {"error": exc.detail}
+            except Exception as exc:  # noqa: BLE001
+                db.rollback()  # type: ignore[union-attr]
+                return {"error": f"Could not read the source page: {exc}"}
+        if not extracted.draft.name.strip():
+            return {"error": "No product found on the source page."}
+        d = extracted.draft
+        new_things = []
+        if d.brand_name and not extracted.matched_brand_id:
+            new_things.append(f"brand '{d.brand_name}'")
+        if d.category_name and not extracted.matched_category_id:
+            new_things.append(f"category '{d.category_name}'")
+        if new_things and not confirming:
+            _cache_set(url, extracted)
+            return {
+                "status": "preview",
+                "needs_approval": f"This will create a new {' and '.join(new_things)}. Ask the user to approve (or to pick an existing one).",
+                "product": {"id": row.id, "name": row.name},
+                "note": CONFIRM_NOTE,
+            }
+        _extract_cache.pop(url, None)
+        payload = CatalogAiCreateRequest(
+            draft=d,
+            brand_id=extracted.matched_brand_id,
+            category_id=extracted.matched_category_id,
+            category_ids=extracted.matched_category_ids,
+            create_brand_if_missing=True,
+            create_category_if_missing=True,
+            import_images=True,
+            status=row.status if row.status in ("draft", "published") else "draft",
+        )
+        try:
+            row = create_product_from_draft(db, payload, user, existing=row)  # type: ignore[arg-type]
+        except HTTPException as exc:
+            db.rollback()  # type: ignore[union-attr]
+            return {"error": exc.detail}
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()  # type: ignore[union-attr]
+            return {"error": f"Could not fill the product: {exc}"}
+        try:
+            from app.services.plugins import price_update_service as pus
+
+            pus.ensure_source_site(db, company_id)  # type: ignore[arg-type]
+            pus.refresh_product_competitor(
+                db, company_id=company_id, product=row, competitor=pus.SOURCE_ID,  # type: ignore[arg-type]
+                settings=pus.get_or_create_settings(db, company_id), allow_ai=False,  # type: ignore[arg-type]
+            )
+        except Exception:  # noqa: BLE001
+            db.rollback()  # type: ignore[union-attr]
+        return {
+            "status": "filled",
+            "product": {"id": row.id, "name": row.name, "doc": f"doc://product/{row.id}"},
+            "price": str(row.price), "compare_at_price": str(row.compare_at_price) if row.compare_at_price else None,
+            "brand": row.brand, "category": row.category, "images": len(d.images or []),
+            "images_kept": getattr(row, "_images_reused", 0), "image_warnings": getattr(row, "_image_warnings", []),
+            "specifications": _spec_result(row, extracted),
+            "note": "Tell the user briefly what was filled (price/offer, brand, category, images, specs, description, SEO) and that the product stays a draft.",
+        }
+
     return [
         OrchestratorTool(
             definition=AIToolDefinition(
@@ -584,6 +662,30 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
                 },
             ),
             handler=add_product_specs,
+            risk_tier=RiskTier.WRITE,
+            module="catalog",
+        ),
+        OrchestratorTool(
+            definition=AIToolDefinition(
+                name="fill_product_from_source",
+                description=(
+                    "Fill an EXISTING draft product from its own source URL (the Source link saved on the product): "
+                    "description, price / offer (compare-at), stock, brand, category, warranty, specifications and filters, "
+                    "images (originals, 500x500 WebP) and SEO, following docs/AI/product-upload.md. Use when asked to "
+                    "'fill / upload / complete this product from its source'. Call WITHOUT confirm: it does the whole job "
+                    "at once, and only returns status=preview when a NEW brand or category would have to be created - "
+                    "then ask the user, and call again with confirm=true after they approve."
+                ),
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "product": {"type": "string", "description": "Product id (preferred), SKU or name"},
+                        "confirm": {"type": "boolean", "description": "true only after the user approved the new brand/category"},
+                    },
+                    "required": ["product"],
+                },
+            ),
+            handler=fill_product_from_source,
             risk_tier=RiskTier.WRITE,
             module="catalog",
         ),

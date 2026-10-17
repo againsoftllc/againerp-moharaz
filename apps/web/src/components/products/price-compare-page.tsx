@@ -1,5 +1,6 @@
 "use client";
 
+import { AiProductDrawer } from "@/components/ai/ai-product-drawer";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -26,7 +27,6 @@ import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { useViewerWriteUrlGuard } from "@/lib/hooks/use-viewer-write-url-guard";
 import { cn, formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
-import { fillProductFromSource } from "@/lib/api/catalog-ai-import";
 import {
   fetchPriceUpdateCompetitors,
   fetchPriceUpdateMatches,
@@ -125,31 +125,10 @@ function PriceUpdateContent({
   const [syncingPairs, setSyncingPairs] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
   // Product Draft: ids whose AI import (fill from the source URL) is running
-  const [aiImporting, setAiImporting] = useState<Set<string>>(new Set());
-  const handleAiImport = async (product: Product) => {
-    setAiImporting((s) => new Set(s).add(product.id));
-    const toastId = toast.loading(`Reading the source page of "${product.name}"…`);
-    try {
-      const r = await fillProductFromSource(product.id);
-      toast.success(
-        `Filled "${r.name}" from its source: ${r.brand ?? "no brand"} · ${r.category ?? "no category"} · ${r.images} image${r.images === 1 ? "" : "s"}` +
-          (r.images_reused ? ` (${r.images_reused} already in place, kept)` : ""),
-        { id: toastId },
-      );
-      if (r.image_warnings?.length) {
-        toast.warning(`Check these images before publishing — ${r.image_warnings.join("; ")}. Nothing was edited automatically; improving an image (AI edit) needs your approval.`, { duration: 12000 });
-      }
-      void refetch();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "AI import failed", { id: toastId });
-    } finally {
-      setAiImporting((s) => {
-        const next = new Set(s);
-        next.delete(product.id);
-        return next;
-      });
-    }
-  };
+  const aiImporting = useMemo(() => new Set<string>(), []);
+  // the AI button opens Aladin's chat drawer for the product; the drawer does the import and asks for approvals
+  const [aiDrawer, setAiDrawer] = useState<{ id: string; name: string } | null>(null);
+  const handleAiImport = (product: Product) => setAiDrawer({ id: product.id, name: product.name });
 
   const productIds = useMemo(() => products.map((p) => p.id), [products]);
   const [loadingStatus, setLoadingStatus] = useState(false);
@@ -940,6 +919,8 @@ function PriceUpdateContent({
           className="min-h-0 flex-1"
         />
       )}
+
+      <AiProductDrawer product={aiDrawer} onClose={() => setAiDrawer(null)} onChanged={() => void refetch()} />
 
       <Dialog.Root
         open={!!applyPlan}
