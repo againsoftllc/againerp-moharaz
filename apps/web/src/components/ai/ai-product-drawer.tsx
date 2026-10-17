@@ -27,7 +27,32 @@ function loadWidth(): number {
  * opening it sends the "fill this product from its source" task, approvals show up here as Accept / Deny, and the
  * conversation is a normal Aladin conversation, so it is in the AI chat history. Drag its left edge to resize.
  */
-export function AiProductDrawer({
+class DrawerBoundary extends React.Component<{ children: React.ReactNode; onClose: () => void }, { error: string | null }> {
+  state = { error: null as string | null };
+  static getDerivedStateFromError(e: unknown) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <aside className="fixed inset-y-0 right-0 z-[400] w-[420px] max-w-[100vw] border-l border-border bg-background p-4 text-sm shadow-2xl">
+        <p className="font-semibold">The chat drawer hit an error</p>
+        <p className="mt-2 break-words text-xs text-muted-foreground">{this.state.error}</p>
+        <Button className="mt-3" size="sm" onClick={this.props.onClose}>Close</Button>
+      </aside>
+    );
+  }
+}
+
+export function AiProductDrawer(props: Parameters<typeof AiProductDrawerInner>[0]) {
+  return (
+    <DrawerBoundary key={props.product?.id ?? "none"} onClose={props.onClose}>
+      <AiProductDrawerInner {...props} />
+    </DrawerBoundary>
+  );
+}
+
+function AiProductDrawerInner({
   product,
   onClose,
   onChanged,
@@ -64,6 +89,7 @@ export function AiProductDrawer({
       setStatus("Thinking…");
       const ctl = new AbortController();
       abortRef.current = ctl;
+      let filled = false;
       try {
         await streamAiChat(
           { message: t, conversation_id: convoRef.current ?? undefined, reply_language: "auto" },
@@ -82,7 +108,7 @@ export function AiProductDrawer({
               setStatus("Thinking…");
               const st = output && typeof output === "object" ? (output as { status?: unknown }).status : undefined;
               setMessages((m) => m.map((x) => (x.id === aid ? { ...x, approval: st === "preview" } : x)));
-              if (st === "filled") onChanged?.();
+              if (st === "filled") filled = true;
             },
           },
           ctl.signal,
@@ -99,6 +125,7 @@ export function AiProductDrawer({
         setSending(false);
         setStatus(null);
         abortRef.current = null;
+        if (filled) window.setTimeout(() => onChanged?.(), 300);
       }
     },
     [sending, onChanged],

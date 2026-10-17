@@ -21,6 +21,7 @@ export default function RootError({ error, reset }: Props) {
         The page failed to load. If this keeps happening, restart the dev server and clear the
         `.next` cache.
       </p>
+      {error?.message ? <p className="max-w-md break-words text-xs text-muted-foreground">{error.message}</p> : null}
       <div className="flex flex-wrap justify-center gap-2">
         <Button onClick={reset}>Try again</Button>
         <Button asChild variant="outline">
