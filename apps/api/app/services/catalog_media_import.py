@@ -285,3 +285,35 @@ def import_catalog_images(
         db.rollback()
 
     return CatalogImportImagesResponse(items=items, failed=failed, reused=reused, warnings=warnings)
+
+
+def drop_replaced_media(db: Session, *, owner, old_ids: list[str]) -> int:
+    """After a re-import the product's NEW images are linked; the ones it had before (a different crop, a cached copy,
+    an earlier run) are replaced, not kept: each old media row that came from a URL import, is no longer linked to this
+    product, and is used by nothing else (no other product / listing, not inside any description) is removed together
+    with its file. Anything doubtful stays."""
+    from app.models.catalog_product import CatalogProduct
+    from app.models.catalog_product_media import CatalogProductMedia
+    from app.models.ecommerce_item_media import EcommerceItemMedia
+    from app.routers.media import _delete_media_row
+
+    keep = {l.media_id for l in db.query(CatalogProductMedia).filter(CatalogProductMedia.product_id == owner.id).all()}
+    removed = 0
+    for mid in set(old_ids) - keep:
+        m = db.get(Media, mid)
+        if m is None or m.imported_by != "url":
+            continue
+        if db.query(CatalogProductMedia).filter(CatalogProductMedia.media_id == mid).first():
+            continue
+        if db.query(EcommerceItemMedia).filter(EcommerceItemMedia.media_id == mid).first():
+            continue
+        stored = (m.url or "").rsplit("/", 1)[-1]
+        if stored and db.query(CatalogProduct.id).filter(
+            CatalogProduct.description.like(f"%{stored}%") | CatalogProduct.short_description.like(f"%{stored}%")
+        ).first():
+            continue
+        _delete_media_row(m, db)
+        removed += 1
+    if removed:
+        db.commit()
+    return removed

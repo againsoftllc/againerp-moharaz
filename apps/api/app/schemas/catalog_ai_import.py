@@ -42,6 +42,10 @@ class ProductDraft(BaseModel):
     # can sit in several at once — category_name stays the single best/primary one.
     category_names: List[str] = Field(default_factory=list)
     price: Optional[Decimal] = Field(default=None, ge=0)
+    # the old / regular price when the page shows an offer (price is then the offer price)
+    compare_at_price: Optional[Decimal] = Field(default=None, ge=0)
+    # the source's availability: in_stock | out_of_stock | pre_order | coming_soon
+    stock_status: Optional[str] = Field(default=None, max_length=20)
     currency: str = "BDT"
     warranty: Optional[str] = Field(default=None, max_length=200)
     origin: Optional[str] = Field(default=None, max_length=200)

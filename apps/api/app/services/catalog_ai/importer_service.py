@@ -229,6 +229,32 @@ def extract_from_url(
             if warranty:
                 draft = draft.model_copy(update={"warranty": warranty[:200]})
 
+    # Price, offer and availability straight from the page, read the way Price Compare reads it (a shop with its own
+    # price pattern — Star Tech, Ryans, Techland — is exact). With an offer on the page the OFFER price is the price and
+    # the old / regular price becomes compare-at; the source's stock status is the product's.
+    try:
+        from app.services.plugins import price_update_service as pus
+
+        key = pus._pattern_key(page.url, pus.SOURCE_ID)
+        read = pus._read_page(page, key)
+        upd: dict = {}
+        if read.price and (key != pus.SOURCE_ID or not draft.price):
+            upd["price"] = Decimal(str(read.price))
+        price_now = upd.get("price", draft.price)
+        if read.regular_price and price_now and Decimal(str(read.regular_price)) > Decimal(str(price_now)):
+            upd["compare_at_price"] = Decimal(str(read.regular_price))
+        if read.in_stock is not None:
+            label = (read.stock_label or "").lower().replace("-", " ")
+            upd["stock_status"] = (
+                "pre_order" if "pre" in label and "order" in label
+                else "coming_soon" if "coming" in label or "up coming" in label
+                else "in_stock" if read.in_stock else "out_of_stock"
+            )
+        if upd:
+            draft = draft.model_copy(update=upd)
+    except Exception:  # noqa: BLE001 - a price read must never fail the import
+        pass
+
     # Rule A10 (docs/AI/product-upload.md): with a `catalog.product.description` preset the description is WRITTEN
     # (original, >= 300 words, keyphrase in the first paragraph, 2 h2 + 3 h3) and checked — not copied from the page.
     try:
@@ -508,13 +534,14 @@ def create_product_from_draft(
         description=content_html.paragraphs_html(description),
         short_description=content_html.list_html(short_description),
         price=draft.price or Decimal("0"),
+        compare_at_price=draft.compare_at_price,
         status=payload.status,
         product_type="variable" if is_variable else "simple",
         brand_id=brand_id,
         category_id=category_id,
         warranty=draft.warranty,
         origin=draft.origin,
-        stock_status="in_stock",
+        stock_status=draft.stock_status or "in_stock",
         track_quantity=False,
         seo_title=_sanitize_description(draft.seo_title, seller_name=draft.seller_site_name, source_url=draft.source_url, our_company=our_company),
         seo_description=_sanitize_description(draft.seo_description, seller_name=draft.seller_site_name, source_url=draft.source_url, our_company=our_company),
@@ -548,6 +575,7 @@ def create_product_from_draft(
         for key, value in data.items():
             if key not in keep and value is not None:
                 setattr(row, key, value)
+        row.compare_at_price = draft.compare_at_price  # replaced, or cleared when the offer is over
         db.flush()
     else:
         row = CatalogProduct(**data)
@@ -576,6 +604,11 @@ def create_product_from_draft(
     db.commit()
     db.refresh(row)
 
+    prev_media_ids: list[str] = []
+    if existing is not None:
+        from app.models.catalog_product_media import CatalogProductMedia as _CPM
+
+        prev_media_ids = [l.media_id for l in db.query(_CPM).filter(_CPM.product_id == row.id).all()]
     url_to_media_id: dict[str, str] = {}
     if payload.import_images and draft.images:
         variant_image_urls = [v.image for v in draft.variants if v.image and v.image not in draft.images]
@@ -616,6 +649,10 @@ def create_product_from_draft(
     EcommerceItemService(db).sync_content_from_catalog(row, mirror_publish=(row.status == "published"))
     db.commit()
     db.refresh(row)
+    if prev_media_ids:
+        from app.services.catalog_media_import import drop_replaced_media
+
+        drop_replaced_media(db, owner=row, old_ids=prev_media_ids)
 
     if is_variable:
         variants = [

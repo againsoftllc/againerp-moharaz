@@ -11,6 +11,8 @@ export type ProductDraft = {
   brand_name?: string | null;
   category_name?: string | null;
   price?: string | number | null;
+  compare_at_price?: string | number | null;
+  stock_status?: string | null;
   currency: string;
   warranty?: string | null;
   images: string[];
