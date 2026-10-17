@@ -111,6 +111,8 @@ def _catalog_context(
         else:
             rules.pop(target, None)
     return CatalogContext(
+        skip_description="catalog.product.description" in rules,
+        has_short_rule="catalog.product.short_description" in rules,
         categories=sorted({label(c) for c in cats}),
         brands=sorted({b.name for b in _catalog_brands(db, company_id).all()}),
         warranties=sorted(set(warranties)),
@@ -305,6 +307,20 @@ def extract_from_url(
         crumb_cat = None
     if crumb_cat:
         draft = draft.model_copy(update={"category_name": crumb_cat, "category_names": []})
+
+    # No specification profile for this category yet: read the source shop's filters for it (its category page), so the
+    # profile can be created with them.
+    try:
+        if draft.specifications and crumb_cat:
+            if spec_profile_service.find_profile(db, category_names=[crumb_cat]) is None:
+                links = {str(l.get("name")).strip().lower(): l.get("url") for l in (page.structured.get("breadcrumb_links") or [])}
+                cat_url = links.get(crumb_cat.strip().lower())
+                if cat_url:
+                    from app.services.catalog_ai.scraper import fetch_category_filters
+
+                    draft = draft.model_copy(update={"source_filters": fetch_category_filters(cat_url)})
+    except Exception:  # noqa: BLE001 - filters are a bonus
+        pass
 
     warnings: list[str] = []
     matched_brand_id = None
@@ -536,7 +552,11 @@ def _variant_attributes_json(draft: ProductDraft) -> Optional[str]:
 
 
 def create_product_from_draft(
-    db: Session, payload: CatalogAiCreateRequest, user: AuthUser, existing: Optional[CatalogProduct] = None
+    db: Session,
+    payload: CatalogAiCreateRequest,
+    user: AuthUser,
+    existing: Optional[CatalogProduct] = None,
+    create_spec_profile: bool = False,
 ) -> CatalogProduct:
     """Create the catalog product from a draft — or, with `existing`, fill that product in place (its id, SKU, slug,
     status and Price Compare links stay; every field the draft carries is written onto it)."""
@@ -718,7 +738,9 @@ def create_product_from_draft(
     # profile the specs stay as custom specs; creating a profile needs the user's approval
     # (add_product_specs chat tool), so it never happens silently here.
     if draft.specifications:
-        spec_profile_service.apply_from_source(db, company_id, row, spec_profile_service.specs_from_draft(draft))
+        spec_profile_service.apply_from_source(db, company_id, row, spec_profile_service.specs_from_draft(draft), replace=existing is not None,
+            create_profile_if_missing=create_spec_profile, source_filters=draft.source_filters,
+        )
         db.refresh(row)
 
     # Focus keyphrase / meta title / meta description — the page's own SEO tags are the

@@ -186,6 +186,33 @@ def _system_prompt(
     return "\n\n".join(parts)
 
 
+_SCOPE_TOOLS = {"product_fill": {"fill_product_from_source", "add_product_seo", "add_product_specs", "update_product"}}
+_SCOPE_PROMPT = (
+    "You are Aladin, the AI assistant of AgainERP, working on ONE catalog product in the product drawer. Do what the user "
+    "asks with the tools given; never invent data. To fill a draft product from its source link CALL "
+    "fill_product_from_source (product id given) WITHOUT confirm - it does the whole job; only when it returns "
+    "status=preview (a new brand/category must be created) show what it says and ask the user to approve, then call it "
+    "again with confirm=true after they say yes. For SEO use add_product_seo, for specifications add_product_specs, for "
+    "any other change update_product - each WITHOUT confirm first, then confirm=true only after the user agrees to that "
+    "preview. After a tool succeeds reply in 3-6 short lines (what was filled, anything that needs a look) and link the "
+    "product with the tool's doc_link, e.g. [Open product](doc://product/ID) - use that value exactly. Amounts are BDT."
+)
+
+
+def _scoped_tools(tools: list, scope: Optional[str]) -> list:
+    names = _SCOPE_TOOLS.get(scope or "")
+    return [t for t in tools if t.definition.name in names] if names else tools
+
+
+def _system_for(db: Session, *, company_id: str, user: AuthUser, payload: "ChatRequest") -> str:
+    if payload.scope in _SCOPE_TOOLS:
+        lang = (payload.reply_language or "auto").lower()
+        if lang not in ("bn", "en", "banglish"):
+            lang = _detect_language(payload.message)
+        return f"{_SCOPE_PROMPT}\n\n{LANGUAGE_RULES[lang]}"
+    return _system_prompt(db, company_id=company_id, user=user, language=payload.reply_language, message=payload.message)
+
+
 def _readable_preset_modules(db: Session, user: AuthUser) -> set[str]:
     """Module presets only reach the prompt of users who may read that module."""
     from app.services.rbac import has_permission, is_system_manager
@@ -248,6 +275,9 @@ class ChatRequest(BaseModel):
     reply_language: Optional[str] = Field(default=None, pattern="^(auto|bn|en|banglish)$")
     # Images (vision) and documents (PDF / Excel / CSV / text → extracted text), base64 inline.
     attachments: list[AttachmentIn] = Field(default_factory=list)
+    # A narrow chat (the product drawer): only the few tools that job needs and a short prompt, instead of all ~47 tools
+    # and the full ERP data map on every model call (~13k input tokens per call).
+    scope: Optional[str] = Field(default=None, pattern="^product_fill$")
 
 
 LANGUAGE_RULES = {
@@ -379,7 +409,7 @@ def chat(
 
     provider = _chat_provider(db, user.company_id)
     model_id = getattr(provider, "default_model", None) or get_settings().ai_default_model
-    tools = build_tools(token, db=db, company_id=user.company_id, user=user)
+    tools = _scoped_tools(build_tools(token, db=db, company_id=user.company_id, user=user), payload.scope)
     tools = apply_user_value_guard(
         tools, user_texts=[m.content for m in history if m.role == "user" and isinstance(m.content, str)][-10:] + [payload.message]
     )
@@ -387,7 +417,7 @@ def chat(
     orchestrator = Orchestrator(
         provider,
         tools,
-        system=_system_prompt(db, company_id=user.company_id, user=user, language=payload.reply_language, message=payload.message),
+        system=_system_for(db, company_id=user.company_id, user=user, payload=payload),
         max_steps=6,
         enable_web_search=payload.enable_web_search,
     )
@@ -491,7 +521,7 @@ def chat_stream(
     history = load_history(db, convo.id)
     provider = _chat_provider(db, user.company_id)
     model_id = getattr(provider, "default_model", None) or get_settings().ai_default_model
-    tools = build_tools(token, db=db, company_id=user.company_id, user=user)
+    tools = _scoped_tools(build_tools(token, db=db, company_id=user.company_id, user=user), payload.scope)
     tools = apply_user_value_guard(
         tools, user_texts=[m.content for m in history if m.role == "user" and isinstance(m.content, str)][-10:] + [payload.message]
     )
@@ -499,7 +529,7 @@ def chat_stream(
     orchestrator = Orchestrator(
         provider,
         tools,
-        system=_system_prompt(db, company_id=user.company_id, user=user, language=payload.reply_language, message=payload.message),
+        system=_system_for(db, company_id=user.company_id, user=user, payload=payload),
         max_steps=6,
         enable_web_search=payload.enable_web_search,
     )

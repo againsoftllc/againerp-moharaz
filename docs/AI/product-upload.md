@@ -121,15 +121,14 @@ Auto-select the country of origin when it is stated or detectable; **otherwise l
 
 | Rule | Today |
 |------|-------|
-| **Match the source spec table to a specification profile** of ours and select that profile | ✅ the category's profile, else the profile the source table matches (>= 3 label hits) |
-| Fill the **common attributes** (those the profile has) | ✅ values mapped by the AI; existing values are never overwritten |
-| Attributes that are **not** in the profile are kept **only for this product** as **custom attributes** | 🟡 custom specs stored; shown as "this product only" |
-| **Never drop an attribute** — everything on the source table is taken | 🟡 verify no row is lost in mapping |
-| **Keep the source order** of the attributes / groups | 🟡 verify |
-| Check which **filters** the product belongs to (filterable attributes) and **select them automatically** | 🟡 filter values are set through the filterable attribute |
-| When a needed filter option does not exist yet, **add the predefined value** — filters are attributes, so options must stay clean and consistent | ✅ import adds it for filterable attributes (chat tool still previews first) |
+| **The profile is the product type's, chosen by its CATEGORY** (Router → the Router profile). A table-based guess is used only for a product with no category | ✅ |
+| Fill the **common attributes** (those the profile has) | ✅ exact label match; the model only decides filter / dropdown fields |
+| Attributes that are **not** in the profile are kept **only for this product** as **custom attributes**, in source order, nothing dropped | ✅ |
+| **No profile for the category yet** → create it **from the source table**: its attributes = exactly the source's attributes (source groups and order), nothing else; creating it needs the admin's approval (shown in the drawer's Accept / Deny with the new brand / category) | ✅ |
+| **Filters come from the source shop**: the filters on the source's category page (Wi-Fi Standard, Number of Bands, …) become filterable attributes of the new profile, options written as the shop writes them; a filter that names the same thing as a source attribute is put on that attribute, the others become attributes in a "Filters" group filled from the page. Multi-value "Additional Features" filters are skipped | ✅ (Star Tech `.filter-group`) |
+| When a needed filter option does not exist yet, **add the predefined value** in the style of the existing options | ✅ import adds it for filterable attributes |
+| A profile that barely matches the source (< 50 % of the rows) is used with exact label matches only - no guessing | ✅ |
 | Attribute data can be **modified** later but **not restructured** (the filter system depends on them) | ✅ |
-| No profile for the category → propose one; creating it needs approval | ✅ |
 
 ## A12. Product type and variants
 
@@ -144,6 +143,25 @@ their images; check prices / SKUs per variant.
 | Focus keyphrase | auto, brand + model as shoppers search it (2–5 words, lowercase) | ✅ |
 | Meta title | auto, SEO friendly, **include "Price in BD" or "Price in Bangladesh"**, max ~60 chars | ✅ preset `catalog.product.seo` saved (the default rule is overridden) |
 | Meta description | auto, SEO friendly, written to rank (key specs, benefit, call to action, 150–155 chars) | ✅ |
+
+### SEO checklist (the product's SEO score — every item must pass)
+
+The admin's SEO panel scores each product out of 100. The import writes the fields so that **all of these pass**; after the model has written them the code checks each one and corrects it when it does not hold (`seo_writer.enforce_checklist`).
+
+| Group | Check | Pts | Rule the AI follows |
+|-------|-------|-----|---------------------|
+| Keyphrase | Focus keyphrase is set | 5 | brand + model, 2–5 words, lowercase |
+| Keyphrase | **Keyphrase in meta title** | 8 | the meta title **starts with** the keyphrase |
+| Keyphrase | Keyphrase in meta description | 7 | the meta description contains it |
+| Keyphrase | **Keyphrase in URL slug** | 5 | the keyphrase is chosen so its hyphenated form is inside the slug (the slug comes from the product name and is not changed) |
+| Keyphrase | Keyphrase in product description | 5 | already in the first paragraph; added there if missing |
+| Meta | Meta title is set / length | 5 + 10 | **30–60 characters**, ends with “Price in BD” |
+| Meta | Meta description is set / length | 5 + 10 | **120–160 characters** (aim 150–155), key specs + call to action |
+| Content | Product description is set | 10 | ≥ 300 words (A10) |
+| Content | Short description is set | 5 | 4 bullets (A9) |
+| Content | Product has images | 10 | all source images (A1) |
+| Technical | URL slug is set / readable | 5 + 5 | lowercase, hyphens (A3) |
+| Technical | Product category is assigned | — | the source's category (A4) |
 
 ## A14. What needs the admin's approval (summary)
 

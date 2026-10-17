@@ -57,6 +57,9 @@ class ProductDraft(BaseModel):
     seo_title: Optional[str] = Field(default=None, max_length=255)
     seo_description: Optional[str] = None
     source_url: Optional[str] = None
+    # the source shop's own filters for this product's category ([{title, options}]) - read only when our catalog has no
+    # specification profile for the category yet, to build one with its filters
+    source_filters: list[dict] = Field(default_factory=list)
     confidence_notes: Optional[str] = None
 
 

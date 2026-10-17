@@ -75,6 +75,8 @@ export async function streamAiChat(
     conversation_id?: string;
     enable_web_search?: boolean;
     reply_language?: "auto" | "bn" | "en" | "banglish";
+    /** A narrow chat (few tools, short prompt) — the product drawer sends "product_fill". */
+    scope?: "product_fill";
     /** Images (vision) and documents (PDF/Excel/CSV/text), base64 without the data: prefix. */
     attachments?: { name: string; mime: string; data: string; size?: number }[];
   },

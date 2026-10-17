@@ -91,6 +91,59 @@ def _extract_breadcrumb(soup: BeautifulSoup, json_ld: list[dict]) -> list[str]:
     return []
 
 
+def _extract_breadcrumb_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
+    """[{name, url}] of the page's breadcrumb (html .breadcrumb links; the last, current item has no link)."""
+    node = soup.select_one(".breadcrumb, nav.breadcrumb, [itemtype*=BreadcrumbList]")
+    out: list[dict] = []
+    if node is not None:
+        for a in node.find_all("a"):
+            name = a.get_text(" ", strip=True)
+            href = a.get("href") or ""
+            if name and href and not href.startswith("#"):
+                out.append({"name": name, "url": urljoin(base_url, href)})
+    return out
+
+
+_FILTER_SKIP = {"availability", "brand", "price", "category", "status", "sort"}
+
+
+def parse_category_filters(html: str) -> list[dict]:
+    """The shop's own filters on a category listing: [{title, options}] (Star Tech `.filter-group`: a title and
+    `label.filter` options). Availability / brand / price are left out - they are not specification filters."""
+    soup = BeautifulSoup(html, "html.parser")
+    out: list[dict] = []
+    for grp in soup.select(".filter-group"):
+        title_el = grp.select_one(".filter-title, h3, h4, .title") or grp
+        title = re.sub(r"\s+", " ", title_el.get_text(" ", strip=True)).strip()
+        opts: list[str] = []
+        for lab in grp.select("label.filter, label"):
+            txt = re.sub(r"\s+", " ", lab.get_text(" ", strip=True)).strip()
+            txt = re.sub(r"\s*\(\d+\)\s*$", "", txt)  # a trailing product count
+            if txt and txt.lower() != title.lower() and txt not in opts:
+                opts.append(txt[:100])
+        if title.lower().split(" ")[0] in _FILTER_SKIP:
+            continue
+        if title.lower() in _FILTER_SKIP:
+            continue
+        # a title taken from the whole group also holds the options text - cut it off
+        for o in reversed(opts):
+            if title.endswith(o):
+                title = title[: -len(o)].strip()
+        if len(opts) >= 2 and 0 < len(title) <= 60:
+            out.append({"title": title, "options": opts[:40]})
+    return out
+
+
+def fetch_category_filters(url: str, *, timeout: float = 20.0) -> list[dict]:
+    """Filters of a source category page (best effort: [] on any problem)."""
+    try:
+        resp = httpx.get(url, headers={"User-Agent": USER_AGENT}, follow_redirects=True, timeout=timeout)
+        resp.raise_for_status()
+        return parse_category_filters(resp.text)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 _SIZE_SUFFIX_RE = re.compile(r"[-_](\d{2,4})x(\d{2,4})(?=\.[a-zA-Z]{2,4}$)")
 
 
@@ -669,6 +722,7 @@ def fetch_page(url: str, *, timeout: float = FETCH_TIMEOUT) -> ScrapedPage:
     json_ld = _extract_json_ld(soup)
     structured = structured_product(soup, json_ld, title, str(response.url))
     structured["breadcrumb"] = _extract_breadcrumb(soup, json_ld)
+    structured["breadcrumb_links"] = _extract_breadcrumb_links(soup, str(response.url))
     # The product's own gallery block (found from its main photo), then its declared photos,
     # then whatever else the page shows.
     page_images = _extract_images(soup, str(response.url))

@@ -315,6 +315,12 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
         focus_keyphrase = given["focus_keyphrase"] or written.get("focus_keyphrase") or fallback["focus_keyphrase"]
         meta_title = given["meta_title"] or written.get("meta_title") or fallback["meta_title"]
         meta_description = given["meta_description"] or written.get("meta_description") or fallback["meta_description"]
+        fixed = seo_writer.enforce_checklist(
+            product, {"focus_keyphrase": focus_keyphrase, "meta_title": meta_title, "meta_description": meta_description}, touch_description=False
+        )  # the SEO checklist (docs/AI/product-upload.md A13); what the user typed exactly is kept
+        focus_keyphrase = given["focus_keyphrase"] or fixed["focus_keyphrase"]
+        meta_title = given["meta_title"] or fixed["meta_title"]
+        meta_description = given["meta_description"] or fixed["meta_description"]
         summary = {
             "action": "Set SEO fields",
             "product": {"id": product.id, "name": product.name},
@@ -520,11 +526,20 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
             new_things.append(f"brand '{d.brand_name}'")
         if d.category_name and not extracted.matched_category_id:
             new_things.append(f"category '{d.category_name}'")
+        has_specs = bool(spec_profile_service.spec_item_count(spec_profile_service.specs_from_draft(d)))
+        cat_for_profile = d.category_name or row.category
+        needs_profile = bool(
+            has_specs and cat_for_profile and spec_profile_service.find_profile(db, category_names=[cat_for_profile]) is None  # type: ignore[arg-type]
+        )
+        if needs_profile:
+            n_attr = spec_profile_service.spec_item_count(spec_profile_service.specs_from_draft(d))
+            n_flt = len(d.source_filters or [])
+            new_things.append(f"specification profile '{cat_for_profile}' ({n_attr} attributes from the source" + (f", {n_flt} filters from the source shop" if n_flt else "") + ")")
         if new_things and not confirming:
             _cache_set(url, extracted)
             return {
                 "status": "preview",
-                "needs_approval": f"This will create a new {' and '.join(new_things)}. Ask the user to approve (or to pick an existing one).",
+                "needs_approval": f"This will create: {', '.join(new_things)}. Ask the user to approve (or to pick an existing one).",
                 "product": {"id": row.id, "name": row.name},
                 "note": CONFIRM_NOTE,
             }
@@ -540,7 +555,7 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
             status=row.status if row.status in ("draft", "published") else "draft",
         )
         try:
-            row = create_product_from_draft(db, payload, user, existing=row)  # type: ignore[arg-type]
+            row = create_product_from_draft(db, payload, user, existing=row, create_spec_profile=needs_profile)  # type: ignore[arg-type]
         except HTTPException as exc:
             db.rollback()  # type: ignore[union-attr]
             return {"error": exc.detail}

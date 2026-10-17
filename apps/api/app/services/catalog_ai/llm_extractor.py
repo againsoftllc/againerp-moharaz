@@ -33,6 +33,10 @@ class CatalogContext:
     warranties: list[str] = field(default_factory=list)
     # Admin preset rules for the fields this extraction fills (preset_service.field_rules_block).
     rules: str = ""
+    # the description is WRITTEN afterwards (catalog.product.description preset): the model need not copy it
+    skip_description: bool = False
+    # a short-description preset is active (then the model writes it; otherwise the page's highlights block is used)
+    has_short_rule: bool = False
 
 EXTRACT_TOOL_NAME = "extract_product"
 
@@ -161,29 +165,60 @@ EXTRACT_TOOL_SCHEMA = {
 }
 
 
-def _context_block(context: Optional[CatalogContext]) -> str:
+def _context_block(context: Optional[CatalogContext], hint: str = "") -> str:
     if context is None:
         return ""
 
     def listing(items: list[str], limit: int) -> str:
         return "\n".join(f"- {x}" for x in items[:limit]) or "(none yet)"
 
+    def relevant(items: list[str], hint: str, cap: int) -> list[str]:
+        """Only the entries that share a word with the page's title / breadcrumb / start of text - the full lists
+        (hundreds of names) were resent on every import."""
+        words = {w for w in re.findall(r"[a-z0-9]{3,}", hint.lower())}
+        hit = [x for x in items if words & set(re.findall(r"[a-z0-9]{3,}", x.lower()))]
+        return (hit or items)[:cap]
+
     rules = f"\n\n{context.rules}\n" if context.rules else ""
     return f"""{rules}
 
 OUR existing categories (Parent > Child) — pick every one that fits for category_names:
-{listing(context.categories, 400)}
+{listing(relevant(context.categories, hint, 40), 40)}
 
-OUR existing brands:
-{listing(context.brands, 400)}
+OUR existing brands (use one of these exact names when it is the product's brand):
+{listing(relevant(context.brands, hint, 12), 12)}
 
 OUR existing warranty options:
 {listing(context.warranties, 100)}
 """
 
 
+def _skip_fields(page: ScrapedPage, context: Optional[CatalogContext]) -> set[str]:
+    """Fields the model does not have to produce because the code gets them anyway (output tokens are the dear ones):
+    the spec table and the highlights block are parsed from the HTML, the description is written afterwards."""
+    skip: set[str] = set()
+    if sum(len(g.get("items") or []) for g in page.spec_groups or []) >= 3:
+        skip.add("specifications")
+    if page.highlights and not (context and context.has_short_rule):
+        skip.add("short_description")
+    if context and context.skip_description:
+        skip.add("description")
+    return skip
+
+
+def _schema_for(page: ScrapedPage, context: Optional[CatalogContext]) -> dict:
+    schema = json.loads(json.dumps(EXTRACT_TOOL_SCHEMA["input_schema"]))
+    for k in _skip_fields(page, context):
+        schema["properties"].pop(k, None)
+    return schema
+
+
 def _build_prompt(page: ScrapedPage, context: Optional[CatalogContext] = None) -> str:
-    json_ld_excerpt = str(page.json_ld)[:3000] if page.json_ld else "(none found)"
+    # the machine-readable product data is already given below in `structured`; JSON-LD would repeat it
+    json_ld_excerpt = "(see the product data above)" if page.structured else (str(page.json_ld)[:3000] if page.json_ld else "(none found)")
+    slim = bool(_skip_fields(page, context))
+    page_text = page.text[:10000] if slim else page.text
+    hint = " ".join([page.title or "", " ".join(page.structured.get("breadcrumb") or []) if page.structured else "", page.text[:1500]])
     structured = {k: (str(v) if k == "price" else v) for k, v in (page.structured or {}).items()}
     structured_text = json.dumps(structured, ensure_ascii=False, default=str)[:5000] if structured else "(none found)"
     images_list = "\n".join(f"- {u}" for u in page.image_urls[:20]) or "(none found)"
@@ -204,8 +239,8 @@ Candidate image URLs found on page (pick the real product photos, skip logos/ico
 {images_list}
 
 Visible page text (truncated):
-{page.text}
-{_context_block(context)}
+{page_text}
+{_context_block(context, hint)}
 Call {EXTRACT_TOOL_NAME} with the product data. Leave fields out entirely if genuinely not present on the page — do not invent data. `description` and `short_description` must be copied VERBATIM from the page text above — the exact same wording the page uses, not your own summary or rewrite of it. For images, return only URLs copied exactly from the candidate list above — the list has already been de-duplicated, so treat each URL as a distinct photo. Only fill 'variants' when the page genuinely offers multiple selectable options for this same product; a single-option product should have no variants at all."""
 
 
@@ -248,7 +283,7 @@ def _extract_with_openai(page: ScrapedPage, api_key: str, context: Optional[Cata
     try:
         data = OpenAIProvider(api_key=api_key).structured_output(
             [AIMessage(role="user", content=_build_prompt(page, context))],
-            EXTRACT_TOOL_SCHEMA["input_schema"],
+            _schema_for(page, context),
             system="You extract product data from scraped web pages into the given JSON schema.",
         )
     except ProviderError as exc:
@@ -287,7 +322,7 @@ def extract_product_draft(
         message = client.messages.create(
             model=settings.ai_catalog_import_model,
             max_tokens=4096,
-            tools=[EXTRACT_TOOL_SCHEMA],
+            tools=[{**EXTRACT_TOOL_SCHEMA, "input_schema": _schema_for(page, context)}],
             tool_choice={"type": "tool", "name": EXTRACT_TOOL_NAME},
             messages=[{"role": "user", "content": _build_prompt(page, context)}],
         )

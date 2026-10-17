@@ -555,17 +555,19 @@ export function ProductSpecEditor({ initialProfileId, initialValues, initialCust
       )}
 
       {/* Tree */}
-      {!profileId ? (
+      {!profileId && customGroups.length === 0 ? (
         <p className="py-4 text-center text-xs text-muted-foreground">Select a profile to add specifications</p>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div className="rounded-none border border-input text-sm">
             {/* Profile header */}
+            {profileId ? (
             <div className="flex items-center gap-1.5 border-b border-input bg-muted/40 px-2 py-1">
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               <Layers className="h-3.5 w-3.5 text-primary" />
               <span className="text-xs font-semibold">{profiles.find((p) => p.id === profileId)?.name}</span>
             </div>
+            ) : null}
 
             <SortableContext items={effectiveGroupOrder} strategy={verticalListSortingStrategy}>
               {orderedGroups.map((group) => {

@@ -69,7 +69,7 @@ def _facts(draft: ProductDraft, source_text: str) -> str:
     head = "\n".join(f"{k}: {v}" for k, v in lines if v)
     return (
         f"{head}\n\nSpecifications:\n{specs or '(none)'}\n\nKey points from the page:\n{draft.short_description or '(none)'}"
-        f"\n\nSource description (facts only — do not copy its sentences):\n{source_text[:3500] or '(none)'}"
+        f"\n\nSource description (facts only — do not copy its sentences):\n{source_text[:2500] or '(none)'}"
     )
 
 
