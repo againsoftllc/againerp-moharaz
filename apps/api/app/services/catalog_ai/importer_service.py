@@ -596,6 +596,27 @@ def create_product_from_draft(
                 db.commit()
                 db.refresh(row)
 
+    # Never keep another site's image address on our product (it would be hot-linked by the admin grid / editor and is
+    # not ours to serve): the gallery and thumbnail are OUR media urls, in source order — or empty when none was stored.
+    try:
+        from app.models.catalog_product_media import CatalogProductMedia
+        from app.models.media import Media
+
+        own = [
+            m.url
+            for link in db.query(CatalogProductMedia).filter(CatalogProductMedia.product_id == row.id).order_by(CatalogProductMedia.sort_order).all()
+            for m in [db.get(Media, link.media_id)]
+            if m is not None and m.url
+        ]
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        own = []
+    row.gallery_json = json.dumps(own) if own else None
+    row.thumbnail = own[0] if own else None
+    EcommerceItemService(db).sync_content_from_catalog(row, mirror_publish=(row.status == "published"))
+    db.commit()
+    db.refresh(row)
+
     if is_variable:
         variants = [
             VariantUpsert(

@@ -972,7 +972,8 @@ def _detail_from_ec(view, ec: EcommerceItem, db: Session) -> StorefrontProductDe
         ),
         video_urls=_load_video_urls(db, ec.catalog_product_id),
         seller_info=seller_info,
-        source_url=source_url,
+        # the page the product was copied from is the shop's own business: never part of the public product response
+        source_url=None,
         variants=variants,
         sales_volume=sales_volume,
         rating=rating,
