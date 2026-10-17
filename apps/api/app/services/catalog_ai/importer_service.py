@@ -622,7 +622,7 @@ def create_product_from_draft(
         row._image_warnings = list(result.warnings)  # type: ignore[attr-defined]
         row._images_reused = result.reused  # type: ignore[attr-defined]
         if result.items:
-            url_to_media_id = {m.source_url: m.id for m in result.items if getattr(m, "source_url", None)}
+            url_to_media_id = dict(result.url_map) or {m.source_url: m.id for m in result.items if getattr(m, "source_url", None)}
             base_media_ids = [url_to_media_id[u] for u in draft.images if u in url_to_media_id]
             if base_media_ids:
                 _replace_media(db, row, base_media_ids)

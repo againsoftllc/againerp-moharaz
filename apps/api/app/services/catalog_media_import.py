@@ -55,6 +55,9 @@ class CatalogImportImagesResponse(BaseModel):
     failed: list[CatalogImportImageFailure] = Field(default_factory=list)
     # images that were already in their slot (same source) and were left alone: nothing downloaded, nothing stored
     reused: int = 0
+    # the URL that was asked for -> the media row that now holds it (the stored copy comes from the ORIGINAL url, so
+    # source_url may differ from what the page linked)
+    url_map: dict[str, str] = Field(default_factory=dict)
     # images that need a look: low resolution, odd proportions (nothing is edited automatically)
     warnings: list[str] = Field(default_factory=list)
 
@@ -261,6 +264,7 @@ def import_catalog_images(
     failed: list[CatalogImportImageFailure] = []
     warnings: list[str] = []
     reused = 0
+    url_map: dict[str, str] = {}
 
     for position, raw_url in enumerate(payload.urls, start=1):
         url = str(raw_url)
@@ -276,6 +280,7 @@ def import_catalog_images(
             if getattr(row, "_image_note", None):
                 warnings.append(f"{row.name}: {row._image_note}")
             items.append(MediaRead.model_validate(row))
+            url_map[url] = row.id
         except Exception as exc:
             failed.append(CatalogImportImageFailure(url=url, reason=str(exc)))
 
@@ -284,7 +289,7 @@ def import_catalog_images(
     else:
         db.rollback()
 
-    return CatalogImportImagesResponse(items=items, failed=failed, reused=reused, warnings=warnings)
+    return CatalogImportImagesResponse(items=items, failed=failed, reused=reused, warnings=warnings, url_map=url_map)
 
 
 def drop_replaced_media(db: Session, *, owner, old_ids: list[str]) -> int:
