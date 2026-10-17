@@ -31,6 +31,7 @@ def _classify_filename(filename: str, mime: str) -> str:
 
 
 SQUARE_PX = 500
+MAX_BYTES = 100 * 1024  # no stored product image is bigger than 100 KB
 # the size marker a storefront adds to a resized copy: ".../name-500x500.webp", ".../name_300x300.jpg"
 _SIZE_SUFFIX = re.compile(r"[-_]\d{2,4}x\d{2,4}(?=\.[A-Za-z0-9]+$)")
 
@@ -52,6 +53,10 @@ class CatalogImportImageFailure(BaseModel):
 class CatalogImportImagesResponse(BaseModel):
     items: list[MediaRead] = Field(default_factory=list)
     failed: list[CatalogImportImageFailure] = Field(default_factory=list)
+    # images that were already in their slot (same source) and were left alone: nothing downloaded, nothing stored
+    reused: int = 0
+    # images that need a look: low resolution, odd proportions (nothing is edited automatically)
+    warnings: list[str] = Field(default_factory=list)
 
 
 def _filename_from_url(url: str, content_type: str) -> str:
@@ -105,16 +110,35 @@ def to_square(content: bytes, side: int = SQUARE_PX) -> bytes:
     im = ImageOps.contain(im, (side, side), method=Image.LANCZOS)
     canvas = Image.new("RGB", (side, side), "white")
     canvas.paste(im, ((side - im.width) // 2, (side - im.height) // 2))
-    out = BytesIO()
-    canvas.save(out, format="WEBP", quality=92, method=6)
-    return out.getvalue()
+    # at most MAX_BYTES (100 KB): highest quality first, lowered step by step only when the file is bigger
+    data = b""
+    for quality in (92, 88, 84, 80, 75, 70, 65, 60, 55, 50, 45, 40):
+        out = BytesIO()
+        canvas.save(out, format="WEBP", quality=quality, method=6)
+        data = out.getvalue()
+        if len(data) <= MAX_BYTES:
+            break
+    return data
 
 
-def _unique_stored_name(db: Session, wanted: str) -> str:
-    if not db.query(Media.id).filter(Media.url.like(f"%/{wanted}")).first():
-        return wanted
-    stem, ext = wanted.rsplit(".", 1)
-    return f"{stem}-{uuid.uuid4().hex[:4]}.{ext}"
+MIN_SIDE_PX = 300
+MAX_ASPECT = 2.5
+
+
+def _quality_note(content: bytes) -> Optional[str]:
+    """Only a note for the admin — the image is never edited automatically (an AI edit costs tokens and changes the photo;
+    it is done only on the admin's approval, for the exceptional image)."""
+    try:
+        from PIL import Image
+
+        w, h = Image.open(BytesIO(content)).size
+    except Exception:  # noqa: BLE001
+        return None
+    if min(w, h) < MIN_SIDE_PX:
+        return f"low resolution ({w}x{h}px)"
+    if max(w, h) / max(1, min(w, h)) > MAX_ASPECT:
+        return f"unusual proportions ({w}x{h}px)"
+    return None
 
 
 def _import_single_image(
@@ -127,6 +151,15 @@ def _import_single_image(
     position: int = 1,
     square: bool = False,
 ) -> Media:
+    # One slot per position: "<slug>-<n>.webp". The same source image already in its slot is left alone (nothing is
+    # downloaded or stored again); a different image REPLACES the slot's file and row — images never pile up.
+    slot: Optional[Media] = None
+    wanted = f"{slug_part(name_prefix)}-{position}.webp" if (square and name_prefix) else None
+    if wanted:
+        slot = db.query(Media).filter(Media.company_id == company_id, Media.url.like(f"%/{wanted}")).first()
+        if slot is not None and slot.source_url in set(_original_candidates(url)):
+            slot._image_reused = True  # type: ignore[attr-defined]
+            return slot
     with httpx.Client(
         timeout=FETCH_TIMEOUT,
         follow_redirects=True,
@@ -159,12 +192,14 @@ def _import_single_image(
     filename = _filename_from_url(url, content_type)
     ext = Path(filename).suffix.lower()
     seo_name = None
+    note: Optional[str] = None
     if square and ext not in (".svg", ".gif"):
         try:
+            note = _quality_note(content)
             content, content_type = to_square(content), "image/webp"
             ext = ".webp"
-            if name_prefix:
-                seo_name = _unique_stored_name(db, f"{slug_part(name_prefix)}-{position}.webp")
+            if wanted:
+                seo_name = wanted
                 filename = seo_name
             else:
                 filename = f"{Path(filename).stem}-{SQUARE_PX}x{SQUARE_PX}.webp"
@@ -184,6 +219,12 @@ def _import_single_image(
         alt = f"{alt_prefix.strip()} — {alt}"[:240]
 
     public_url, local_path, provider = save_media_bytes(db, stored, content, content_type)
+    if slot is not None:  # replace the slot in place (same file name, new picture)
+        slot.name, slot.title, slot.alt = filename, title, alt
+        slot.url, slot.local_path, slot.provider = public_url, local_path, provider
+        slot.mime_type, slot.size_kb, slot.source_url = content_type, max(1, len(content) // 1024), url
+        slot._image_note = note  # type: ignore[attr-defined]
+        return slot
     row = Media(
         company_id=company_id,
         name=filename,
@@ -202,6 +243,7 @@ def _import_single_image(
         title_linked_to_name=True,
         alt_linked_to_name=True,
     )
+    row._image_note = note  # type: ignore[attr-defined]
     db.add(row)
     return row
 
@@ -217,6 +259,8 @@ def import_catalog_images(
 
     items: list[MediaRead] = []
     failed: list[CatalogImportImageFailure] = []
+    warnings: list[str] = []
+    reused = 0
 
     for position, raw_url in enumerate(payload.urls, start=1):
         url = str(raw_url)
@@ -227,6 +271,10 @@ def import_catalog_images(
             )
             db.flush()
             db.refresh(row)
+            if getattr(row, "_image_reused", False):
+                reused += 1
+            if getattr(row, "_image_note", None):
+                warnings.append(f"{row.name}: {row._image_note}")
             items.append(MediaRead.model_validate(row))
         except Exception as exc:
             failed.append(CatalogImportImageFailure(url=url, reason=str(exc)))
@@ -236,4 +284,4 @@ def import_catalog_images(
     else:
         db.rollback()
 
-    return CatalogImportImagesResponse(items=items, failed=failed)
+    return CatalogImportImagesResponse(items=items, failed=failed, reused=reused, warnings=warnings)

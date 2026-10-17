@@ -29,6 +29,9 @@ needs the admin's approval first**. Everything else is filled automatically.
 | **SEO-friendly file names** from the product's slug and the image's position: `akaso-v50x-action-camera-1.webp`, `-2.webp`, `-3.webp` (a 4-character suffix is added only if that name already exists) | ✅ |
 | **Alt text and title** from the product name: first image `Akaso V50X Action Camera`, the others `… - view 2`, `… - view 3`; no seller name | ✅ |
 | Images are stored in the **media library on R2** and **auto-selected** onto the product (no manual picking) | ✅ |
+| **Max 100 KB per image**: a larger result is **optimised** (WebP quality lowered step by step from 92 down to 40) until it fits | ✅ (`to_square`, `MAX_BYTES`) |
+| **No duplicates, replace instead**: each position is one slot, `<slug>-<n>.webp`. Clicking ✨ again leaves an image that is already in its slot **untouched** (nothing downloaded, stored or paid for); a *different* source picture **replaces** that slot's file and media row in place — the library never fills with copies | ✅ verified: run 1 → 3 files, run 2 → 3 reused / 0 new, run 3 (slot 1 changed) → 3 rows, slot 1 replaced |
+| **No automatic image editing / AI image generation** (it costs tokens and changes the photo). Only the *exceptional* image — **low resolution** (shorter side under 300 px) or **unusual proportions** (wider than 2.5 : 1) — is reported to the admin ("check these images"); improving it (AI edit) happens **only after the admin approves** | 🟡 warning ✅; the approved AI-edit step reuses the chat's image tools — not wired to a button yet |
 | Images inside the source *description* are also uploaded to our server and used in our rewritten description | ⬜ |
 | YouTube video from the source is added to the product | ⬜ |
 

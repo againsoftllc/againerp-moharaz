@@ -80,6 +80,8 @@ class FillFromSourceResponse(BaseModel):
     brand: Optional[str] = None
     category: Optional[str] = None
     images: int = 0
+    images_reused: int = 0
+    image_warnings: List[str] = Field(default_factory=list)
     status: str
 
 
@@ -127,6 +129,7 @@ def catalog_ai_fill_from_source(
     return FillFromSourceResponse(
         id=row.id, name=row.name, source_url=url, price=str(row.price) if row.price is not None else None,
         brand=row.brand, category=row.category, images=len(extracted.draft.images or []), status=row.status,
+        images_reused=getattr(row, "_images_reused", 0), image_warnings=getattr(row, "_image_warnings", []),
     )
 
 

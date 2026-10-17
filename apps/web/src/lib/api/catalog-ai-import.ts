@@ -66,6 +66,8 @@ export type FillFromSourceResult = {
   brand: string | null;
   category: string | null;
   images: number;
+  images_reused: number;
+  image_warnings: string[];
   status: string;
 };
 

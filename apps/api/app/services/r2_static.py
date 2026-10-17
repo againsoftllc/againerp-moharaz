@@ -20,7 +20,8 @@ from app.services.cloudflare_client import _s3_client, is_r2_connected, resolve_
 from app.services.media_storage import get_cloudflare_plugin
 
 log = logging.getLogger(__name__)
-CACHE = "public, max-age=2592000, immutable"
+# a slot ("<slug>-1.webp") can be replaced by a different picture, so no "immutable"
+CACHE = "public, max-age=86400"
 
 
 def _read_from_r2(key: str) -> tuple[bytes, str] | None:

@@ -132,9 +132,13 @@ function PriceUpdateContent({
     try {
       const r = await fillProductFromSource(product.id);
       toast.success(
-        `Filled "${r.name}" from its source: ${r.brand ?? "no brand"} · ${r.category ?? "no category"} · ${r.images} image${r.images === 1 ? "" : "s"}`,
+        `Filled "${r.name}" from its source: ${r.brand ?? "no brand"} · ${r.category ?? "no category"} · ${r.images} image${r.images === 1 ? "" : "s"}` +
+          (r.images_reused ? ` (${r.images_reused} already in place, kept)` : ""),
         { id: toastId },
       );
+      if (r.image_warnings?.length) {
+        toast.warning(`Check these images before publishing — ${r.image_warnings.join("; ")}. Nothing was edited automatically; improving an image (AI edit) needs your approval.`, { duration: 12000 });
+      }
       void refetch();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "AI import failed", { id: toastId });
