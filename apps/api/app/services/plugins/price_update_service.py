@@ -211,12 +211,26 @@ def _ensure_default_competitors(db: Session, company_id: str) -> None:
     db.commit()
 
 
+SOURCE_ID = "source"
+
+
+def ensure_source_site(db: Session, company_id: str) -> None:
+    """The "Source" column: the page a product was copied from (catalog_products.source_url). It is a site with no
+    domain (any host is fine), always present, and the first column of the grid. Product Draft's AI import reads it."""
+    if not get_competitor_site(db, company_id=company_id, competitor_id=SOURCE_ID):
+        db.add(PriceUpdateCompetitorSite(company_id=company_id, id=SOURCE_ID, label="Source", domain="", enabled=True))
+        db.commit()
+
+
 def list_competitor_sites(db: Session, company_id: str) -> list[PriceUpdateCompetitorSite]:
     _ensure_default_competitors(db, company_id)
+    ensure_source_site(db, company_id)
+    from sqlalchemy import case
+
     return (
         db.query(PriceUpdateCompetitorSite)
         .filter(PriceUpdateCompetitorSite.company_id == company_id)
-        .order_by(PriceUpdateCompetitorSite.created_at)
+        .order_by(case((PriceUpdateCompetitorSite.id == SOURCE_ID, 0), else_=1), PriceUpdateCompetitorSite.created_at)
         .all()
     )
 
@@ -260,6 +274,8 @@ def add_competitor_site(db: Session, *, company_id: str, domain: str, label: str
 
 
 def remove_competitor_site(db: Session, *, company_id: str, competitor_id: str) -> None:
+    if competitor_id == SOURCE_ID:
+        raise HTTPException(status_code=400, detail="The Source column cannot be removed")
     row = get_competitor_site(db, company_id=company_id, competitor_id=competitor_id)
     if not row:
         raise HTTPException(status_code=404, detail="Competitor site not found")
@@ -544,7 +560,19 @@ def fetch_competitor_price(url: str, competitor: str) -> ExtractedPrice:
         if refused:
             note_refused(url, challenge="Cloudflare" in str(exc.detail))
         return ExtractedPrice(price=None, regular_price=None, in_stock=None, title="", fetch_failed=True, refused=refused)
-    return _read_page(page, competitor)
+    return _read_page(page, _pattern_key(url, competitor))
+
+
+def _pattern_key(url: str, competitor: str) -> str:
+    """A Source link can be any shop; when it is one we know (Star Tech, Ryans, Techland) read it with that shop's own
+    price pattern, otherwise with the generic reader."""
+    if competitor != SOURCE_ID:
+        return competitor
+    host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+    for c in DEFAULT_COMPETITORS:
+        if host == c["domain"] or host.endswith("." + c["domain"]):
+            return c["id"]
+    return competitor
 
 
 def _read_page(page, competitor: str) -> ExtractedPrice:
@@ -757,6 +785,20 @@ def refresh_product_competitor(
         db.add(match)
 
     our_price = float(product.price) if product.price is not None else None
+
+    if competitor == SOURCE_ID:
+        src = (product.source_url or "").strip()
+        if not src:
+            match.matched_url = None
+            match.manual_url = True
+            match.status = "not_found"
+            match.status_message = "No source URL — add the source link"
+            match.last_checked_at = datetime.utcnow()
+            db.commit()
+            db.refresh(match)
+            return match
+        match.matched_url = src
+        match.manual_url = True
 
     url = match.matched_url
     if not url and match.manual_url:
@@ -1000,6 +1042,10 @@ def remove_match_link(db: Session, *, company_id: str, product_id: str, competit
     link, so search won't bring the removed page straight back."""
     if not get_competitor_site(db, company_id=company_id, competitor_id=competitor):
         raise HTTPException(status_code=400, detail=f"Unknown competitor: {competitor}")
+    if competitor == SOURCE_ID:
+        owner = db.get(CatalogProduct, product_id)
+        if owner is not None:
+            owner.source_url = None
     match = (
         db.query(PriceUpdateMatch)
         .filter(
@@ -1053,6 +1099,10 @@ def set_manual_match(
         match = PriceUpdateMatch(company_id=company_id, product_id=product_id, competitor=competitor)
         db.add(match)
     url = url.strip()
+    if competitor == SOURCE_ID:
+        owner = db.get(CatalogProduct, product_id)
+        if owner is not None:
+            owner.source_url = url[:1000] or None
     if match.verified and match.matched_url == url and not verified:
         pass  # same link saved again without re-ticking Verify — it stays verified
     else:
@@ -1069,7 +1119,7 @@ def set_manual_match(
 def list_matches(db: Session, *, company_id: str, product_ids: list[str]) -> list[PriceUpdateMatch]:
     if not product_ids:
         return []
-    return (
+    rows = (
         db.query(PriceUpdateMatch)
         .filter(
             PriceUpdateMatch.company_id == company_id,
@@ -1077,3 +1127,33 @@ def list_matches(db: Session, *, company_id: str, product_ids: list[str]) -> lis
         )
         .all()
     )
+    ensure_source_site(db, company_id)
+    have = {r.product_id: r for r in rows if r.competitor == SOURCE_ID}
+    changed = False
+    for pid, src in (
+        db.query(CatalogProduct.id, CatalogProduct.source_url)
+        .filter(CatalogProduct.id.in_(product_ids), CatalogProduct.source_url.isnot(None), CatalogProduct.source_url != "")
+        .all()
+    ):
+        src = src.strip()
+        row = have.get(pid)
+        if row is None:
+            row = PriceUpdateMatch(
+                company_id=company_id, product_id=pid, competitor=SOURCE_ID, matched_url=src, manual_url=True,
+                status="not_found", status_message="Not refreshed yet",
+            )
+            set_verified(row, True, "source link")
+            db.add(row)
+            rows.append(row)
+            changed = True
+        elif row.matched_url != src:  # the product's source URL was edited: the old reading no longer applies
+            row.matched_url = src
+            row.price = row.regular_price = row.in_stock = row.stock_label = None
+            row.status = "not_found"
+            row.status_message = "Not refreshed yet"
+            changed = True
+    if changed:
+        db.commit()
+        for r in rows:
+            db.refresh(r)
+    return rows

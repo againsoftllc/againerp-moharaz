@@ -113,6 +113,17 @@ def catalog_ai_fill_from_source(
         status=row.status if row.status in ("draft", "published") else "draft",
     )
     row = create_product_from_draft(db, payload, user, existing=row)
+    # the Source column of Price Compare shows this page's price / stock: refresh it now that the page was read
+    try:
+        from app.services.plugins import price_update_service as pus
+
+        pus.ensure_source_site(db, company_id)
+        pus.refresh_product_competitor(
+            db, company_id=company_id, product=row, competitor=pus.SOURCE_ID,
+            settings=pus.get_or_create_settings(db, company_id), allow_ai=False,
+        )
+    except Exception:  # noqa: BLE001 - a price read must never fail the import
+        db.rollback()
     return FillFromSourceResponse(
         id=row.id, name=row.name, source_url=url, price=str(row.price) if row.price is not None else None,
         brand=row.brand, category=row.category, images=len(extracted.draft.images or []), status=row.status,

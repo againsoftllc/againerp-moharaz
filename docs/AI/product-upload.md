@@ -189,6 +189,14 @@ Three entry points use the same code:
 | 2 | **Import dialog** — `POST /api/v1/catalog/ai/import-from-url/extract` then `/create` | Website → Products → AI import | Extract is read-only; create saves the reviewed draft |
 | 3 | **Product Draft → AI column** — `POST /api/v1/catalog/ai/products/{id}/fill-from-source` | Website → Catalog → Product Draft (the ✨ icon) | Fills the **existing** draft from its own `source_url` (keeps id, SKU, slug, status, Price Compare links) |
 
+**The Source column (Website → Price Compare and Product Draft).** The first column of the Price Compare grid is **Source**:
+the page the product was copied from (`catalog_products.source_url`). It looks and works like a competitor column —
+tick box, price, stock dot, 🔄 sync, 🔗 link — but it belongs to the product: editing the link there edits the product's
+source URL, and the AI import (✨ column, chat, import dialog) collects its data from exactly this link. Sync reads the
+page's price and stock status (a known shop — Star Tech, Ryans, Techland — with its own price pattern, any other site
+with the generic reader). After a ✨ import the Source cell is refreshed automatically. Code: `price_update_service.py`
+(`SOURCE_ID = "source"`).
+
 Code: `app/services/catalog_ai/importer_service.py` (extract + create), `llm_extractor.py` (the model call),
 `scraper.py` (page fetch), `seo_writer.py` (SEO fields), `spec_profile_service.py` (specifications),
 `app/services/ai/tools/catalog_import_tools.py` (chat tools), `app/routers/catalog_ai.py` (HTTP).
