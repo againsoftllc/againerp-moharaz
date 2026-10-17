@@ -649,7 +649,7 @@ def create_product_from_draft(
     EcommerceItemService(db).sync_content_from_catalog(row, mirror_publish=(row.status == "published"))
     db.commit()
     db.refresh(row)
-    if prev_media_ids:
+    if existing is not None:  # a re-import replaces the product's earlier URL-imported images (listing links included)
         from app.services.catalog_media_import import drop_replaced_media
 
         drop_replaced_media(db, owner=row, old_ids=prev_media_ids)

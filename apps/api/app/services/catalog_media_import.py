@@ -303,20 +303,24 @@ def drop_replaced_media(db: Session, *, owner, old_ids: list[str]) -> int:
     from app.routers.media import _delete_media_row
 
     keep = {l.media_id for l in db.query(CatalogProductMedia).filter(CatalogProductMedia.product_id == owner.id).all()}
+    owner_keys = {k for k in (owner.id, getattr(owner, "item_id", None)) if k}
+    # media the listing still links from earlier runs count as replaced too
+    stale = {l.media_id for l in db.query(EcommerceItemMedia).filter(EcommerceItemMedia.item_id.in_(owner_keys)).all()}
     removed = 0
-    for mid in set(old_ids) - keep:
+    for mid in (set(old_ids) | stale) - keep:
         m = db.get(Media, mid)
         if m is None or m.imported_by != "url":
             continue
         if db.query(CatalogProductMedia).filter(CatalogProductMedia.media_id == mid).first():
             continue
-        if db.query(EcommerceItemMedia).filter(EcommerceItemMedia.media_id == mid).first():
+        if db.query(EcommerceItemMedia).filter(EcommerceItemMedia.media_id == mid, ~EcommerceItemMedia.item_id.in_(owner_keys)).first():
             continue
         stored = (m.url or "").rsplit("/", 1)[-1]
         if stored and db.query(CatalogProduct.id).filter(
             CatalogProduct.description.like(f"%{stored}%") | CatalogProduct.short_description.like(f"%{stored}%")
         ).first():
             continue
+        db.query(EcommerceItemMedia).filter(EcommerceItemMedia.media_id == mid, EcommerceItemMedia.item_id.in_(owner_keys)).delete(synchronize_session=False)
         _delete_media_row(m, db)
         removed += 1
     if removed:
