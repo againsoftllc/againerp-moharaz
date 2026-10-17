@@ -36,7 +36,7 @@ needs the admin's approval first**. Everything else is filled automatically.
 | Rule | Today |
 |------|-------|
 | Keep the **source product title as it is** | ✅ (unless a name preset rewrites it) |
-| If the title is **not SEO friendly** (all caps, junk, store name, "Price in BD…" suffix, too long), rewrite it to a **common standard**: `<Brand> <Model> <Key spec> <Product type>` — max 80 characters, no seller name | 🟡 only when a `catalog.product.name` preset exists (none set) |
+| If the title is **not SEO friendly** (all caps, junk, store name, "Price in BD…" suffix, too long), rewrite it to a **common standard**: `<Brand> <Model> <Key spec> <Product type>` — max 80 characters, no seller name | ✅ preset `catalog.product.name` saved (live, 2026-10-17): strips "Price in Bangladesh \| Star Tech", rewrites to `<Brand> <Model> <Key spec> <Product type>` when not SEO friendly |
 
 ## A3. Slug / URL
 
@@ -70,7 +70,7 @@ needs the admin's approval first**. Everything else is filled automatically.
 | Rule | Today |
 |------|-------|
 | **Detect the warranty from the source** (spec row, text, title) | ✅ |
-| **Select it from our warranty list** when it matches (e.g. "1 Year Official Warranty") | 🟡 the model is shown our list and told to reuse the exact wording; stored as text |
+| **Select it from our warranty list** when it matches (e.g. "1 Year Official Warranty") | ✅ preset `catalog.product.warranty`: normalised to `<N> Year(s) Official Warranty`, our wording reused when it matches; empty when not stated (stored as text) |
 | No match → propose a **new warranty option**; **add only after admin approval** | ⬜ |
 
 ## A7. Origin
@@ -92,17 +92,17 @@ Auto-select the country of origin when it is stated or detectable; **otherwise l
 
 ## A9. Short description
 
-**Exactly 4 bullet points**, one under the other, each a key selling spec, written for us (no seller name). — 🟡 today: the
-source's own highlights list, any length, copied.
+**Exactly 4 bullet points**, one under the other, each a key selling spec, written for us (no seller name). — 🟡 preset
+`catalog.product.short_description` saved; on the Toshiba test it gave 4 lines but they were plain spec lines — check the wording.
 
 ## A10. Description
 
 | Rule | Today |
 |------|-------|
-| **Never a copy-paste** — rewrite the source description so the content is **unique** | 🟡 copied verbatim unless a `catalog.product.description` preset exists |
-| **Minimum 300 words** | ⬜ |
-| The **focus keyphrase appears in the first paragraph** | ⬜ |
-| Structure: **2 × H2 and 3 × H3 headings** (minimum) | ⬜ |
+| **Never a copy-paste** — rewrite the source description so the content is **unique** | ✅ **done (2026-10-17):** with the description preset a second model pass *writes* the text (`description_writer.py`) |
+| **Minimum 300 words** | ✅ checked and rewritten until it passes (test: 368 words) |
+| The **focus keyphrase appears in the first paragraph** | ✅ checked (keyphrase = brand + model) |
+| Structure: **2 × H2 and 3 × H3 headings** (minimum) | ✅ checked (test: 5 × H2, 3 × H3) |
 | **At least 2 internal links** (to our brand / category / related product pages) | ⬜ |
 | SEO friendly, natural, no seller name, no invented facts (use only the source's facts) | 🟡 seller name scrub ✅ |
 | Images from the source description are uploaded to our server and placed in the text | ⬜ |
@@ -133,7 +133,7 @@ their images; check prices / SKUs per variant.
 | Field | Rule | Today |
 |-------|------|-------|
 | Focus keyphrase | auto, brand + model as shoppers search it (2–5 words, lowercase) | ✅ |
-| Meta title | auto, SEO friendly, **include "Price in BD" or "Price in Bangladesh"**, max ~60 chars | 🟡 default rule says *no price words*; change needed |
+| Meta title | auto, SEO friendly, **include "Price in BD" or "Price in Bangladesh"**, max ~60 chars | ✅ preset `catalog.product.seo` saved (the default rule is overridden) |
 | Meta description | auto, SEO friendly, written to rank (key specs, benefit, call to action, 150–155 chars) | ✅ |
 
 ## A14. What needs the admin's approval (summary)
@@ -155,16 +155,16 @@ Ordered by how much of the rules it unlocks. Items 1–2 are pure configuration 
 
 | # | Work | Rules covered | Type |
 |---|------|---------------|------|
-| 1 | **Turn on the AI key** (`ANTHROPIC_API_KEY` or Aladin key in AI → Settings) | everything | config |
-| 2 | **Save the rules as admin presets** (AI → Settings → Presets: `catalog`, `catalog.product.name`, `.short_description`, `.description`, `.category`, `.tags`, `.warranty`, `.seo`) | A2, A8 (tags), A9, A10 (rewrite, 300 words, headings, links), A13 | config (text in Part A is the source) |
+| 1 | ✅ **done** — **Turn on the AI key** (`ANTHROPIC_API_KEY` or Aladin key in AI → Settings) | everything | config |
+| 2 | ✅ **done (live, 8 presets, `scripts/seed_product_upload_presets.py`)** — **Save the rules as admin presets** (AI → Settings → Presets: `catalog`, `catalog.product.name`, `.short_description`, `.description`, `.category`, `.tags`, `.warranty`, `.seo`) | A2, A8 (tags), A9, A10 (rewrite, 300 words, headings, links), A13 | config (text in Part A is the source) |
 | 3 | **Approval flow** for new category (with suggestions + custom), brand, warranty; whole-path category creation | A4, A5, A6, A14 | code (chat tool + draft-fill API return "needs approval" instead of auto-creating) |
 | 4 | **Images**: import all, SEO file names / alt, no re-encode, description images, YouTube | A1, A10 | code (`catalog_media_import`, `importer_service`) |
 | 5 | **Compare-at price, stock status, visibility private, last selling price empty** | A8 | code (`ProductDraft`, extractor schema, create) |
-| 6 | **Description generator** with checks: ≥300 words, keyphrase in paragraph 1, 2×H2 + 3×H3, ≥2 internal links; re-write until it passes | A10 | code (post-check after the model) |
+| 6 | ✅ **done (links still missing)** — **Description generator** with checks: ≥300 words, keyphrase in paragraph 1, 2×H2 + 3×H3, ≥2 internal links; re-write until it passes | A10 | code (post-check after the model) |
 | 7 | **Short description = exactly 4 bullets** | A9 | code / preset |
 | 8 | **Specs & filters**: keep source order, never drop a row, auto-select filters, propose new predefined options for approval | A11 | code (`spec_profile_service`) |
 | 9 | **Slug is write-once; manual change creates an SEO redirect** | A3 | code (edit endpoint + `seo_redirects`) — verify first |
-| 10 | **Meta title with "Price in BD"** | A13 | preset / `DEFAULT_SEO_RULE` |
+| 10 | ✅ **done via preset** — **Meta title with "Price in BD"** | A13 | preset / `DEFAULT_SEO_RULE` |
 
 ---
 
