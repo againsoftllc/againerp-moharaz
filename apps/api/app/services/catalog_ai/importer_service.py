@@ -43,6 +43,7 @@ from app.services.ai import preset_service
 from app.services.catalog_ai.llm_extractor import CatalogContext, extract_product_draft
 from app.services.catalog_ai import content_html, seo_writer, spec_profile_service
 from app.services.catalog_ai.scraper import _image_signature, fetch_page
+from app.services.catalog_ai import description_writer
 from app.services.catalog_media_import import CatalogImportImagesRequest, import_catalog_images
 from app.services.collaboration import on_item_created, on_item_published
 from app.services.ecommerce.ecommerce_item_service import EcommerceItemService
@@ -227,6 +228,16 @@ def extract_from_url(
             )
             if warranty:
                 draft = draft.model_copy(update={"warranty": warranty[:200]})
+
+    # Rule A10 (docs/AI/product-upload.md): with a `catalog.product.description` preset the description is WRITTEN
+    # (original, >= 300 words, keyphrase in the first paragraph, 2 h2 + 3 h3) and checked — not copied from the page.
+    try:
+        written = description_writer.write_description(db, company_id, draft, source_text=(draft.description or page.text or ""))
+    except Exception:  # noqa: BLE001 — the writer is an upgrade; on any failure the extracted text stays
+        db.rollback()
+        written = None
+    if written:
+        draft = draft.model_copy(update={"description": written})
 
     warnings: list[str] = []
     matched_brand_id = None
