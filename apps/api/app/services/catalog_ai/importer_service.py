@@ -118,7 +118,7 @@ def _catalog_context(
     )
 
 
-_GALLERY_MAX = 8
+_GALLERY_MAX = 20
 
 
 def _apply_structured(draft: ProductDraft, data: dict) -> ProductDraft:
@@ -579,10 +579,11 @@ def create_product_from_draft(
     url_to_media_id: dict[str, str] = {}
     if payload.import_images and draft.images:
         variant_image_urls = [v.image for v in draft.variants if v.image and v.image not in draft.images]
-        combined = (draft.images + variant_image_urls)[:8]
+        combined = (draft.images + variant_image_urls)[:_GALLERY_MAX]
+        # Rule A1: the ORIGINAL of every image, all of them in source order, as 500 x 500 px squares with SEO file names
         result = import_catalog_images(
             db,
-            CatalogImportImagesRequest(urls=combined, alt_prefix=draft.name),
+            CatalogImportImagesRequest(urls=combined, alt_prefix=draft.name, name_prefix=row.slug, square=True),
             company_id=row.company_id,
         )
         if result.items:

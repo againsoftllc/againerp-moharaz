@@ -23,13 +23,17 @@ needs the admin's approval first**. Everything else is filled automatically.
 
 | Rule | Today |
 |------|-------|
-| Import **all** product images from the source page | 🟡 only the first **8** |
-| Keep the **same order** as the source (the first image stays the main image) | ✅ page order, first = thumbnail |
-| Keep the **same quality** (no downscaling, no lossy re-encode) | 🟡 stored as downloaded, each cut at 5 MB; no resizing / re-encoding is done |
-| **SEO-friendly file names** — e.g. `epson-m100-ink-tank-printer-1.jpg`, `-2.jpg`… (product name, then position) | ⬜ today `<random hex>_<source file name>` |
-| SEO-friendly **alt text and title** (product name + short differentiator, no seller name) | 🟡 derived from the file name |
-| Images are **auto-selected** onto the product (no manual picking) | ✅ |
+| Always fetch the **original** image — never the small / cached copy the page links (`…/cache/…-500x500.webp`, `…-1200x630.png`). The size marker is stripped and the original is tried first; the page's own URL is the fallback | ✅ (`_original_candidates`) — verified on startech.com.bd: `…/image/cache/catalog/…/v50x-01-1200x630.webp` → `…/image/catalog/…/v50x-01.webp` |
+| A product with **several images** gets **all** of them, in the **source order** (first = main image / thumbnail) | ✅ up to **20** images (was 8); duplicates of the same photo collapsed to the largest rendition |
+| Every image is stored as a **500 × 500 px square**: scaled to *fit* (never stretched or cropped), centred on a white background, transparent PNGs flattened on white, saved as **WebP quality 92** (GIF / SVG kept as they are) | ✅ (`to_square`; Pillow) — verified: 3 source images → three 500×500 WebP files of 9–24 KB |
+| **SEO-friendly file names** from the product's slug and the image's position: `akaso-v50x-action-camera-1.webp`, `-2.webp`, `-3.webp` (a 4-character suffix is added only if that name already exists) | ✅ |
+| **Alt text and title** from the product name: first image `Akaso V50X Action Camera`, the others `… - view 2`, `… - view 3`; no seller name | ✅ |
+| Images are stored in the **media library on R2** and **auto-selected** onto the product (no manual picking) | ✅ |
 | Images inside the source *description* are also uploaded to our server and used in our rewritten description | ⬜ |
+| YouTube video from the source is added to the product | ⬜ |
+
+> Interpretation to confirm: "500x500px" is read as the **stored size** of every product image (a square canvas). If the
+> original should also be kept next to it, or a different size / format is wanted, say so in Part D.
 
 ## A2. Product name
 
@@ -158,7 +162,7 @@ Ordered by how much of the rules it unlocks. Items 1–2 are pure configuration 
 | 1 | ✅ **done** — **Turn on the AI key** (`ANTHROPIC_API_KEY` or Aladin key in AI → Settings) | everything | config |
 | 2 | ✅ **done (live, 8 presets, `scripts/seed_product_upload_presets.py`)** — **Save the rules as admin presets** (AI → Settings → Presets: `catalog`, `catalog.product.name`, `.short_description`, `.description`, `.category`, `.tags`, `.warranty`, `.seo`) | A2, A8 (tags), A9, A10 (rewrite, 300 words, headings, links), A13 | config (text in Part A is the source) |
 | 3 | **Approval flow** for new category (with suggestions + custom), brand, warranty; whole-path category creation | A4, A5, A6, A14 | code (chat tool + draft-fill API return "needs approval" instead of auto-creating) |
-| 4 | **Images**: import all, SEO file names / alt, no re-encode, description images, YouTube | A1, A10 | code (`catalog_media_import`, `importer_service`) |
+| 4 | **Images**: ✅ originals, all images, 500×500 WebP, SEO names / alt (done 2026-10-17) · ⬜ description images, YouTube | A1, A10 | code (`catalog_media_import`, `importer_service`) |
 | 5 | **Compare-at price, stock status, visibility private, last selling price empty** | A8 | code (`ProductDraft`, extractor schema, create) |
 | 6 | ✅ **done (links still missing)** — **Description generator** with checks: ≥300 words, keyphrase in paragraph 1, 2×H2 + 3×H3, ≥2 internal links; re-write until it passes | A10 | code (post-check after the model) |
 | 7 | **Short description = exactly 4 bullets** | A9 | code / preset |
