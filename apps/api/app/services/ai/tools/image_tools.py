@@ -16,6 +16,7 @@ so it does not need the money-style approval gate other action tools use.
 
 from __future__ import annotations
 
+from pathlib import Path
 import re
 from typing import Any
 
@@ -82,7 +83,14 @@ def build_image_tools(*, db: Session | None, company_id: str | None, user: Any |
             return None
         path = UPLOAD_DIR / stored
         if not path.is_file():
-            return None
+            # not on this container's disk: the media library may live on R2 (the same fallback /uploads uses)
+            from app.services.r2_static import _read_from_r2
+
+            hit = _read_from_r2(f"media/{stored}")
+            if hit is None:
+                return None
+            body, mime = hit
+            return body, (mime or MIME_BY_EXT.get(Path(stored).suffix.lower(), "image/png"))
         mime = MIME_BY_EXT.get(path.suffix.lower(), "image/png")
         return path.read_bytes(), mime
 

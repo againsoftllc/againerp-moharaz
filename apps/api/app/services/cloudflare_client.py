@@ -367,10 +367,10 @@ def public_r2_url(row: CloudflarePlugin, key: str) -> str:
     base = row.r2_public_base_url.strip().rstrip("/")
     if base:
         return f"{base}/{encoded}"
-    return (
-        f"https://{row.account_id.strip()}.r2.cloudflarestorage.com/"
-        f"{row.r2_bucket.strip()}/{encoded}"
-    )
+    # No public bucket URL (a private bucket): the S3 endpoint needs credentials, so a browser cannot read it. Hand out
+    # the API's own /uploads/<key> address instead — R2FallbackStaticFiles (app/services/r2_static.py) serves it from the
+    # bucket, and the admin and the storefront both proxy /uploads to the API.
+    return f"/uploads/{encoded}"
 
 
 def is_r2_connected(row: Optional[CloudflarePlugin]) -> bool:
