@@ -98,9 +98,27 @@ def _original_candidates(url: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+MARGIN_PX = 40       # empty space kept on all four sides of the 500 px square (8 %), so every product sits the same way
+MAX_UPSCALE = 3.0    # a small image is enlarged at most this much (beyond that it only turns blurry)
+_BG_TOLERANCE = 14   # how far a pixel may differ from the background and still count as background
+
+
+def _background(im) -> tuple[int, int, int] | None:
+    """The image's flat background colour when its four corners agree (white packshots, a grey studio sweep …), else None."""
+    w, h = im.size
+    pts = [im.getpixel(xy) for xy in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))]
+    mean = tuple(sum(c[i] for c in pts) // 4 for i in range(3))
+    if all(max(abs(c[i] - mean[i]) for i in range(3)) <= _BG_TOLERANCE for c in pts):
+        return mean  # type: ignore[return-value]
+    return None
+
+
 def to_square(content: bytes, side: int = SQUARE_PX) -> bytes:
-    """The photo scaled to FIT a side x side white square (never stretched or cropped), as a high-quality WebP."""
-    from PIL import Image, ImageOps
+    """One standard look for every product image (pure Pillow — no AI, no tokens):
+    the flat background is trimmed away, the product is scaled to fit INSIDE the square leaving MARGIN_PX of empty
+    space on every side (small images are enlarged, large ones reduced, never stretched), centred on the same
+    background colour, saved as WebP of at most MAX_BYTES."""
+    from PIL import Image, ImageChops, ImageOps
 
     im = ImageOps.exif_transpose(Image.open(BytesIO(content)))
     if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
@@ -110,8 +128,17 @@ def to_square(content: bytes, side: int = SQUARE_PX) -> bytes:
         im = flat
     else:
         im = im.convert("RGB")
-    im = ImageOps.contain(im, (side, side), method=Image.LANCZOS)
-    canvas = Image.new("RGB", (side, side), "white")
+    bg = _background(im)
+    if bg is not None:  # trim the empty border the source left around the product
+        diff = ImageChops.difference(im, Image.new("RGB", im.size, bg)).convert("L").point(lambda v: 255 if v > _BG_TOLERANCE else 0)
+        box = diff.getbbox()
+        if box and (box[2] - box[0]) > 8 and (box[3] - box[1]) > 8:
+            im = im.crop(box)
+    inner = side - 2 * MARGIN_PX
+    scale = min(inner / im.width, inner / im.height, MAX_UPSCALE)
+    size = (max(1, round(im.width * scale)), max(1, round(im.height * scale)))
+    im = im.resize(size, Image.LANCZOS)
+    canvas = Image.new("RGB", (side, side), bg or (255, 255, 255))
     canvas.paste(im, ((side - im.width) // 2, (side - im.height) // 2))
     # at most MAX_BYTES (100 KB): highest quality first, lowered step by step only when the file is bigger
     data = b""
