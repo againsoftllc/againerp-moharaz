@@ -77,8 +77,12 @@ function AiProductDrawerInner({
     if (ref) setDocDrawer({ ...ref, label });
   }, []);
 
-  React.useEffect(() => setWidth(loadWidth()), []);
-  React.useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), [messages, status]);
+  React.useEffect(() => {
+    setWidth(loadWidth());
+  }, []);
+  React.useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, status]);
 
   const send = React.useCallback(
     async (text: string) => {
