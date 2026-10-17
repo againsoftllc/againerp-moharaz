@@ -567,23 +567,44 @@ def create_profile(db: Session, *, company_id: str, proposal: dict, category_lab
     return row
 
 
+def find_profile_by_specs(db: Session, specs: SourceSpecs) -> Optional[CatalogAttributeProfile]:
+    """No profile for the product's category: pick the active profile whose attribute names the source table answers
+    (rule A11 - match the spec table to a profile). Needs >= 3 exact label hits and at least a third of the source rows."""
+    cleaned = _clean_specs(specs)
+    total = sum(len(g["items"]) for g in cleaned)
+    if total < 3:
+        return None
+    best: tuple[int, Optional[CatalogAttributeProfile]] = (0, None)
+    for profile in db.query(CatalogAttributeProfile).filter(CatalogAttributeProfile.is_active.is_(True)).all():
+        hits = len(exact_values(cleaned, profile_fields(db, profile.id)))
+        if hits >= 3 and hits * 3 >= total and hits > best[0]:
+            best = (hits, profile)
+    return best[1]
+
+
 def apply_from_source(
     db: Session, company_id: Optional[str], product: CatalogProduct, specs: SourceSpecs
 ) -> Optional[dict]:
-    """Import-time hook: when the product's category already has a profile, fill it from the
-    source specs. Returns {"profile", "filled", "fields"} or None (no profile / no specs).
-    Never raises — specs are a bonus, not a reason to fail an import."""
+    """Import-time hook (rule A11): select the product's specification profile (its category's, else the one the
+    source table matches), fill the common attributes, and for a filterable attribute whose allowed values lack the
+    source's value add that predefined value (same style as its existing options) so the product lands in the filter.
+    Rows the profile has no attribute for stay as this product's custom specs (never dropped, source order kept).
+    Returns {"profile", "filled", "fields", "options_added"} or None. Never raises."""
     if not spec_item_count(specs):
         return None
     try:
-        profile = find_profile(db, product=product)
+        profile = find_profile(db, product=product) or find_profile_by_specs(db, specs)
         if profile is None:
             return None
         fields = profile_fields(db, profile.id)
-        values = map_values(db, company_id, specs, fields)
+        values, off = map_values_detailed(db, company_id, specs, fields)
+        filterable_off = {fid: v for fid, v in off.items() if next((f for f in fields if f["id"] == fid), {}).get("filterable")}
+        added = add_options(db, filterable_off) if filterable_off else 0
+        for fid, v in filterable_off.items():
+            values[fid] = v
         fill_product(db, product, profile, values)
         db.commit()
-        return {"profile": profile.name, "filled": len(values), "fields": len(fields)}
+        return {"profile": profile.name, "filled": len(values), "fields": len(fields), "options_added": added}
     except Exception:  # noqa: BLE001
         db.rollback()
         return None

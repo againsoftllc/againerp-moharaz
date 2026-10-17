@@ -121,13 +121,13 @@ Auto-select the country of origin when it is stated or detectable; **otherwise l
 
 | Rule | Today |
 |------|-------|
-| **Match the source spec table to a specification profile** of ours and select that profile | 🟡 uses the category's profile when one exists |
+| **Match the source spec table to a specification profile** of ours and select that profile | ✅ the category's profile, else the profile the source table matches (>= 3 label hits) |
 | Fill the **common attributes** (those the profile has) | ✅ values mapped by the AI; existing values are never overwritten |
 | Attributes that are **not** in the profile are kept **only for this product** as **custom attributes** | 🟡 custom specs stored; shown as "this product only" |
 | **Never drop an attribute** — everything on the source table is taken | 🟡 verify no row is lost in mapping |
 | **Keep the source order** of the attributes / groups | 🟡 verify |
 | Check which **filters** the product belongs to (filterable attributes) and **select them automatically** | 🟡 filter values are set through the filterable attribute |
-| When a needed filter option does not exist yet, **add the predefined value** — filters are attributes, so options must stay clean and consistent | ⬜ today only on explicit approval (`add_missing_options`) |
+| When a needed filter option does not exist yet, **add the predefined value** — filters are attributes, so options must stay clean and consistent | ✅ import adds it for filterable attributes (chat tool still previews first) |
 | Attribute data can be **modified** later but **not restructured** (the filter system depends on them) | ✅ |
 | No profile for the category → propose one; creating it needs approval | ✅ |
 
