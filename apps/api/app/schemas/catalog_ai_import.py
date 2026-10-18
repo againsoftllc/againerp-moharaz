@@ -86,7 +86,7 @@ class CatalogAiCreateRequest(BaseModel):
     create_brand_if_missing: bool = True
     create_category_if_missing: bool = True
     import_images: bool = True
-    status: str = Field(default="draft", pattern="^(draft|published)$")
+    status: str = Field(default="draft", pattern="^(draft|unlisted|published)$")  # "unlisted" = the new name of a draft that is not on the website
 
 
 class CatalogAiCreateResponse(BaseModel):
