@@ -182,7 +182,8 @@ export function AiWorkspace({
 }) {
   const isDrawer = variant === "drawer";
   // one chat everywhere: with no conversation asked for, continue the shared active one
-  const startId = initialConversationId ?? useAiChatStore.getState().activeConversationId;
+  // (a product task waiting in the store starts its own new chat - the shared one is not opened first)
+  const startId = useAiChatStore.getState().productTask ? null : (initialConversationId ?? useAiChatStore.getState().activeConversationId);
   const sharedId = useAiChatStore((s) => s.activeConversationId);
   const setSharedId = useAiChatStore((s) => s.setActiveConversationId);
   const user = useAdminAuth((s) => s.user);
@@ -593,8 +594,11 @@ export function AiWorkspace({
     return () => clearTimeout(t);
   }, [loadHistory]);
 
+  // The newest open / start wins: a slow answer for an older chat must not replace what is on screen now.
+  const loadSeq = useRef(0);
   const openConversation = useCallback(
     async (id: string | null, { push = true }: { push?: boolean } = {}) => {
+      const seq = ++loadSeq.current;
       abortRef.current?.abort();
       setActiveId(id);
       setStatus(null);
@@ -608,15 +612,17 @@ export function AiWorkspace({
       setMessagesLoading(true);
       try {
         const res = await fetchAiConversation(id);
+        if (seq !== loadSeq.current) return;
         setMessages(res.messages.filter((m) => m.role === "user" || m.role === "assistant").map((m) => ({ id: m.id, role: m.role as "user" | "assistant", content: m.content })));
       } catch (err) {
+        if (seq !== loadSeq.current) return;
         toast.error(err instanceof Error ? err.message : "Could not open conversation");
         setActiveId(null);
         setMessages([]);
         // Drop a dead `?c=` so a reload doesn't re-open the same missing chat.
         if (!isDrawer) window.history.replaceState(null, "", "/ai");
       } finally {
-        setMessagesLoading(false);
+        if (seq === loadSeq.current) setMessagesLoading(false);
       }
     },
     [isDrawer, setScope],
@@ -825,6 +831,7 @@ export function AiWorkspace({
     const task = productTask;
     clearProductTask();
     const t = setTimeout(() => {
+      loadSeq.current += 1; // drop any chat still being loaded
       abortRef.current?.abort();
       setActiveId(null);
       setMessages([]);
