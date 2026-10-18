@@ -252,6 +252,10 @@ def _bootstrap() -> None:
             ensure_catalog_attribute_filter_columns,
             ensure_catalog_brand_columns,
             ensure_catalog_category_columns,
+            ensure_catalog_product_pos_fields_columns,
+            ensure_catalog_product_updated_by_columns,
+            ensure_role_export_column,
+            ensure_role_publish_column,
             ensure_catalog_review_columns,
             ensure_cloudflare_plugin_columns,
             ensure_product_columns,
@@ -371,6 +375,11 @@ def _bootstrap() -> None:
         ensure_catalog_category_columns()
         ensure_catalog_brand_columns()
         ensure_product_columns()
+        # additive columns added with the AI / catalog work (2026-10-18); every one is IF NOT EXISTS, safe on each start
+        ensure_catalog_product_pos_fields_columns()
+        ensure_catalog_product_updated_by_columns()
+        ensure_role_publish_column()
+        ensure_role_export_column()
         ensure_product_variant_elim_columns()
         ensure_ai_audit_log_columns()
         ensure_auth_role_slug_scope()
