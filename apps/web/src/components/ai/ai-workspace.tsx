@@ -567,6 +567,7 @@ export function AiWorkspace({
       abortRef.current?.abort();
       setActiveId(id);
       setStatus(null);
+      if (isDrawer) setSidebarOpen(false); // the chat list slides away once a chat is picked
       if (push && !isDrawer) window.history.replaceState(null, "", id ? `/ai?c=${id}` : "/ai");
       if (!id) {
         setMessages([]);
@@ -828,14 +829,26 @@ export function AiWorkspace({
             </button>
           </div>
       </header>
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
+      {/* In the drawer the chat list slides over the chat (like the module menu) instead of squeezing it */}
+      {isDrawer && sidebarOpen ? (
+        <button type="button" aria-label="Close chat list" className="absolute inset-0 z-20 bg-black/30" onClick={() => setSidebarOpen(false)} />
+      ) : null}
       {/* ---------------- Sidebar: chat history ---------------- */}
       <aside
         className={cn(
-          "flex h-full shrink-0 flex-col border-r border-border bg-muted/30 transition-[width] duration-200",
-          sidebarOpen ? "w-[260px]" : "w-0 overflow-hidden border-r-0",
+          isDrawer
+            ? cn(
+                "absolute inset-y-0 left-0 z-30 flex w-[300px] max-w-[85%] flex-col border-r border-border bg-background shadow-xl transition-transform duration-200",
+                sidebarOpen ? "translate-x-0" : "pointer-events-none -translate-x-full",
+              )
+            : cn(
+                "flex h-full shrink-0 flex-col border-r border-border bg-muted/30 transition-[width] duration-200",
+                sidebarOpen ? "w-[260px]" : "w-0 overflow-hidden border-r-0",
+              ),
         )}
         aria-label="Chat history"
+        aria-hidden={isDrawer && !sidebarOpen}
       >
         <div className="flex items-center gap-1 px-2 pt-2">
           <div className="ml-auto flex items-center gap-1">
