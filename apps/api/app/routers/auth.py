@@ -79,6 +79,29 @@ def me(
     )
 
 
+EXTENSION_SESSION_DAYS = 30
+
+
+@router.post("/extension-session")
+def extension_session(
+    user: AuthUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """The "Send to AgainERP" browser extension signs in through the admin (no password is typed into the extension): the admin page,
+    already signed in, asks for a session of its own for the extension. It ends with the extension's Sign out, or on expiry."""
+    expires_at = datetime.utcnow() + timedelta(days=EXTENSION_SESSION_DAYS)
+    token = new_session_token()
+    db.add(AuthSession(user_id=user.id, token=token, expires_at=expires_at))
+    db.add(AuthActivityLog(
+        id=__import__("uuid").uuid4().__str__(),
+        user_id=user.id,
+        action="extension_connect",
+        detail="Browser extension connected",
+    ))
+    db.commit()
+    return {"token": token, "expires_at": expires_at.isoformat(), "user": {"name": user.name, "email": user.email}}
+
+
 @router.post("/logout", response_model=LogoutResponse)
 def logout(
     authorization: Optional[str] = Header(default=None),

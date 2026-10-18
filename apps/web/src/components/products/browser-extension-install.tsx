@@ -15,17 +15,26 @@ const EXTENSION_FOLDER = "send-to-againerp-extension";
  * The zip as THIS admin hands it out: the extension plus a config.json with this admin's address (the API is reached through the
  * admin's own /api/v1), so it is already connected - nobody types an address. The file holds addresses only: no password, no token.
  */
-async function downloadConfiguredExtension(): Promise<void> {
+async function downloadConfiguredExtension(opts: { name: string; apiBase: string; webBase: string }): Promise<void> {
   const res = await fetch(EXTENSION_ZIP_URL, { cache: "no-store" });
   if (!res.ok) throw new Error("The extension file could not be loaded");
   const base = new Uint8Array(await res.arrayBuffer());
-  const origin = window.location.origin;
-  const config = new TextEncoder().encode(JSON.stringify({ apiBase: origin, webBase: origin }, null, 2));
+  const clean = (v: string) => v.trim().replace(/\/+$/, "");
+  const apiBase = clean(opts.apiBase);
+  const webBase = clean(opts.webBase) || apiBase;
+  for (const v of [apiBase, webBase]) {
+    try {
+      new URL(v);
+    } catch {
+      throw new Error("Enter full addresses, e.g. https://admin.yourstore.com");
+    }
+  }
+  const config = new TextEncoder().encode(JSON.stringify({ apiBase, webBase }, null, 2));
   const zip = addFileToZip(base, `${EXTENSION_FOLDER}/config.json`, config);
   const url = URL.createObjectURL(new Blob([zip.buffer as ArrayBuffer], { type: "application/zip" }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${EXTENSION_FOLDER}.zip`;
+  a.download = `${opts.name.trim().replace(/\.zip$/i, "").replace(/[^\w.\- ]+/g, "").trim() || EXTENSION_FOLDER}.zip`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -62,10 +71,19 @@ export function BrowserExtensionInstall({ compact = false }: { compact?: boolean
   }, [check]);
 
   const [downloading, setDownloading] = useState(false);
+  const [zipName, setZipName] = useState(EXTENSION_FOLDER);
+  const [apiBase, setApiBase] = useState("");
+  const [webBase, setWebBase] = useState("");
+  useEffect(() => {
+    // the zip is set to THIS admin unless changed here
+    setApiBase((v) => v || window.location.origin);
+    setWebBase((v) => v || window.location.origin);
+  }, []);
   const download = async () => {
     setDownloading(true);
     try {
-      await downloadConfiguredExtension();
+      await downloadConfiguredExtension({ name: zipName, apiBase, webBase });
+      toast.success("Zip created - unzip it and load the folder in Chrome");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Download failed");
     } finally {
@@ -106,18 +124,46 @@ export function BrowserExtensionInstall({ compact = false }: { compact?: boolean
         </p>
       )}
 
+      <div className="grid gap-2 border border-border p-3 text-xs sm:grid-cols-3">
+        <label className="space-y-1">
+          <span className="font-medium">Zip name</span>
+          <input
+            value={zipName}
+            onChange={(e) => setZipName(e.target.value)}
+            className="h-8 w-full rounded-none border border-input bg-background px-2 text-xs"
+            placeholder={EXTENSION_FOLDER}
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="font-medium">API address</span>
+          <input
+            value={apiBase}
+            onChange={(e) => setApiBase(e.target.value)}
+            className="h-8 w-full rounded-none border border-input bg-background px-2 text-xs"
+            placeholder="https://admin.yourstore.com"
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="font-medium">Admin panel address</span>
+          <input
+            value={webBase}
+            onChange={(e) => setWebBase(e.target.value)}
+            className="h-8 w-full rounded-none border border-input bg-background px-2 text-xs"
+            placeholder="https://admin.yourstore.com"
+          />
+        </label>
+        <div className="sm:col-span-3">
+          <Button size="sm" className="h-8 rounded-none text-xs" onClick={() => void download()} disabled={downloading}>
+            <Download className="mr-1 h-3 w-3" /> {downloading ? "Creating…" : "Create zip & download"}
+          </Button>
+          <span className="ml-2 text-muted-foreground">The zip is made here with these addresses in it; the extension is then connected to them and they cannot be changed in it.</span>
+        </div>
+      </div>
+
       <ol className="list-decimal space-y-1.5 pl-5 text-xs">
         <li>
-          <button
-            type="button"
-            onClick={() => void download()}
-            disabled={downloading}
-            className="inline-flex items-center gap-1 font-medium text-primary underline disabled:opacity-50"
-          >
-            <Download className="h-3 w-3" /> {downloading ? "Preparing…" : "Download the extension (.zip)"}
-          </button>{" "}
-          and unzip it - you get a <code className="rounded bg-muted px-1">{EXTENSION_FOLDER}</code> folder. Keep that folder; Chrome
-          reads the extension from it. It is already set to <b>{typeof window !== "undefined" ? window.location.host : "this admin"}</b>.
+          Press <b>Create zip &amp; download</b> above and unzip the file - you get a <code className="rounded bg-muted px-1">{EXTENSION_FOLDER}</code>{" "}
+          folder. Keep that folder; Chrome reads the extension from it.
         </li>
         <li>
           Open <code className="rounded bg-muted px-1">chrome://extensions</code> in a new tab{" "}

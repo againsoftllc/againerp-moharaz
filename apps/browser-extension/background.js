@@ -76,6 +76,28 @@ async function applyConfig() {
   }
 }
 
+// The admin page "Log in" lands on (/extension-connect) hands over a session made for this extension. Accepted only from the admin
+// address this extension is connected to - never from another site.
+async function connectFromAdmin(item, sender) {
+  const { webBase } = await chrome.storage.local.get("webBase");
+  let from = "";
+  try {
+    from = new URL(sender && sender.tab && sender.tab.url ? sender.tab.url : "").origin;
+  } catch (_) {
+    from = "";
+  }
+  let expected = "";
+  try {
+    expected = new URL(webBase).origin;
+  } catch (_) {
+    expected = "";
+  }
+  if (!expected || from !== expected) return { ok: false, error: "This page is not the admin the extension is connected to" };
+  if (!item || !item.token) return { ok: false, error: "No session received" };
+  await chrome.storage.local.set({ token: String(item.token), userName: String(item.name || "") });
+  return { ok: true };
+}
+
 async function onBoot() {
   await applyConfig();
   schedule();
@@ -100,6 +122,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message && message.type === "sync-one") {
     syncOne(message.item).then(reply, (err) => reply({ ok: false, error: err.message }));
     return true; // answer asynchronously
+  }
+  if (message && message.type === "connect") {
+    connectFromAdmin(message.item, sender).then(reply, (err) => reply({ ok: false, error: err.message }));
+    return true;
   }
   if (message && message.type === "discover-one") {
     discoverOne(message.item).then(reply, (err) => reply({ ok: false, error: err.message }));

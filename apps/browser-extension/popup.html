@@ -22,20 +22,17 @@
       <label id="web-label">Admin panel address <span class="muted">(for the “Open” link)</span>
         <input id="web-base" type="url" placeholder="https://admin.yourstore.com" />
       </label>
-      <label>Email or username
-        <input id="login-email" type="text" autocomplete="username" />
-      </label>
-      <label>Password
-        <input id="login-password" type="password" autocomplete="current-password" />
-      </label>
-      <button id="login" class="primary">Sign in</button>
+      <p class="muted small" id="login-how">Log in opens the admin in a new tab. Sign in there - nothing is typed into this extension.</p>
+      <button id="login" class="primary">Log in</button>
       <p id="login-error" class="error" hidden></p>
       <p id="signed-in" class="muted" hidden></p>
+      <button id="back" class="link" hidden>← Back</button>
       <button id="logout" class="link" hidden>Sign out</button>
     </section>
 
     <!-- Capture -->
     <section id="view-capture" hidden>
+      <p id="connected-as" class="muted small"></p>
       <div id="reading" class="muted">Reading this page…</div>
       <p id="read-error" class="error" hidden></p>
 

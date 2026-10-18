@@ -97,59 +97,43 @@ function openLogin(message) {
   const signedIn = !!state.token;
   show($("signed-in"), signedIn);
   show($("logout"), signedIn);
-  $("signed-in").textContent = signedIn ? `Signed in as ${state.userName}.` : "";
+  show($("back"), signedIn); // Settings can always be left again
+  $("login").textContent = signedIn ? "Log in again" : "Log in";
+  $("signed-in").textContent = signedIn ? `Connected as ${state.userName || "your account"}.` : "";
   show($("login-error"), !!message);
   $("login-error").textContent = message || "";
 }
 
+// "Log in" does not ask for a password here: it opens the admin's own login in a new tab; once the admin has signed the person in, its
+// /extension-connect page hands this extension a session of its own (background.js connectFromAdmin).
 async function login() {
   const apiBase = state.locked ? state.apiBase : normalizeBase($("api-base").value);
-  const webBase = state.locked ? state.webBase : normalizeBase($("web-base").value);
-  const email = $("login-email").value.trim();
-  const password = $("login-password").value;
+  const webBase = state.locked ? state.webBase : normalizeBase($("web-base").value) || apiBase;
   const fail = (msg) => {
     show($("login-error"));
     $("login-error").textContent = msg;
   };
-  let origin;
+  let webOrigin;
   try {
-    const url = new URL(apiBase);
-    origin = `${url.protocol}//${url.hostname}/*`;
+    webOrigin = new URL(webBase).origin;
   } catch (_) {
-    return fail("Enter the API address, e.g. https://api.yourstore.com");
+    return fail("Enter the admin panel address, e.g. https://admin.yourstore.com");
   }
-  if (!email || !password) return fail("Enter your email and password.");
-
-  // Lets the popup call the API without CORS rules getting in the way. Asked once per address.
-  // The admin panel address too, so Price Compare's ↻ can hand blocked links to this browser.
-  const origins = [origin];
+  // Lets the extension call the API and run on the admin pages (so the admin can hand the session over). Asked once per address.
+  const origins = [`${webOrigin}/*`];
   try {
-    const web = new URL(webBase);
-    origins.push(`${web.protocol}//${web.hostname}/*`);
+    const api = new URL(apiBase || webBase);
+    origins.push(`${api.protocol}//${api.hostname}/*`);
   } catch (_) {
-    /* no admin address — the ↻ fallback just stays off */
+    /* the API is the admin's own /api/v1 */
   }
   const granted = await chrome.permissions.request({ origins: [...new Set(origins)] });
-  if (!granted) return fail("Allow access to the API address so the extension can save prices.");
-
-  state.apiBase = apiBase;
-  state.token = "";
-  $("login").disabled = true;
-  try {
-    const data = await api("/auth/login", { method: "POST", body: { email, password } });
-    state.token = data.token;
-    state.webBase = webBase;
-    state.userName = (data.user && (data.user.name || data.user.email)) || email;
-    await chrome.storage.local.set({
-      apiBase, webBase, token: state.token, userName: state.userName,
-    });
-    $("login-password").value = "";
-    startCapture();
-  } catch (err) {
-    fail(err.message);
-  } finally {
-    $("login").disabled = false;
-  }
+  if (!granted) return fail("Allow access to the admin address so the extension can connect.");
+  await chrome.storage.local.set({ apiBase: apiBase || webBase, webBase });
+  state.apiBase = apiBase || webBase;
+  state.webBase = webBase;
+  await chrome.tabs.create({ url: `${webOrigin}/extension-connect` });
+  window.close();
 }
 
 async function logout() {
@@ -173,6 +157,7 @@ function readError(message) {
 async function startCapture() {
   show($("view-login"), false);
   show($("view-capture"));
+  $("connected-as").textContent = state.userName ? `Connected as ${state.userName}` : "Connected";
   if ($("view-sync").hidden) openSync();
   show($("reading"));
   show($("read-error"), false);
@@ -543,8 +528,18 @@ chrome.storage.onChanged.addListener((changes) => {
 
 $("open-settings").addEventListener("click", () => openLogin());
 $("login").addEventListener("click", login);
-$("login-password").addEventListener("keydown", (e) => e.key === "Enter" && login());
 $("logout").addEventListener("click", logout);
+$("back").addEventListener("click", () => (state.token && state.apiBase ? startCapture() : openLogin()));
+// the admin connected this extension while the popup was open
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.token && changes.token.newValue) {
+    state.token = changes.token.newValue;
+    chrome.storage.local.get("userName").then(({ userName }) => {
+      state.userName = userName || "";
+      startCapture();
+    });
+  }
+});
 $("product-search").addEventListener("input", onSearch);
 $("save").addEventListener("click", save);
 $("sync-enabled").addEventListener("change", onSyncToggle);

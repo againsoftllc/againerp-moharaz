@@ -22,7 +22,7 @@
       window.postMessage({ source: "againerp-extension", type: "ready", version: VERSION }, location.origin);
       return;
     }
-    if (!["sync-one", "discover-one"].includes(data.type) || !data.requestId || !data.item) return;
+    if (!["sync-one", "discover-one", "connect"].includes(data.type) || !data.requestId || !data.item) return;
 
     const reply = (payload) =>
       window.postMessage(
