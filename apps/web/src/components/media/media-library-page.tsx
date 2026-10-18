@@ -3,13 +3,9 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Cloud, Filter, HardDrive, MoreHorizontal, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Cloud, HardDrive, MoreHorizontal, RefreshCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
-import {
-  MediaLibraryPanel,
-  type MediaLibraryPanelHandle,
-} from "@/components/media/media-library-panel";
-import { ListGridHeaderStart } from "@/components/shared/list-grid-header-start";
+import { MediaLibraryPanel } from "@/components/media/media-library-panel";
 import {
   filterMediaLibraryItems,
   getMediaFileStorage,
@@ -69,7 +65,6 @@ function MediaLibraryPageContent({ title = "Media" }: MediaLibraryPageProps) {
   const setItems = useMediaStore((state) => state.setItems);
   const prependStoreItems = useMediaStore((state) => state.prependItems);
   const patchMediaItemLocal = useMediaStore((state) => state.patchMediaItem);
-  const mediaPanelRef = useRef<MediaLibraryPanelHandle>(null);
 
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | MediaLibraryItemType>(typeFromUrl);
@@ -302,34 +297,20 @@ function MediaLibraryPageContent({ title = "Media" }: MediaLibraryPageProps) {
   };
 
   const headerLeftActions = (
-    <ListGridHeaderStart title={title || "Media"}>
-      {canWrite ? (
-        <>
-          <Button size="sm" className="rounded-none" onClick={() => setActiveTab("upload")}>
-            <Upload className="mr-1.5 h-3.5 w-3.5" />
-            Upload
-          </Button>
-          {activeTab === "upload" ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-none"
-              onClick={() => setActiveTab("library")}
-            >
-              Library
-            </Button>
-          ) : null}
-        </>
-      ) : null}
-    </ListGridHeaderStart>
-  );
-
-  const footerLeftActions = (
     <>
-      <span className="text-sm font-medium">{title}</span>
+      {isCloudflarePluginActive(cloudflarePlugin) && (
+        <Badge variant="outline" className="hidden gap-1 rounded-none lg:inline-flex">
+          {cloudflarePlugin?.mediaStorage === "r2" ? (
+            <Cloud className="h-3 w-3 text-orange-500" />
+          ) : (
+            <HardDrive className="h-3 w-3" />
+          )}
+          {cloudflareStorageLabel(cloudflarePlugin)}
+        </Badge>
+      )}
       <Button
         variant="outline"
-        size="sm"
+        size="icon"
         onClick={() => {
           void refetch({ query, type: serverType });
           apiHealth.recheck();
@@ -346,6 +327,7 @@ function MediaLibraryPageContent({ title = "Media" }: MediaLibraryPageProps) {
                 : "Checking connection…"
         }
         className={cn(
+          "h-9 w-9 rounded-none",
           apiHealth.status === "connected" &&
             "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 hover:text-emerald-700 dark:text-emerald-400",
           apiHealth.status === "partial" &&
@@ -356,33 +338,13 @@ function MediaLibraryPageContent({ title = "Media" }: MediaLibraryPageProps) {
       >
         <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
       </Button>
-      <Button
-        variant="outline"
-        size="icon"
-        className="relative h-7 w-7"
-        onClick={() => mediaPanelRef.current?.openFilters()}
-        aria-label="Filters"
-        title="Filters"
-      >
-        <Filter className="h-3.5 w-3.5" />
-      </Button>
-      {isCloudflarePluginActive(cloudflarePlugin) && (
-        <Badge variant="outline" className="hidden gap-1 lg:inline-flex rounded-none">
-          {cloudflarePlugin?.mediaStorage === "r2" ? (
-            <Cloud className="h-3 w-3 text-orange-500" />
-          ) : (
-            <HardDrive className="h-3 w-3" />
-          )}
-          {cloudflareStorageLabel(cloudflarePlugin)}
-        </Badge>
-      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" aria-label="More actions">
+          <Button variant="outline" size="icon" className="h-9 w-9 rounded-none" aria-label="More actions">
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
+        <DropdownMenuContent align="end">
           {isCloudflarePluginActive(cloudflarePlugin) ? (
             <DropdownMenuItem asChild>
               <Link href="/workspace/plugins/cloudflare">Cloudflare settings</Link>
@@ -417,6 +379,16 @@ function MediaLibraryPageContent({ title = "Media" }: MediaLibraryPageProps) {
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+      {canWrite ? (
+        <Button
+          size="sm"
+          className="h-9 rounded-none"
+          onClick={() => setActiveTab("upload")}
+        >
+          <Upload className="mr-1.5 h-3.5 w-3.5" />
+          Upload files
+        </Button>
+      ) : null}
     </>
   );
 
@@ -432,7 +404,7 @@ function MediaLibraryPageContent({ title = "Media" }: MediaLibraryPageProps) {
         </div>
       ) : (
         <MediaLibraryPanel
-          ref={mediaPanelRef}
+          title={title || "Media"}
           items={filtered}
           hasMore={hasMore}
           loadingMore={loadingMore}
@@ -463,8 +435,8 @@ function MediaLibraryPageContent({ title = "Media" }: MediaLibraryPageProps) {
           onImport={canWrite ? (imported) => void handleImport(imported) : undefined}
           loading={loading}
           total={total}
+          onClearSelection={() => setSelectedIds([])}
           headerLeftActions={headerLeftActions}
-          footerLeftActions={footerLeftActions}
           className="min-h-0 flex-1"
         />
       )}

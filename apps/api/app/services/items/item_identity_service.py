@@ -146,6 +146,25 @@ class ItemIdentityService:
             self._db.flush()
         return len(rows)
 
+    def next_serial_sku(self, company_id: str = "default", prefix: str = "SKU-", width: int = 6) -> str:
+        """The next SKU of the serial `SKU-000001, SKU-000002 ...`: one above the highest serial in use (items and catalog), the first
+        free one - used when a product is saved with no SKU."""
+        from sqlalchemy import Integer, cast, func
+
+        pattern = f"^{prefix}[0-9]+$"
+        start = len(prefix) + 1
+        best = 0
+        for column, extra in ((Item.sku, Item.company_id == company_id), (CatalogProduct.sku, None)):
+            query = self._db.query(func.max(cast(func.substr(column, start), Integer))).filter(column.op("~")(pattern))
+            if extra is not None:
+                query = query.filter(extra)
+            best = max(best, int(query.scalar() or 0))
+        while True:
+            best += 1
+            candidate = f"{prefix}{best:0{width}d}"
+            if not self.sku_taken(candidate, company_id=company_id):
+                return candidate
+
     def sku_taken(
         self,
         sku: str,

@@ -2,7 +2,7 @@
 
 import { useAdminAuth } from "@/lib/store/admin-auth-store";
 
-export type PermissionAction = "read" | "create" | "write" | "delete";
+export type PermissionAction = "read" | "create" | "write" | "delete" | "publish" | "export";
 
 export type PermissionMap = Record<string, PermissionAction[]>;
 

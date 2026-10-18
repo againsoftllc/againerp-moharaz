@@ -38,6 +38,8 @@ class CatalogProduct(Base):
     slug: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     sku: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)  # P7 mirror
     model: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    # Internal note / remarks about the product — staff-only, never shown on the storefront.
+    remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     compare_at_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2), nullable=True)
@@ -92,6 +94,11 @@ class CatalogProduct(Base):
     source_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     seller_info_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     dropship_meta_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Module visibility: a product belongs to the Inventory module's catalog and/or the Website module's product
+    # list. Both default true (legacy rows); each module's "create" sets only its own flag, and adding a website
+    # product to inventory is an explicit action (POST /catalog/products/add-to-inventory).
+    in_inventory: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true", index=True)
+    on_website: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true", index=True)
     gallery_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # image URL list (CDN hotlinks)
     video_urls_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -105,3 +112,6 @@ class CatalogProduct(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+    # who made the last change: filled for every save from the signed-in user (app/services/audit_actor.py), the AI chat included
+    updated_by_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    updated_by_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

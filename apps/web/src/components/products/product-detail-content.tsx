@@ -526,6 +526,11 @@ export function ProductDetailContent({
                     Model: <span className="font-medium text-foreground">{product.model.trim()}</span>
                   </p>
                 ) : null}
+                {product.remarks?.trim() ? (
+                  <p className="w-full text-[11px] text-muted-foreground">
+                    Remarks: <span className="font-medium text-foreground">{product.remarks.trim()}</span>
+                  </p>
+                ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap gap-1.5">
                 {onOpenFullPage && (

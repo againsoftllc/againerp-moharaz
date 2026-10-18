@@ -39,9 +39,11 @@ PRESETS: dict[str, tuple[str, str]] = {
     ),
     "catalog.product.short_description": (
         "Short description",
-        "Exactly 4 bullet points, one per line, each one a key selling spec or benefit of THIS product (capacity, "
-        "speed, interface, size, compatibility, warranty …), under 70 characters each. No seller name, no price, no "
-        "full stops needed, no numbering or bullet characters (one point per line only).",
+        "Exactly 4 key features, one per line, each written as 'Label: value' like the storefront's key-feature list "
+        "(e.g. 'Processor: Intel Core Ultra 5', 'RAM: 16GB DDR5', 'Display: 14 inch WUXGA touch', 'Battery: up to 60 days'), "
+        "under 80 characters each. Pick the specs a shopper decides on for THIS product type. Never use the model number "
+        "or model name as a line (it has its own field). No seller name, no price, no full stops, no numbering or "
+        "bullet characters (one point per line only).",
     ),
     "catalog.product.description": (
         "Description",
@@ -67,10 +69,18 @@ PRESETS: dict[str, tuple[str, str]] = {
     ),
     "catalog.product.warranty": (
         "Warranty",
-        "Detect the warranty from the source (spec row, text or title) and normalise it to '<N> Year(s) Official "
-        "Warranty' (or '<N> Month(s) Warranty' / 'No Warranty' when that is what the source says). If our warranty "
-        "list has an option with the same meaning, use that option's exact wording. If the source does not state a "
-        "warranty, leave it empty — never guess.",
+        "Detect the warranty from the source (spec row, text or title) and give only its length as one short choice: "
+        "'6 Months', '1 Year', '2 Years', '3 Years' ... or 'Lifetime' - the product's own warranty, not a battery or "
+        "accessory one. Never choose 'No Warranty' by yourself: if the source does not state a duration, leave the "
+        "field empty. The full warranty sentence stays in the specifications.",
+    ),
+    "catalog.product.spec_values": (
+        "Specification values (wording)",
+        "Specification values that are long descriptive text are rewritten in your own clean, consistent wording and "
+        "formatting (same style for all rows: sentence case, ' x ' between dimensions, units as the source writes them, "
+        "no marketing fluff, no seller name) so they are not a word-for-word copy of the source shop. The MAIN VALUE "
+        "must stay exactly right: every number, unit, version, port / standard / model name and brand is kept "
+        "unchanged, nothing is added or dropped. Short values (a number, a unit, yes / no, one word) are never touched.",
     ),
     "catalog.product.seo": (
         "SEO (focus keyphrase, meta title, meta description)",

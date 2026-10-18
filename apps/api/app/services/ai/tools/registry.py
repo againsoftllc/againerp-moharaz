@@ -20,6 +20,8 @@ from app.services.ai.orchestrator import OrchestratorTool
 from app.services.ai.tools.action_tools import build_action_tools
 from app.services.ai.tools.catalog_import_tools import build_catalog_import_tools
 from app.services.ai.tools.customer_tools import build_customer_tools
+from app.services.ai.tools.delivery_tools import build_delivery_tools
+from app.services.ai.tools.document_read_tools import build_document_read_tools
 from app.services.ai.tools.database_tools import build_database_tools
 from app.services.ai.tools.finance_report_tools import build_finance_report_tools
 from app.services.ai.tools.finance_tools import build_finance_tools
@@ -31,22 +33,34 @@ from app.services.ai.tools.memory_tools import build_memory_tools
 from app.services.ai.tools.preset_tools import build_preset_tools
 from app.services.ai.tools.product_edit_tools import build_product_edit_tools
 from app.services.ai.tools.purchase_tools import build_purchase_tools
+from app.services.ai.tools.sales_flow_tools import build_sales_flow_tools
 from app.services.ai.tools.sales_tools import build_sales_tools
+from app.services.ai.tools.stock_adjust_tools import build_stock_adjust_tools
+from app.services.ai.tools.stock_transfer_tools import build_stock_transfer_tools
 
 
-def build_tools(
+from app.services.ai.risk_policy import apply_risk_policy
+from app.services.ai.tools.two_step import require_preview
+
+
+def build_tools_unpoliced(
     bearer_token: str,
     *,
     db: Session | None = None,
     company_id: str | None = None,
     user: Any | None = None,
 ) -> list[OrchestratorTool]:
-    return [
-        *build_customer_tools(bearer_token),
+    tools = [
+        *build_customer_tools(bearer_token, db=db, company_id=company_id, user=user),
+        *build_document_read_tools(bearer_token, db=db, company_id=company_id, user=user),
         *build_finance_tools(bearer_token, db=db, company_id=company_id, user=user),
         *build_finance_report_tools(bearer_token),
         *build_sales_tools(bearer_token, db=db, company_id=company_id, user=user),
+        *build_sales_flow_tools(bearer_token, db=db, company_id=company_id, user=user),
+        *build_delivery_tools(bearer_token, db=db, company_id=company_id, user=user),
         *build_inventory_tools(bearer_token),
+        *build_stock_adjust_tools(bearer_token, db=db, company_id=company_id, user=user),
+        *build_stock_transfer_tools(bearer_token, db=db, company_id=company_id, user=user),
         *build_purchase_tools(bearer_token, db=db, company_id=company_id, user=user),
         *build_action_tools(bearer_token, db=db, company_id=company_id, user=user),
         *build_catalog_import_tools(db=db, company_id=company_id, user=user),
@@ -58,6 +72,19 @@ def build_tools(
         *build_preset_tools(db=db, company_id=company_id, user=user),
         *build_database_tools(db=db, company_id=company_id, user=user),
     ]
+    # committing tools (confirm order, approve expense) are preview -> confirm, never one-step (ai.md finding 1)
+    return require_preview(tools, bearer_token)
+
+
+def build_tools(
+    bearer_token: str,
+    *,
+    db: Session | None = None,
+    company_id: str | None = None,
+    user: Any | None = None,
+) -> list[OrchestratorTool]:
+    """Every tool, with the risk policy applied (ai.md step 1.4): data-changing tools are two-step, bulk arguments capped."""
+    return apply_risk_policy(build_tools_unpoliced(bearer_token, db=db, company_id=company_id, user=user))
 
 
 def tool_catalog() -> list[OrchestratorTool]:

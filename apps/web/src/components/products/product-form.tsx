@@ -103,6 +103,7 @@ export type ProductFormValues = {
   name: string;
   sku: string;
   model: string;
+  remarks: string;
   category: string;
   categoryId: string;
   categoryIds: string[];
@@ -136,6 +137,7 @@ export const PRODUCT_FORM_DEFAULT_VALUES: ProductFormValues = {
   name: "",
   sku: "",
   model: "",
+  remarks: "",
   category: "",
   categoryId: "",
   categoryIds: [],
@@ -321,6 +323,7 @@ function buildProductPayload(
     model: values.model.trim()
       ? truncateToLimit(values.model.trim(), PRODUCT_FIELD_LIMITS.model)
       : null,
+    remarks: values.remarks.trim() ? values.remarks.trim().slice(0, 2000) : null,
     price: parseFloat(values.price) || 0,
     compare_at_price: values.compareAtPrice ? parseFloat(values.compareAtPrice) : undefined,
     last_selling_price: values.lastSellingPrice ? parseFloat(values.lastSellingPrice) : undefined,
@@ -423,6 +426,7 @@ export function ProductForm({
           name: initialProduct.name ?? PRODUCT_FORM_DEFAULT_VALUES.name,
           sku: initialProduct.sku ?? PRODUCT_FORM_DEFAULT_VALUES.sku,
           model: initialProduct.model ?? PRODUCT_FORM_DEFAULT_VALUES.model,
+          remarks: initialProduct.remarks ?? PRODUCT_FORM_DEFAULT_VALUES.remarks,
           category: initialProduct.category ?? PRODUCT_FORM_DEFAULT_VALUES.category,
           brand: initialProduct.brand ?? PRODUCT_FORM_DEFAULT_VALUES.brand,
           status: initialProduct.status ?? PRODUCT_FORM_DEFAULT_VALUES.status,
@@ -630,6 +634,7 @@ export function ProductForm({
       name: productDetail.name,
       sku: productDetail.sku,
       model: productDetail.model ?? "",
+      remarks: productDetail.remarks ?? "",
       category: productDetail.category,
       categoryId: productDetail.categoryId ?? "",
       categoryIds: productDetail.categoryIds?.length
@@ -814,7 +819,7 @@ export function ProductForm({
     setSaving(true);
     try {
       if (mode === "create") {
-        const sku = payload.sku || `SKU-${Date.now().toString().slice(-6)}`;
+        const sku = payload.sku; // blank -> the server gives the next serial SKU
         const isDropshippingModule = moduleBase === DROPSHIPPING_MODULE_BASE;
         const tags = Array.from(
           new Set([
@@ -827,6 +832,8 @@ export function ProductForm({
           slug: finalSlug,
           sku,
           tags,
+          // Website-created products reach Inventory only through "Add to Inventory".
+          ...(isDropshippingModule ? {} : { in_inventory: false, on_website: true }),
           dropship_meta_json: isDropshippingModule
             ? JSON.stringify({
                 source: "manual",
@@ -1137,11 +1144,11 @@ export function ProductForm({
                     urlPrefix={<span className="shrink-0 text-sm text-muted-foreground">/</span>}
                   />
                 </Field>
-                <Field label="SKU" required>
+                <Field label="SKU" hint="Leave blank to get the next number (SKU-000001, SKU-000002 ...).">
                   <Input
                     value={values.sku}
                     onChange={(e) => set("sku", e.target.value)}
-                    placeholder="TSH-BLK-M"
+                    placeholder="Auto"
                     maxLength={PRODUCT_FIELD_LIMITS.sku}
                   />
                 </Field>
@@ -1149,7 +1156,7 @@ export function ProductForm({
                   <Input
                     value={values.model}
                     onChange={(e) => set("model", e.target.value)}
-                    placeholder="TD500 Mesh"
+                    placeholder="Model"
                     maxLength={PRODUCT_FIELD_LIMITS.model}
                   />
                 </Field>
@@ -1611,6 +1618,19 @@ export function ProductForm({
                 );
               })()}
             </Section>
+          </div>
+
+          <div data-section="remarks" className="py-6">
+            <Field label="Remarks" hint="Internal note — staff only, not shown on the website.">
+              <Textarea
+                value={values.remarks}
+                onChange={(e) => set("remarks", e.target.value)}
+                placeholder="e.g. Box damaged on arrival, check before sale"
+                rows={2}
+                maxLength={2000}
+                className="text-[7px] leading-snug"
+              />
+            </Field>
           </div>
 
           </div>{/* end divide-y wrapper */}

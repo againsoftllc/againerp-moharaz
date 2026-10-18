@@ -182,6 +182,13 @@ def build_product_edit_tools(
                 if changes[f] not in allowed:
                     return {"error": f"{f} must be one of {', '.join(allowed)}."}
                 update[f] = changes[f]
+        # The AI prepares drafts. Publishing / making a product public is a separate right: only a system manager
+        # may do it through chat (and only when asked for in words) - everyone else uses the product page.
+        if (update.get("status") == "published" or update.get("visibility") == "public"):
+            from app.services.rbac import has_permission, is_system_manager
+
+            if db is None or user is None or not (is_system_manager(db, user) or has_permission(db, user, "catalog", "publish")):
+                return {"error": "Publishing a product or making it public needs the Catalog publish permission - Aladin can only keep it as a draft. Publish it from the product page."}
         if "tags" in changes and changes["tags"]:
             update["tags"] = [str(t).strip() for t in changes["tags"] if str(t).strip()][:20]
 
@@ -279,6 +286,9 @@ def build_product_edit_tools(
             "id": product.id,
             "name": product.name,
             "updated_fields": sorted(after),
+            # kept in the audit log with the call: what each field was and what it is now
+            "before": before,
+            "after": after,
             "product_status": product.status,
             "doc_link": f"doc://product/{product.id}",
             "path": f"/website/products?edit={product.id}",

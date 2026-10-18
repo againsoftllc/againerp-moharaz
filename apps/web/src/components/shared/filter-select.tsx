@@ -29,6 +29,8 @@ type Props = {
   width?: string;
   ariaLabel?: string;
   disabled?: boolean;
+  /** Flip the menu above the trigger when there is no room below (use inside drawers). */
+  avoidCollisions?: boolean;
 };
 
 /**
@@ -46,6 +48,7 @@ export function FilterSelect({
   width = "w-[140px]",
   ariaLabel,
   disabled = false,
+  avoidCollisions = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -96,7 +99,8 @@ export function FilterSelect({
         align="start"
         side="bottom"
         sideOffset={2}
-        avoidCollisions={false}
+        avoidCollisions={avoidCollisions}
+        collisionPadding={8}
         className="max-h-72 w-[var(--radix-dropdown-menu-trigger-width)] min-w-[8rem] overflow-hidden p-0"
       >
         {showSearch && (

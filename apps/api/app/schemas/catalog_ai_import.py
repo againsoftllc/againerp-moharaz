@@ -61,6 +61,9 @@ class ProductDraft(BaseModel):
     # specification profile for the category yet, to build one with its filters
     source_filters: list[dict] = Field(default_factory=list)
     confidence_notes: Optional[str] = None
+    # the product's Remarks (staff-only note): where it came from + the source's own ids, so a second import of the same
+    # source product is easy to spot - set by the importer, never by the model
+    remarks: Optional[str] = None
 
 
 class CatalogAiExtractRequest(BaseModel):

@@ -167,6 +167,7 @@ Admin lists that look like `/customers` (filter bar + AG Grid + zoom + 27px nati
 - Inventory of every page and drawer: `docs/AGAIN-LIST-DATATABLE.md`
 - Shared CSS: `.ag-theme-again-list` / `.product-grid-fill` in `apps/web/src/app/globals.css`
 - Shared pieces: `AgainListGrid` (`@/components/shared/again-list-grid`), `ListGridHeaderStart`, `GridZoomControl`, `GridFullscreen`, `GridRefLink`, `finance-ag-list-grid.tsx`
+- **Font:** every datatable uses Odoo's list font — **Inter** (`--font-list`) — at **one size** (`--ag-font-size`, 11px at 100% zoom, scaled by the zoom control). Header text matches cell size, headers are bold. This is enforced in `.ag-theme-again-list` (globals.css) for everything inside `.ag-cell` / `.ag-header-cell`, so a column renderer must **not** set its own `font-mono`, `text-xs`, `text-sm`, `font-size` or `font-family`. Need an id to stand out? Use weight (`font-medium`) or colour, never size or family. Icons (`.ag-icon`, svg) are exempt.
 - Do **not** invent a new list chrome. Change `AgainListGrid` / `.ag-theme-again-list` so every list updates together.
 - New lists: add a row to `docs/AGAIN-LIST-DATATABLE.md`
 
@@ -228,6 +229,8 @@ const saveDraftIfDirty = () => {
 
 ## Changelog (common rules)
 
+| 2026-10-17 | Datatables: one font (Inter, Odoo list font) and one size in every cell/header, enforced in `.ag-theme-again-list`; no `font-mono` / `text-xs` in cell renderers |
+| 2026-10-17 | Drawers: primary actions (Cancel / Save) in the header; dropdowns inside drawers use `avoidCollisions` so they flip above near the bottom |
 | 2026-09-26 | Drawers: save a draft on accidental outside-click/Escape (`@/lib/hooks/use-drawer-draft`), reference impl in supplier drawer |
 | 2026-09-07 | Image upload: one square Add tile (`MediaPickTile` / `MediaGallery`) |
 | 2026-09-07 | `AgainListGrid` global list shell — one chrome change updates every datatable |

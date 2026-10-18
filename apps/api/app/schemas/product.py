@@ -29,6 +29,7 @@ class ProductBase(BaseModel):
     slug: str = Field(default="", max_length=255)
     sku: str = Field(default="", max_length=100)
     model: Optional[str] = Field(default=None, max_length=200)
+    remarks: Optional[str] = Field(default=None, max_length=2000)
     description: Optional[str] = None
     short_description: Optional[str] = None
     price: Decimal = Field(ge=0)
@@ -74,6 +75,8 @@ class ProductBase(BaseModel):
     source_url: Optional[str] = Field(default=None, max_length=1000)
     seller_info_json: Optional[str] = None
     dropship_meta_json: Optional[str] = None
+    in_inventory: bool = True
+    on_website: bool = True
     gallery_json: Optional[str] = None
     video_urls_json: Optional[str] = None
 
@@ -96,6 +99,7 @@ class ProductUpdate(BaseModel):
     slug: Optional[str] = Field(default=None, max_length=255)
     sku: Optional[str] = Field(default=None, max_length=100)
     model: Optional[str] = Field(default=None, max_length=200)
+    remarks: Optional[str] = Field(default=None, max_length=2000)
     description: Optional[str] = None
     short_description: Optional[str] = None
     price: Optional[Decimal] = Field(default=None, ge=0)
@@ -158,6 +162,7 @@ class ProductRead(ProductBase):
     company_id: str
     created_at: datetime
     updated_at: datetime
+    updated_by_name: Optional[str] = None  # who made the last change
 
     # P7: sku, name, status, product_type in ProductBase are API-compat mirrors of items.
 
@@ -248,6 +253,16 @@ class ProductSpecsReplace(BaseModel):
 class ProductSpecsResponse(BaseModel):
     data: ProductSpecsRead
     errors: List[str] = []
+
+
+class ProductAddToInventory(BaseModel):
+    product_ids: List[str] = Field(min_length=1, max_length=500)
+
+
+class ProductAddToInventoryResponse(BaseModel):
+    added: int
+    already: int
+    missing: int
 
 
 class ProductSlugCheckResponse(BaseModel):

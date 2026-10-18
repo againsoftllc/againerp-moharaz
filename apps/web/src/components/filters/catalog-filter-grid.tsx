@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  FILTER_DISPLAY_CHOICES,
   FILTER_DISPLAY_LABELS,
   FILTER_SOURCE_LABELS,
   type CatalogFacetFilter,
@@ -67,6 +68,7 @@ function applyFilters(rows: CatalogFacetFilter[], f: FilterState) {
 }
 
 const DISPLAY_TYPE_COLORS: Record<FilterDisplayType, string> = {
+  single_select: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
   multi_select: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
   range: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
   boolean: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
@@ -391,7 +393,7 @@ export const CatalogFilterGrid = forwardRef<CatalogFilterGridHandle, Props>(func
             className="w-[150px] shrink-0 rounded-none"
           >
             <option value="all">All types</option>
-            {(Object.keys(FILTER_DISPLAY_LABELS) as FilterDisplayType[]).map((t) => (
+            {FILTER_DISPLAY_CHOICES.map((t) => (
               <option key={t} value={t}>{FILTER_DISPLAY_LABELS[t]}</option>
             ))}
           </Select>
@@ -507,7 +509,7 @@ export const CatalogFilterGrid = forwardRef<CatalogFilterGridHandle, Props>(func
                 onChange={(e) => setToolbarFilters((f) => ({ ...f, displayType: e.target.value }))}
               >
                 <option value="all">All types</option>
-                {(Object.keys(FILTER_DISPLAY_LABELS) as FilterDisplayType[]).map((t) => (
+                {FILTER_DISPLAY_CHOICES.map((t) => (
                   <option key={t} value={t}>{FILTER_DISPLAY_LABELS[t]}</option>
                 ))}
               </Select>

@@ -68,7 +68,7 @@ def sync_attribute_filters(db: Session, attrs: list[CatalogAttribute]) -> None:
             row = CatalogFilter(
                 name=lead.name,
                 param_key=code,
-                display_type=lead.filter_display_type or "multi_select",
+                display_type="multi_select" if lead.field_type == "multi_select" else "single_select",
                 source="attribute",
                 sort_order=_next_sort(db),
                 category_scope="All categories",
@@ -78,6 +78,7 @@ def sync_attribute_filters(db: Session, attrs: list[CatalogAttribute]) -> None:
             db.add(row)
         row.attribute_id = lead.id
         row.attribute_name = lead.name
+        row.display_type = "multi_select" if lead.field_type == "multi_select" else "single_select"  # follows the attribute
         row.is_active = True
         row.storefront_visible = any(bool(a.storefront_filter_visible) for a in on)
         row.value_count = len(values)

@@ -366,3 +366,112 @@ export async function fetchFinanceReport(
   const s = q.toString();
   return apiFetch<ApiFinanceReport>(`${BASE}/reports/${slug}${s ? `?${s}` : ""}`);
 }
+
+// ── Cheques ──────────────────────────────────────────────────────────────
+
+export type ChequeDirection = "received" | "issued";
+export type ChequeStatus = "received" | "issued" | "deposited" | "presented" | "cleared" | "bounced" | "cancelled";
+export type ChequeAction = "deposit" | "present" | "clear" | "bounce" | "cancel";
+
+export type ApiFinanceCheque = {
+  id: string;
+  company_id: string;
+  direction: ChequeDirection;
+  cheque_number: string;
+  bank_name: string;
+  cheque_date: string;
+  amount: string;
+  status: ChequeStatus;
+  party_type: "customer" | "supplier";
+  party_id: string;
+  party_name: string | null;
+  receivable_id: string | null;
+  payable_id: string | null;
+  document_number: string | null;
+  payment_account_id: string | null;
+  payment_account_name: string | null;
+  bank_charge: string;
+  notes: string | null;
+  available_actions: ChequeAction[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ApiFinanceChequeEvent = {
+  id: string;
+  action: string;
+  from_status: string | null;
+  to_status: string;
+  event_date: string;
+  journal_entry_id: string | null;
+  actor: string | null;
+  note: string | null;
+  created_at: string;
+};
+
+export type ApiFinanceChequeDetail = ApiFinanceCheque & {
+  events: ApiFinanceChequeEvent[];
+  journal_entries: ApiFinanceJournalEntry[];
+};
+
+export async function fetchFinanceCheques(params?: { direction?: string; status?: string; limit?: number }) {
+  const q = new URLSearchParams();
+  if (params?.direction && params.direction !== "all") q.set("direction", params.direction);
+  if (params?.status && params.status !== "all") q.set("status", params.status);
+  if (params?.limit) q.set("limit", String(params.limit));
+  const s = q.toString();
+  return apiFetch<{ data: ApiFinanceCheque[]; meta: ApiListMeta }>(`${BASE}/cheques${s ? `?${s}` : ""}`);
+}
+
+export async function fetchFinanceCheque(id: string) {
+  return apiFetch<{ data: ApiFinanceChequeDetail }>(`${BASE}/cheques/${id}`);
+}
+
+export async function createFinanceCheque(input: {
+  direction: ChequeDirection;
+  party_id: string;
+  bank_name: string;
+  cheque_number: string;
+  cheque_date: string;
+  amount: string;
+  receivable_id?: string;
+  payable_id?: string;
+  notes?: string;
+}) {
+  return apiFetch<{ data: ApiFinanceChequeDetail }>(`${BASE}/cheques`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function applyFinanceChequeAction(
+  id: string,
+  input: {
+    action: ChequeAction;
+    action_date?: string;
+    payment_account_id?: string;
+    bank_charge?: string;
+    note?: string;
+  },
+) {
+  return apiFetch<{ data: ApiFinanceChequeDetail }>(`${BASE}/cheques/${id}/actions`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchFinancePayablesForSupplier(supplierId: string) {
+  return apiFetch<{ data: ApiFinancePayable[]; meta: ApiListMeta }>(
+    `${BASE}/payables?supplier_id=${encodeURIComponent(supplierId)}&limit=200`,
+  );
+}
+
+export async function updateFinanceCheque(
+  id: string,
+  input: { bank_name?: string; cheque_number?: string; cheque_date?: string; notes?: string },
+) {
+  return apiFetch<{ data: ApiFinanceChequeDetail }>(`${BASE}/cheques/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}

@@ -28,10 +28,14 @@ from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.ai import knowledge_service, record_search
 from app.services.ai.orchestrator import OrchestratorTool, RiskTier
 from app.services.ai.providers.base import AIToolDefinition
 
 MAX_ROWS = 200
+# a list of this many rows that carries personal / sensitive columns is a DUMP (an export), not a lookup: it needs the Export right
+BULK_PERSONAL_ROWS = 20
+PERSONAL_COL_RE = re.compile(r"(^|_)(phone|mobile|email|address|nid|national_id|dob|birth|birthday|salary|bank_account|passport|tin)($|_)", re.I)
 STATEMENT_TIMEOUT_MS = 8000
 
 BLOCKED_TABLE_PATTERNS = (
@@ -187,6 +191,7 @@ class _Access:
         self.user = user
         self.is_admin = False
         self.modules: set[str] = set()
+        self.exports: set[str] = set()  # modules whose data this user may export
         if db is None or user is None:
             return
         role = str(getattr(user, "role", "") or "").lower()
@@ -196,9 +201,11 @@ class _Access:
             if role in ("admin", "system_manager") or rbac_service.is_system_manager(db, user):
                 self.is_admin = True
                 self.modules = set(rbac_service.RBAC_MODULES)
+                self.exports = set(rbac_service.RBAC_MODULES)
                 return
             perms = rbac_service.user_permissions(db, user)
             self.modules = {m for m, actions in perms.items() if "read" in actions}
+            self.exports = {m for m, actions in perms.items() if "export" in actions}
         except Exception:
             self.is_admin = role in ("admin", "system_manager")
             self.modules = set()
@@ -211,14 +218,21 @@ class _Access:
         mods = table_modules(name)
         return bool(mods) and any(m in self.modules for m in mods)
 
+    def can_export_tables(self, tables) -> bool:
+        """True when the user has the Export right on every module the tables belong to (system managers always)."""
+        if self.is_admin:
+            return True
+        mods = {m for t in tables for m in table_modules(t)[:1]}
+        return bool(mods) and mods <= self.exports
+
     def readable_modules(self) -> list[str]:
         return [m for m in MODULE_LABELS if self.is_admin or m in self.modules]
 
 
-def data_map_text(db: Optional[Session], user: Any) -> str:
-    """The ERP data map for the system prompt — modules and key tables this user may read."""
+def data_map_text(db: Optional[Session], user: Any, only: Optional[set] = None) -> str:
+    """The ERP data map for the system prompt — modules and key tables this user may read (only those in `only`, when given)."""
     access = _Access(db, user)
-    mods = access.readable_modules()
+    mods = [m for m in access.readable_modules() if only is None or m in only]
     if not mods:
         return ""
     lines = ["# ERP data map (tables you may query; columns in parentheses)"]
@@ -292,7 +306,11 @@ def build_database_tools(*, db: Session | None, company_id: str | None, user: An
             label = MODULE_LABELS.get(module, "Other")
             if search and search not in name.lower() and search not in module and search not in label.lower():
                 continue
-            grouped.setdefault(module, []).append({"table": name, "approx_rows": int(approx)})
+            entry = {"table": name, "approx_rows": int(approx)}
+            about = knowledge_service.table_note(name).get("about")
+            if about:
+                entry["about"] = about
+            grouped.setdefault(module, []).append(entry)
         return {
             "company_id": company_id,
             "modules": {m: {"label": MODULE_LABELS.get(m, "Other"), "tables": t} for m, t in grouped.items()},
@@ -350,11 +368,22 @@ def build_database_tools(*, db: Session | None, company_id: str | None, user: An
                     vals = conn.execute(text(f'select distinct "{name}" from "{table}" where "{name}" is not null limit 12')).all()
                     enums[name] = [v[0] for v in vals]
         mods = table_modules(table)
+        note = knowledge_service.table_note(table)
+        col_notes = note.get("columns") or {}
+        for name, _t, _n, _d in visible_cols:
+            if not enums.get(name) and re.search(r"status|type|kind|role|stage|channel|method|direction|source|priority", name):
+                seen = knowledge_service.dictionary_values(table, name)
+                if seen:
+                    enums[name] = seen  # the live table has none yet: the values seen when the data dictionary was built
         return {
             "table": table,
+            "about": note.get("about"),
             "module": mods[0] if mods else "other",
             "rows_in_company": int(count or 0),
-            "columns": [{"name": n, "type": t, "nullable": nn == "YES"} for n, t, nn, _d in visible_cols],
+            "columns": [
+                {"name": n, "type": t, "nullable": nn == "YES", **({"note": col_notes[n]} if n in col_notes else {})}
+                for n, t, nn, _d in visible_cols
+            ],
             "foreign_keys": [{"column": c, "references": f"{rt}.{rc}"} for c, rt, rc in fks],
             "enum_like_values": enums,
             "hidden_columns": hidden,
@@ -409,6 +438,15 @@ def build_database_tools(*, db: Session | None, company_id: str | None, user: An
         elapsed = int((time.perf_counter() - started) * 1000)
         truncated = len(rows) > MAX_ROWS
         rows = rows[:MAX_ROWS]
+        personal = [c for c in columns if PERSONAL_COL_RE.search(c)]
+        if personal and len(rows) > BULK_PERSONAL_ROWS and not access.can_export_tables(referenced):
+            return {
+                "error": (
+                    f"Not allowed: this would list {len(rows)}+ rows with personal columns ({', '.join(personal)}) - that is an export, and your role "
+                    "does not have the Export permission for these modules. You may look up a few specific records (filter to one or a few people), "
+                    "or use the module's own Export button."
+                )
+            }
         note = None
         if company_id and "company_id" not in sql.lower():
             note = f"Query did not filter company_id — results may mix companies. Current company_id is '{company_id}'."
@@ -449,11 +487,11 @@ def build_database_tools(*, db: Session | None, company_id: str | None, user: An
             return {"error": "query must be at least 2 characters"}
         limit = max(1, min(int(inp.get("limit") or 5), 20))
         kinds = inp.get("types") or []
-        like = f"%{q}%"
         results: list[dict] = []
         skipped: list[str] = []
         known = _tables()
         with _conn() as conn:
+            trgm = record_search.has_trgm(conn)
             for kind, table, module, id_col, label_cols, search_cols, extra_cols in SEARCH_TARGETS:
                 if kinds and kind not in kinds:
                     continue
@@ -462,17 +500,34 @@ def build_database_tools(*, db: Session | None, company_id: str | None, user: An
                 if not access.can_read_table(table):
                     skipped.append(kind)
                     continue
-                where = " or ".join(f'"{c}"::text ilike :q' for c in search_cols)
-                cols = ", ".join(f'"{c}"' for c in (id_col, *label_cols, *extra_cols))
-                stmt = f'select {cols} from "{table}" where company_id = :c and ({where}) limit {limit}'
                 try:
-                    rows = conn.execute(text(stmt), {"q": like, "c": company_id}).all()
+                    rows = record_search.search_target(
+                        conn, company_id=company_id, table=table, id_col=id_col, label_cols=label_cols, search_cols=search_cols,
+                        extra_cols=extra_cols, q=q, limit=limit, trgm=trgm,
+                    )
                 except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:  # noqa: BLE001
+                        pass
                     continue
                 for r in rows:
-                    rec = dict(zip((id_col, *label_cols, *extra_cols), (_jsonable(v) for v in r)))
-                    results.append({"type": kind, "table": table, "module": module, **rec})
-        return {"query": q, "count": len(results), "results": results, **({"not_searched": skipped} if skipped else {})}
+                    shown = {k: _jsonable(v) for k, v in r.items() if k in (id_col, *label_cols, *extra_cols, "score", "match")}
+                    results.append({"type": kind, "table": table, "module": module, **shown, "_label": _jsonable(r.get(label_cols[0]))})
+        # best first across every table, an exact code / number before a partial name
+        results.sort(key=lambda r: -r.get("score", 0))
+        ambiguous = record_search.ambiguity(results)
+        for r in results:
+            r.pop("_label", None)  # only needed to describe the ambiguous candidates
+        out = {"query": q, "count": len(results), "results": results}
+        if ambiguous:
+            out["ambiguous"] = ambiguous
+            out["note"] = "Several records match about equally well. If the request needs ONE record, ask the user which one (show its name and code) - do not pick for them."
+        if results and all(r.get("match", "").startswith("similar") for r in results):
+            out["note"] = "Nothing matched exactly - these are only SIMILAR spellings. Tell the user what you found and ask if they meant one of them; do not act on it."
+        if skipped:
+            out["not_searched"] = skipped
+        return out
 
     def get_erp_data_map(inp: dict) -> dict:
         return {"data_map": data_map_text(db, user), "modules": access.readable_modules()}

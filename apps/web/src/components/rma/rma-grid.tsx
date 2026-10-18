@@ -55,11 +55,22 @@ import {
   type RmaTicket,
   type WarrantyStatus,
 } from "@/lib/api/rma";
+import { RMA_STAGES, stageOfStatus } from "@/lib/rma/stages";
 
 
 
-type FilterState = { search: string; status: string; warranty: string };
-const DEFAULT_FILTERS: FilterState = { search: "", status: "all", warranty: "all" };
+type FilterState = { search: string; stage: string; status: string; warranty: string };
+const DEFAULT_FILTERS: FilterState = { search: "", stage: "all", status: "all", warranty: "all" };
+
+/** The four steps of a return — plus claims that are finished. */
+const STAGE_OPTIONS = [
+  { value: "all", label: "All stages" },
+  ...RMA_STAGES.map((s) => ({ value: s.id, label: s.label })),
+  { value: "closed", label: "Closed / rejected" },
+];
+const stageIdOf = (status: string) => stageOfStatus(status) ?? "closed";
+const stageLabelOf = (status: string) =>
+  STAGE_OPTIONS.find((o) => o.value === stageIdOf(status))?.label ?? status;
 
 const DEFAULT_VISIBLE = {
   rmaNumber: true,
@@ -68,7 +79,8 @@ const DEFAULT_VISIBLE = {
   serial: true,
   orderNumber: false,
   warranty: true,
-  status: true,
+  stage: true,
+  status: false,
   age: true,
   assigned: false,
   supplier: true,
@@ -83,7 +95,8 @@ const COLUMN_LABELS: Record<keyof typeof DEFAULT_VISIBLE, string> = {
   serial: "Serial",
   orderNumber: "Order",
   warranty: "Warranty",
-  status: "Status",
+  stage: "Stage",
+  status: "Detail status",
   age: "Age",
   assigned: "Assigned",
   supplier: "Supplier",
@@ -91,7 +104,7 @@ const COLUMN_LABELS: Record<keyof typeof DEFAULT_VISIBLE, string> = {
   bill: "Billing",
 };
 
-const DEFAULT_VISIBLE_FILTERS = { search: true, status: true, warranty: true };
+const DEFAULT_VISIBLE_FILTERS = { search: true, stage: true, status: false, warranty: true };
 
 function ageInDays(iso: string): number {
   const then = new Date(iso).getTime();
@@ -112,6 +125,8 @@ export const RmaGrid = forwardRef<
     tickets: RmaTicket[];
     loading?: boolean;
     claimId?: string | null;
+    /** Opens with this stage already picked in the Stage filter (from the dashboard cards). */
+    initialStage?: string | null;
     onOpenClaim?: (id: string) => void;
     onCloseClaim?: () => void;
     onChanged?: () => void;
@@ -124,6 +139,7 @@ export const RmaGrid = forwardRef<
     tickets,
     loading = false,
     claimId = null,
+    initialStage = null,
     onOpenClaim,
     onCloseClaim,
     onChanged,
@@ -137,7 +153,10 @@ export const RmaGrid = forwardRef<
   const canWrite = useAdminCanWrite();
   const gridApiRef = useRef<GridApi<RmaTicket> | null>(null);
 
-  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [filters, setFilters] = useState<FilterState>({ ...DEFAULT_FILTERS, stage: initialStage ?? "all" });
+  useEffect(() => {
+    setFilters((f) => ({ ...f, stage: initialStage ?? "all" }));
+  }, [initialStage]);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [columnSheetOpen, setColumnSheetOpen] = useState(false);
   const [intakeOpen, setIntakeOpen] = useState(false);
@@ -210,6 +229,7 @@ export const RmaGrid = forwardRef<
           .includes(q)
       )
         return false;
+      if (filters.stage !== "all" && stageIdOf(t.status) !== filters.stage) return false;
       if (filters.status !== "all" && t.status !== filters.status) return false;
       if (filters.warranty !== "all" && t.warranty_status !== filters.warranty) return false;
       return true;
@@ -219,6 +239,7 @@ export const RmaGrid = forwardRef<
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (filters.search.trim()) n += 1;
+    if (filters.stage !== "all") n += 1;
     if (filters.status !== "all") n += 1;
     if (filters.warranty !== "all") n += 1;
     return n;
@@ -383,6 +404,27 @@ export const RmaGrid = forwardRef<
         },
       },
       {
+        colId: "stage",
+        headerName: COLUMN_LABELS.stage,
+        hide: !resolvedCols.stage,
+        width: 170,
+        minWidth: 140,
+        valueGetter: (p) => (p.data ? stageLabelOf(p.data.status) : ""),
+        cellRenderer: (p: ICellRendererParams<RmaTicket>) => {
+          const row = p.data;
+          if (!row) return null;
+          return (
+            <Badge
+              variant="outline"
+              className={cn("max-w-full truncate rounded-none text-[10px] leading-4", RMA_STATUS_TONE[row.status])}
+              title={RMA_STATUS_LABEL[row.status]}
+            >
+              {stageLabelOf(row.status)}
+            </Badge>
+          );
+        },
+      },
+      {
         colId: "status",
         field: "status",
         headerName: COLUMN_LABELS.status,
@@ -487,7 +529,7 @@ export const RmaGrid = forwardRef<
 
   const exportSelected = useCallback(() => {
     const rows = selected.length ? selected : filtered;
-    const header = ["RMA", "Customer", "SKU", "Serial", "Warranty", "Status", "Charges", "Billing"];
+    const header = ["RMA", "Customer", "SKU", "Serial", "Warranty", "Stage", "Status", "Charges", "Billing"];
     const body = rows.map((r) =>
       [
         r.rma_number,
@@ -495,6 +537,7 @@ export const RmaGrid = forwardRef<
         r.sku,
         r.serial_number ?? "",
         r.warranty_status,
+        stageLabelOf(r.status),
         r.status,
         r.total,
         r.bill_status,
@@ -529,6 +572,16 @@ export const RmaGrid = forwardRef<
               value={filters.search}
               onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
               className="w-[220px] shrink-0 rounded-none"
+            />
+          )}
+          {resolvedVisibleFilters.stage && (
+            <FilterSelect
+              value={filters.stage}
+              onChange={(stage) => setFilters((f) => ({ ...f, stage }))}
+              width="w-[190px]"
+              className="shrink-0"
+              ariaLabel="Stage"
+              options={STAGE_OPTIONS}
             />
           )}
           {resolvedVisibleFilters.status && (

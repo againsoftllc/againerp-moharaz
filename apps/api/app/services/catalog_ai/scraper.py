@@ -48,6 +48,8 @@ class ScrapedPage:
     # The page's own specification table, parsed straight from the HTML (no LLM) —
     # [{"group": str, "items": [{"label": str, "value": str}]}]. Empty when none was found.
     spec_groups: list[dict] = field(default_factory=list)
+    source_ids: dict = field(default_factory=dict)  # the shop's own product code / SKU / MPN rows (label -> value)
+    no_spec_sheet: bool = False  # the page only has a price / status / code / brand box - the shop lists no specifications
     # The page's own short highlights list ("Key Features" on startech.com.bd, "Quick Overview" on
     # ryans.com), one point per item — the product's short description.
     highlights: list[str] = field(default_factory=list)
@@ -589,7 +591,11 @@ def _text_pair_specs(soup: BeautifulSoup) -> list[dict]:
     return best
 
 
-def _extract_spec_groups(soup: BeautifulSoup) -> list[dict]:
+_ID_LABELS = {"product code", "sku", "mpn", "part number", "part no", "model number", "model no", "upc", "ean", "barcode", "product id", "item code", "item no"}
+_SUMMARY_LABELS = {"price", "regular price", "special price", "old price", "status", "availability", "product code", "sku", "brand", "model"}
+
+
+def _extract_spec_groups(soup: BeautifulSoup, info: Optional[dict] = None) -> list[dict]:
     """The page's specification sheet, without an LLM:
     1. known store layouts (startech.com.bd, ryans.com);
     2. a 'Specifications' section (id/class or heading) read generically — table rows, dt/dd,
@@ -624,6 +630,17 @@ def _extract_spec_groups(soup: BeautifulSoup) -> list[dict]:
         groups = pairs if _looks_like_specs(pairs) else []
     if not groups:
         groups = _text_pair_specs(soup)
+    # a shop's price / status / code / brand box is not a specification sheet (ESR page: no spec table, only that box)
+    if info is not None:
+        info["ids"] = {
+            i["label"].strip(): i["value"].strip()
+            for g in groups for i in g["items"]
+            if i["label"].strip().lower() in _ID_LABELS and i["value"].strip() and len(i["value"]) <= 60
+        }
+    kept = [g for g in groups if not all(i["label"].strip().lower() in _SUMMARY_LABELS for i in g["items"])]
+    if info is not None:
+        info["no_sheet"] = bool(groups) and not kept
+    groups = kept
     out, total = [], 0
     for g in groups:
         items = g["items"][: max(0, MAX_SPEC_ITEMS - total)]
@@ -733,7 +750,8 @@ def fetch_page(url: str, *, timeout: float = FETCH_TIMEOUT) -> ScrapedPage:
     image_urls = _dedupe_image_candidates(
         list(dict.fromkeys([*gallery, *structured.get("images", []), *page_images]))
     )[:MAX_IMAGES]
-    spec_groups = _extract_spec_groups(soup)  # before _extract_text, which strips chrome tags in place
+    spec_info: dict = {}
+    spec_groups = _extract_spec_groups(soup, spec_info)  # before _extract_text, which strips chrome tags in place
     highlights = _extract_highlights(soup)
     text = _extract_text(soup)
 
@@ -746,6 +764,8 @@ def fetch_page(url: str, *, timeout: float = FETCH_TIMEOUT) -> ScrapedPage:
         image_urls=image_urls,
         site_name=site_name,
         spec_groups=spec_groups,
+        no_spec_sheet=bool(spec_info.get("no_sheet")),
+        source_ids=dict(spec_info.get("ids") or {}),
         highlights=highlights,
         structured=structured,
     )

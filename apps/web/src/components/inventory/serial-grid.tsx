@@ -344,7 +344,7 @@ export const SerialGrid = forwardRef<
             </DropdownMenuItem>
           )}
           {data.rma_id && (
-            <DropdownMenuItem onClick={() => router.push(`/rma/${data.rma_id}`)}>
+            <DropdownMenuItem onClick={() => router.push(`/inventory/rma/${data.rma_id}`)}>
               <Wrench className="mr-1.5 h-3 w-3" /> Open claim
             </DropdownMenuItem>
           )}
@@ -595,7 +595,7 @@ export const SerialGrid = forwardRef<
             <button
               type="button"
               className="text-[11px] text-primary hover:underline"
-              onClick={() => router.push(`/rma/${p.data!.rma_id}`)}
+              onClick={() => router.push(`/inventory/rma/${p.data!.rma_id}`)}
             >
               Open
             </button>

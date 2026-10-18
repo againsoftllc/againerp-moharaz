@@ -423,7 +423,8 @@ def build_action_tools(
         updated = _post(f"/api/v1/crm/leads/{lead['id']}/status", payload)
         if "error" in updated:
             return updated
-        return {"status": "updated", "document": "Lead", "id": lead["id"], "name": lead["name"], "lead_status": updated.get("status", status), "doc_link": f"doc://lead/{lead['id']}", "path": f"/crm/leads?open={lead['id']}"}
+        return {"status": "updated", "document": "Lead", "id": lead["id"], "name": lead["name"], "lead_status": updated.get("status", status),
+                "before": {"status": lead.get("status")}, "after": {"status": updated.get("status", status), "lost_reason": payload["lost_reason"]}, "doc_link": f"doc://lead/{lead['id']}", "path": f"/crm/leads?open={lead['id']}"}
 
     def schedule_lead_follow_up(inp: dict) -> dict:
         res = _lead(str(inp.get("lead") or ""))
@@ -460,7 +461,8 @@ def build_action_tools(
         updated = _post(f"/api/v1/crm/deals/{deal['id']}/stage", payload)
         if "error" in updated:
             return updated
-        return {"status": "updated", "document": "Deal", "id": deal["id"], "title": deal["title"], "stage": updated.get("stage", stage), "doc_link": f"doc://deal/{deal['id']}", "path": f"/crm/deals?open={deal['id']}"}
+        return {"status": "updated", "document": "Deal", "id": deal["id"], "title": deal["title"], "stage": updated.get("stage", stage),
+                "before": {"stage": deal.get("stage")}, "after": {"stage": updated.get("stage", stage), "lost_reason": payload["lost_reason"]}, "doc_link": f"doc://deal/{deal['id']}", "path": f"/crm/deals?open={deal['id']}"}
 
     # -------------------------------------------------------------- catalog
 

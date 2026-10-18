@@ -23,6 +23,8 @@ const ACTIONS = [
   { key: "can_create", label: "Create" },
   { key: "can_write", label: "Write" },
   { key: "can_delete", label: "Delete" },
+  { key: "can_publish", label: "Publish" },
+  { key: "can_export", label: "Export" },
 ] as const;
 
 type ActionKey = (typeof ACTIONS)[number]["key"];
@@ -98,6 +100,8 @@ export default function SystemRolesPage() {
               can_create: checked,
               can_write: checked,
               can_delete: checked,
+              can_publish: checked,
+              can_export: checked,
             },
       ),
     );
@@ -114,6 +118,8 @@ export default function SystemRolesPage() {
           next.can_create = false;
           next.can_write = false;
           next.can_delete = false;
+          next.can_publish = false;
+          next.can_export = false;
         }
         return next;
       }),
@@ -129,6 +135,8 @@ export default function SystemRolesPage() {
         can_create: checked,
         can_write: checked,
         can_delete: checked,
+        can_publish: checked,
+        can_export: checked,
       })),
     );
   };
@@ -139,9 +147,9 @@ export default function SystemRolesPage() {
     draft.some((row) => row[key]) && !columnAllChecked(key);
 
   const rowAllChecked = (row: RolePermissionFlags) =>
-    row.can_read && row.can_create && row.can_write && row.can_delete;
+    row.can_read && row.can_create && row.can_write && row.can_delete && row.can_publish && row.can_export;
   const rowSomeChecked = (row: RolePermissionFlags) =>
-    (row.can_read || row.can_create || row.can_write || row.can_delete) && !rowAllChecked(row);
+    (row.can_read || row.can_create || row.can_write || row.can_delete || row.can_publish || row.can_export) && !rowAllChecked(row);
 
   const allChecked =
     draft.length > 0 && draft.every((row) => rowAllChecked(row));

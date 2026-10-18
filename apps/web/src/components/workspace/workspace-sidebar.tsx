@@ -52,7 +52,7 @@ function isActive(pathname: string, href?: string) {
     );
   }
   // Workspace module — workspace + settings + system access routes (not Media).
-  if (href === "/workspace/modules") {
+  if (href === "/workspace/apps") {
     const onMedia =
       pathname === "/workspace/media" ||
       pathname.startsWith("/workspace/media/") ||

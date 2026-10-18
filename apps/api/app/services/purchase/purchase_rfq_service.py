@@ -574,6 +574,8 @@ class PurchaseRfqService:
         quote.moq = moq
         quote.total_amount = total
         quote.notes = notes
+        if rfq.status in {"sent", "vendor_response"} and quote.status == "submitted":
+            self._transition(rfq, "quotation", None, "Quote amended", internal=True)
         self._db.flush()
         return quote
 
@@ -610,6 +612,10 @@ class PurchaseRfqService:
         if quote.status != "submitted":
             raise HTTPException(status_code=400, detail="Only a submitted quote can be awarded")
 
+        # A submitted bid means the RFQ is in "quotation"; catch up RFQs whose bids arrived without that step
+        # (sent -> approved is not a legal jump).
+        if rfq.status in {"sent", "vendor_response"}:
+            self._transition(rfq, "quotation", actor_id, "Bids received", internal=True)
         self._transition(rfq, "approved", actor_id, f"Awarded to supplier {quote.supplier_id}")
         rfq.awarded_supplier_id = quote.supplier_id
         quote.status = "accepted"

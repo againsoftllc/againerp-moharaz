@@ -94,6 +94,13 @@ PRESET_TARGETS: tuple[PresetTarget, ...] = (
         "Normalise to '<N> Year(s) Official Warranty', e.g. '3 Years Official Warranty'.",
     ),
     PresetTarget(
+        "catalog.product.spec_values",
+        "Specification values (wording)",
+        "catalog",
+        "Product import from URL",
+        "Rewrite long descriptive values in clean, consistent wording; every number, unit, port / model name stays exactly.",
+    ),
+    PresetTarget(
         "catalog.product.seo",
         "SEO (focus keyphrase, meta title, meta description)",
         "catalog",

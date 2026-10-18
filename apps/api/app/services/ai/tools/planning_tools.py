@@ -590,7 +590,8 @@ def build_planning_tools(*, db: Session | None, company_id: str | None, user: An
                 description=(
                     "CRM pipeline forecast: open deals by stage, weighted value (value × probability), expected closes this "
                     "month and quarter, historical win rate and sales cycle, overdue deals, lead conversion by source. Use for "
-                    "'pipeline', 'expected deals to close', 'win rate', 'lead conversion'."
+                    "'pipeline', 'expected deals to close', 'win rate', 'lead conversion'. It is a FORECAST of open deals: for counting or listing "
+                    "deals that ALREADY closed / were won / were lost ('ei hoptay koto gulo deal close hoyeche') use query_database on crm_deals."
                 ),
                 input_schema={"type": "object", "properties": {"history_days": {"type": "integer", "description": "Window for win rate / conversion (default 365)"}}},
             ),

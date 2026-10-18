@@ -5,6 +5,7 @@ import { Eye, EyeOff, Filter, GripVertical, Lock, Plus, Trash2, X } from "lucide
 import { toast } from "sonner";
 import { createEmptyBulkAttribute, type BulkAttributeRow } from "@/lib/mock-data/attribute-profiles";
 import {
+  FILTER_DISPLAY_CHOICES,
   FILTER_DISPLAY_LABELS,
   type FilterDisplayType,
 } from "@/lib/mock-data/catalog-filters";
@@ -22,9 +23,13 @@ function reorderByKey<T extends { key: string }>(items: T[], fromKey: string, to
   return copy;
 }
 
-const DISPLAY_TYPES = Object.keys(FILTER_DISPLAY_LABELS) as FilterDisplayType[];
+const DISPLAY_TYPES = FILTER_DISPLAY_CHOICES;
+
+/** An attribute is single-select (radio / one value) or multi-select (checkboxes / several values) - old values read as single. */
+const kindOf = (t?: FilterDisplayType): FilterDisplayType => (t === "multi_select" ? "multi_select" : "single_select");
 
 const DISPLAY_TYPE_COLORS: Record<FilterDisplayType, string> = {
+  single_select: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
   multi_select: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
   range: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
   boolean: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
@@ -157,7 +162,7 @@ export function SortableAttributeGrid({
     }
     update(key, {
       filterable: true,
-      filterDisplayType: attr.filterDisplayType || "multi_select",
+      filterDisplayType: kindOf(attr.filterDisplayType),
       storefrontFilterVisible: attr.storefrontFilterVisible ?? true,
     });
   };
@@ -212,7 +217,7 @@ export function SortableAttributeGrid({
                 </label>
                 <select
                   id={`filter-type-${attr.key}`}
-                  value={attr.filterDisplayType || "multi_select"}
+                  value={kindOf(attr.filterDisplayType)}
                   onChange={(e) =>
                     update(attr.key, {
                       filterDisplayType: e.target.value as FilterDisplayType,
@@ -222,9 +227,9 @@ export function SortableAttributeGrid({
                   onMouseDown={(e) => e.stopPropagation()}
                   className={cn(
                     "h-5 max-w-[7.5rem] shrink-0 cursor-pointer rounded-none border-0 px-1.5 text-[10px] font-medium outline-none",
-                    DISPLAY_TYPE_COLORS[attr.filterDisplayType || "multi_select"],
+                    DISPLAY_TYPE_COLORS[kindOf(attr.filterDisplayType)],
                   )}
-                  title="How this filter shows on the storefront"
+                  title="Single select = radio buttons, one value per product. Multi-select = checkboxes, a product can have several values."
                 >
                   {DISPLAY_TYPES.map((type) => (
                     <option key={type} value={type}>

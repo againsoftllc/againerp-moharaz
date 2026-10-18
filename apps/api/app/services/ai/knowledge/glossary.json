@@ -1,0 +1,413 @@
+{
+  "_note": "Words admins actually type (Bangla script, Banglish, English) -> what they mean in the ERP. Add a line whenever the evaluation set or the audit log shows a word the AI missed.",
+  "entries": [
+    {
+      "say": [
+        "বিক্রি",
+        "bikri",
+        "sell",
+        "sales"
+      ],
+      "means": "sales orders (revenue)",
+      "module": "sales",
+      "use": "get_sales_summary / sales_orders"
+    },
+    {
+      "say": [
+        "কোটেশন",
+        "quotation",
+        "dorpotro",
+        "quote"
+      ],
+      "means": "sales quotation",
+      "module": "sales",
+      "use": "create_sales_quotation / sales_quotations"
+    },
+    {
+      "say": [
+        "চালান",
+        "challan",
+        "delivery",
+        "ডেলিভারি"
+      ],
+      "means": "delivery of a sales order",
+      "module": "sales",
+      "use": "sales_deliveries"
+    },
+    {
+      "say": [
+        "ইনভয়েস",
+        "invoice",
+        "বিল (customer)"
+      ],
+      "means": "customer invoice",
+      "module": "sales",
+      "use": "sales_invoices"
+    },
+    {
+      "say": [
+        "ফেরত",
+        "ferot",
+        "return",
+        "রিটার্ন"
+      ],
+      "means": "sales return (customer sent goods back); warranty / repair returns are RMA",
+      "module": "sales",
+      "use": "sales_returns / rma_tickets"
+    },
+    {
+      "say": [
+        "ক্রেতা",
+        "kreta",
+        "customer",
+        "কাস্টমার",
+        "grahok"
+      ],
+      "means": "customer",
+      "module": "customers",
+      "use": "search_customer / commerce_customers"
+    },
+    {
+      "say": [
+        "বাকি",
+        "baki",
+        "due",
+        "ধার",
+        "পাওনা",
+        "paona"
+      ],
+      "means": "money customers owe us (receivable)",
+      "module": "finance",
+      "use": "get_overdue_receivables / finance_receivables"
+    },
+    {
+      "say": [
+        "দেনা",
+        "dena",
+        "we owe",
+        "payable"
+      ],
+      "means": "money we owe suppliers (payable)",
+      "module": "finance",
+      "use": "get_overdue_payables / finance_payables"
+    },
+    {
+      "say": [
+        "জমা",
+        "joma",
+        "payment received",
+        "collection"
+      ],
+      "means": "payment received from a customer",
+      "module": "finance",
+      "use": "finance_payments (direction in)"
+    },
+    {
+      "say": [
+        "খরচ",
+        "khoroch",
+        "expense"
+      ],
+      "means": "business expense",
+      "module": "finance",
+      "use": "create_expense / finance_expenses"
+    },
+    {
+      "say": [
+        "লাভ",
+        "labh",
+        "profit",
+        "margin"
+      ],
+      "means": "profit (gross = revenue - cost)",
+      "module": "finance",
+      "use": "get_financial_summary / get_product_profit"
+    },
+    {
+      "say": [
+        "ক্রয়",
+        "kroy",
+        "kena",
+        "purchase",
+        "PO"
+      ],
+      "means": "purchase order",
+      "module": "purchase",
+      "use": "create_purchase_order / purchase_orders"
+    },
+    {
+      "say": [
+        "সাপ্লায়ার",
+        "supplier",
+        "vendor",
+        "সরবরাহকারী"
+      ],
+      "means": "supplier",
+      "module": "purchase",
+      "use": "commerce_suppliers"
+    },
+    {
+      "say": [
+        "স্টক",
+        "stock",
+        "মজুদ",
+        "mojud",
+        "maal koto ache"
+      ],
+      "means": "stock on hand",
+      "module": "inventory",
+      "use": "check_stock_level / inventory_stock_levels"
+    },
+    {
+      "say": [
+        "স্টক কম",
+        "stock kom",
+        "low stock",
+        "reorder",
+        "শেষ হয়ে যাচ্ছে"
+      ],
+      "means": "items below reorder level",
+      "module": "inventory",
+      "use": "get_reorder_suggestions"
+    },
+    {
+      "say": [
+        "মাল",
+        "mal",
+        "পণ্য",
+        "ponno",
+        "product",
+        "item",
+        "জিনিস"
+      ],
+      "means": "product / item (catalog product, inventory item)",
+      "module": "catalog",
+      "use": "find_product / catalog_products / items"
+    },
+    {
+      "say": [
+        "ড্রাফট",
+        "draft"
+      ],
+      "means": "saved but not on the website",
+      "module": "catalog",
+      "use": "catalog_products.status = draft"
+    },
+    {
+      "say": [
+        "পাবলিশ",
+        "publish",
+        "live koro",
+        "web e dao"
+      ],
+      "means": "make public on the website - needs publish permission; the AI only prepares drafts",
+      "module": "catalog",
+      "use": "(not done by the AI)"
+    },
+    {
+      "say": [
+        "upload koro",
+        "add koro",
+        "fill koro",
+        "আপলোড"
+      ],
+      "means": "fill the draft product from its source - NOT publish",
+      "module": "catalog",
+      "use": "fill_product_from_source"
+    },
+    {
+      "say": [
+        "বেতন",
+        "beton",
+        "salary",
+        "payroll"
+      ],
+      "means": "payroll",
+      "module": "hrm",
+      "use": "hrm_payroll_runs / hrm_payslips"
+    },
+    {
+      "say": [
+        "ছুটি",
+        "chuti",
+        "leave"
+      ],
+      "means": "leave application",
+      "module": "hrm",
+      "use": "hrm_leave_applications"
+    },
+    {
+      "say": [
+        "হাজিরা",
+        "hajira",
+        "attendance",
+        "late",
+        "দেরি"
+      ],
+      "means": "attendance",
+      "module": "hrm",
+      "use": "hrm_attendance_records"
+    },
+    {
+      "say": [
+        "আজ",
+        "aj",
+        "today"
+      ],
+      "means": "today",
+      "module": "general",
+      "use": "date_from = date_to = today (YYYY-MM-DD) - not a period word"
+    },
+    {
+      "say": [
+        "গতকাল",
+        "gotokal",
+        "yesterday"
+      ],
+      "means": "yesterday",
+      "module": "general",
+      "use": "date_from = date_to = yesterday (YYYY-MM-DD)"
+    },
+    {
+      "say": [
+        "এই মাস",
+        "ei mas",
+        "this month"
+      ],
+      "means": "current calendar month",
+      "module": "general",
+      "use": "tool argument period=this_month"
+    },
+    {
+      "say": [
+        "গত মাস",
+        "gotomas",
+        "last month"
+      ],
+      "means": "previous calendar month",
+      "module": "general",
+      "use": "tool argument period=last_month (never pass the Bangla / Banglish word itself)"
+    },
+    {
+      "say": [
+        "koro",
+        "kore dao",
+        "বানাও",
+        "করো"
+      ],
+      "means": "an ACTION request - use the matching write tool (preview first)",
+      "module": "general",
+      "use": "write tools"
+    },
+    {
+      "say": [
+        "dekhao",
+        "bolo",
+        "koto",
+        "কত",
+        "দেখাও",
+        "কয়টা"
+      ],
+      "means": "a READ request - answer from data, change nothing",
+      "module": "general",
+      "use": "read tools / query_database"
+    },
+    {
+      "say": [
+        "stock adjust",
+        "stock komao",
+        "stock barao",
+        "stock thik koro",
+        "স্টক ঠিক করো",
+        "stock correction"
+      ],
+      "means": "change the stock of an item (counted / damaged / lost / found)",
+      "module": "inventory",
+      "use": "adjust_stock (draft) then apply_stock_adjustment"
+    },
+    {
+      "say": [
+        "joma peyechi",
+        "taka dilo",
+        "payment peyechi",
+        "টাকা পেয়েছি",
+        "collection",
+        "taka joma"
+      ],
+      "means": "a customer paid us - record the payment against their invoice",
+      "module": "sales",
+      "use": "record_customer_payment"
+    },
+    {
+      "say": [
+        "invoice banao",
+        "invoice koro",
+        "bill banao",
+        "ইনভয়েস বানাও"
+      ],
+      "means": "issue the invoice for a (confirmed) sales order",
+      "module": "sales",
+      "use": "issue_sales_invoice"
+    },
+    {
+      "say": [
+        "order cancel",
+        "order batil",
+        "অর্ডার বাতিল"
+      ],
+      "means": "cancel a sales order",
+      "module": "sales",
+      "use": "cancel_sales_order"
+    },
+    {
+      "say": [
+        "balance koto",
+        "baki koto",
+        "invoice er balance",
+        "paid hoyeche",
+        "বাকি কত"
+      ],
+      "means": "how much of an invoice is still unpaid",
+      "module": "sales",
+      "use": "get_sales_invoice (balance, amount_paid)"
+    },
+    {
+      "say": [
+        "order er details",
+        "order dekhao",
+        "SO- er status",
+        "অর্ডারের বিস্তারিত"
+      ],
+      "means": "look at one sales order",
+      "module": "sales",
+      "use": "get_sales_order"
+    },
+    {
+      "say": [
+        "deliver",
+        "pathiye dao",
+        "pathao",
+        "delivery banao",
+        "challan banao",
+        "ডেলিভারি দাও",
+        "মাল পাঠাও"
+      ],
+      "means": "send the goods of a sales order to the customer (a delivery)",
+      "module": "sales",
+      "use": "create_sales_delivery (draft) then post_sales_delivery (stock moves)"
+    },
+    {
+      "say": [
+        "transfer",
+        "stock transfer",
+        "warehouse change",
+        "ek warehouse theke onno warehouse",
+        "স্টক ট্রান্সফার",
+        "ট্রান্সফার"
+      ],
+      "means": "move stock from one warehouse to another",
+      "module": "inventory",
+      "use": "transfer_stock (draft) -> ship_stock_transfer -> receive_stock_transfer"
+    }
+  ]
+}

@@ -44,7 +44,8 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 
-export type CustomSpecGroup = { id: string; name: string };
+/** `after`: the name of the source group that came just before this one ("" = first) - used to show the product-only groups in the source's order. */
+export type CustomSpecGroup = { id: string; name: string; after?: string | null };
 export type CustomSpecAttr = { id: string; groupId: string; name: string };
 
 export type ProductSpecsDraft = {
@@ -144,13 +145,19 @@ export function ProductSpecEditor({ initialProfileId, initialValues, initialCust
   const defaultAttrOrder = useMemo(() => {
     const ao: Record<string, string[]> = {};
     for (const g of profileGroups) {
-      ao[g.id] = attributes.filter((a) => a.groupId === g.id).sort((a, b) => a.sortOrder - b.sortOrder).map((a) => a.id);
+      ao[g.id] = attributes
+        .filter((a) => a.groupId === g.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .sort((a, b) => Number(/warrant/i.test(a.name)) - Number(/warrant/i.test(b.name))) // the warranty attribute is last in its group
+        .map((a) => a.id);
     }
     return ao;
   }, [profileGroups, attributes]);
 
+  const isWarrantyName = (n: string) => /warrant/i.test(n);
   const effectiveGroupOrder = useMemo(
-    () => groupOrder ?? profileGroups.map((g) => g.id),
+    // the warranty group (when the profile has one) is always the last, unless the admin dragged the groups
+    () => groupOrder ?? [...profileGroups].sort((a, b) => Number(isWarrantyName(a.name)) - Number(isWarrantyName(b.name))).map((g) => g.id),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [groupOrder, profileGroups.map((g) => g.id).join(",")],
   );
@@ -438,6 +445,83 @@ export function ProductSpecEditor({ initialProfileId, initialValues, initialCust
 
   if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
+  /* The product-only groups sit where the SOURCE had them: right after the group they followed (`after`), the rest at the end. */
+  const normGroup = (n: string) => n.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const customAfter = (name: string, seen = new Set<string>()): CustomSpecGroup[] =>
+    customGroups
+      .filter((cg) => cg.after != null && normGroup(cg.after) === normGroup(name) && !seen.has(cg.id))
+      .flatMap((cg) => {
+        seen.add(cg.id);
+        return [cg, ...customAfter(cg.name, seen)];
+      });
+  const customFirst = customGroups.filter((cg) => cg.after === "");
+  const placedCustomIds = new Set<string>();
+  const anchoredAfter = (name: string) => {
+    const list = customAfter(name).filter((cg) => !placedCustomIds.has(cg.id));
+    list.forEach((cg) => placedCustomIds.add(cg.id));
+    return list;
+  };
+  customFirst.forEach((cg) => placedCustomIds.add(cg.id));
+  const lastPlainGroupId = [...orderedGroups].reverse().find((g) => !isWarrantyName(g.name))?.id;
+
+  const renderCustomGroup = (cg: CustomSpecGroup) => {
+    const cgAttrs = localAttrs[cg.id] ?? [];
+    const isOpen = !collapsed[cg.id];
+    return (
+      <div key={cg.id} className="border-t border-input">
+        <div
+          className="flex cursor-pointer items-center gap-1.5 px-2 py-1 hover:bg-muted/10"
+          onClick={() => setCollapsed((c) => ({ ...c, [cg.id]: !c[cg.id] }))}
+        >
+          <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition", !isOpen && "-rotate-90")} />
+          <span className="flex-1 text-xs font-medium">{cg.name}</span>
+          <span className="rounded-none bg-orange-500/15 px-1 py-px text-[9px] font-medium text-orange-500">this product only</span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const next = customGroups.filter((g) => g.id !== cg.id);
+              setCustomGroups(next);
+              emitChange(values, next, localAttrs);
+            }}
+            className="ml-1 rounded-none p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+        {isOpen && (
+          <>
+            {cgAttrs.map((la) => (
+              <LocalAttrRow
+                key={la.id}
+                id={la.id}
+                name={la.name}
+                value={values[la.id] ?? ""}
+                onChange={(v) => setValue(la.id, v)}
+                isDragActive={false}
+                onRemove={() => removeLocalAttr(cg.id, la.id)}
+              />
+            ))}
+            {addingAttrGroupId === cg.id ? (
+              <AddAttrInline
+                onSave={(name) => addLocalAttr(cg.id, name)}
+                onCancel={() => setAddingAttrGroupId(null)}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setAddingAttrGroupId(cg.id)}
+                className="flex w-full items-center gap-1 px-8 py-1 text-[10px] text-muted-foreground hover:bg-muted/20 hover:text-foreground"
+              >
+                <Plus className="h-3 w-3" /> Add attribute
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-2">
       {/* Profile row */}
@@ -569,6 +653,7 @@ export function ProductSpecEditor({ initialProfileId, initialValues, initialCust
             </div>
             ) : null}
 
+            {customFirst.map((cg) => renderCustomGroup(cg))}
             <SortableContext items={effectiveGroupOrder} strategy={verticalListSortingStrategy}>
               {orderedGroups.map((group) => {
                 const orderedIds = effectiveAttrOrder(group.id);
@@ -576,6 +661,7 @@ export function ProductSpecEditor({ initialProfileId, initialValues, initialCust
                 const isOpen = !collapsed[group.id];
                 const filled = groupAttrs.filter((a) => values[a.id]?.trim()).length;
                 return (
+                  <React.Fragment key={group.id}>
                   <SortableGroupRow
                     key={group.id}
                     groupId={group.id}
@@ -645,68 +731,18 @@ export function ProductSpecEditor({ initialProfileId, initialValues, initialCust
                     );
                     })()}
                   </SortableGroupRow>
+                  {!isWarrantyName(group.name) ? anchoredAfter(group.name).map((cg) => renderCustomGroup(cg)) : null}
+                  {group.id === lastPlainGroupId
+                    ? customGroups.filter((cg) => !placedCustomIds.has(cg.id) && !isWarrantyName(cg.name)).map((cg) => { placedCustomIds.add(cg.id); return renderCustomGroup(cg); })
+                    : null}
+                  </React.Fragment>
                 );
               })}
             </SortableContext>
 
             {/* Custom (product-only) groups — inside profile block but not saved to profile */}
-            {customGroups.map((cg) => {
-              const cgAttrs = localAttrs[cg.id] ?? [];
-              const isOpen = !collapsed[cg.id];
-              return (
-                <div key={cg.id} className="border-t border-input">
-                  <div
-                    className="flex cursor-pointer items-center gap-1.5 px-2 py-1 hover:bg-muted/10"
-                    onClick={() => setCollapsed((c) => ({ ...c, [cg.id]: !c[cg.id] }))}
-                  >
-                    <ChevronDown className={cn("h-3 w-3 text-muted-foreground transition", !isOpen && "-rotate-90")} />
-                    <span className="flex-1 text-xs font-medium">{cg.name}</span>
-                    <span className="rounded-none bg-orange-500/15 px-1 py-px text-[9px] font-medium text-orange-500">this product only</span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const next = customGroups.filter((g) => g.id !== cg.id);
-                        setCustomGroups(next);
-                        emitChange(values, next, localAttrs);
-                      }}
-                      className="ml-1 rounded-none p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                  {isOpen && (
-                    <>
-                      {cgAttrs.map((la) => (
-                        <LocalAttrRow
-                          key={la.id}
-                          id={la.id}
-                          name={la.name}
-                          value={values[la.id] ?? ""}
-                          onChange={(v) => setValue(la.id, v)}
-                          isDragActive={false}
-                          onRemove={() => removeLocalAttr(cg.id, la.id)}
-                        />
-                      ))}
-                      {addingAttrGroupId === cg.id ? (
-                        <AddAttrInline
-                          onSave={(name) => addLocalAttr(cg.id, name)}
-                          onCancel={() => setAddingAttrGroupId(null)}
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setAddingAttrGroupId(cg.id)}
-                          className="flex w-full items-center gap-1 px-8 py-1 text-[10px] text-muted-foreground hover:bg-muted/20 hover:text-foreground"
-                        >
-                          <Plus className="h-3 w-3" /> Add attribute
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              );
-            })}
+            {/* what is left: with no profile everything, else only the warranty group(s) - always the last block */}
+            {customGroups.filter((cg) => !placedCustomIds.has(cg.id)).sort((a, b) => Number(isWarrantyName(a.name)) - Number(isWarrantyName(b.name))).map((cg) => renderCustomGroup(cg))}
 
             {/* Add group */}
             {addingGroup ? (

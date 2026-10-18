@@ -631,3 +631,87 @@ class PartnerTradingRead(BaseModel):
 
 class PartnerTradingResponse(BaseModel):
     data: PartnerTradingRead
+
+
+# ── Cheques ──────────────────────────────────────────────────────────────
+
+
+class FinanceChequeCreate(BaseModel):
+    direction: str
+    party_id: str
+    bank_name: str = Field(min_length=1, max_length=120)
+    cheque_number: str = Field(min_length=1, max_length=64)
+    cheque_date: date
+    amount: Decimal = Field(gt=0)
+    receivable_id: Optional[str] = None
+    payable_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class FinanceChequeUpdate(BaseModel):
+    bank_name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    cheque_number: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    cheque_date: Optional[date] = None
+    notes: Optional[str] = None
+
+
+class FinanceChequeActionRequest(BaseModel):
+    action: str
+    action_date: Optional[date] = None
+    payment_account_id: Optional[str] = None
+    bank_charge: Decimal = Field(default=Decimal("0"), ge=0)
+    note: Optional[str] = None
+
+
+class FinanceChequeEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    action: str
+    from_status: Optional[str] = None
+    to_status: str
+    event_date: date
+    journal_entry_id: Optional[str] = None
+    actor: Optional[str] = None
+    note: Optional[str] = None
+    created_at: datetime
+
+
+class FinanceChequeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    company_id: str
+    direction: str
+    cheque_number: str
+    bank_name: str
+    cheque_date: date
+    amount: Decimal
+    status: str
+    party_type: str
+    party_id: str
+    party_name: Optional[str] = None
+    receivable_id: Optional[str] = None
+    payable_id: Optional[str] = None
+    document_number: Optional[str] = None
+    payment_account_id: Optional[str] = None
+    payment_account_name: Optional[str] = None
+    bank_charge: Decimal = Decimal("0")
+    notes: Optional[str] = None
+    available_actions: list[str] = []
+    created_at: datetime
+    updated_at: datetime
+
+
+class FinanceChequeDetailRead(FinanceChequeRead):
+    events: list[FinanceChequeEventRead] = []
+    journal_entries: list[FinanceJournalEntryRead] = []
+
+
+class FinanceChequeListResponse(BaseModel):
+    data: list[FinanceChequeRead]
+    meta: FinanceListMeta
+
+
+class FinanceChequeResponse(BaseModel):
+    data: FinanceChequeDetailRead

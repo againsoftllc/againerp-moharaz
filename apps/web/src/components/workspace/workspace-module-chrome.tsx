@@ -40,10 +40,12 @@ const NAV_CHIP_IDLE =
   "border-transparent text-white/85 hover:bg-white/[0.06] hover:text-white";
 const NAV_CHIP_ACTIVE = "text-white";
 
-const DIRECT_LINKS: NavLink[] = [
-  { id: "modules", label: "Modules", href: "/workspace/modules" },
-  { id: "plugins", label: "Plugins", href: "/workspace/plugins" },
-  { id: "media", label: "Media", href: "/workspace/media" },
+const DIRECT_LINKS: NavLink[] = [{ id: "media", label: "Media", href: "/workspace/media" }];
+
+const APPS_HREF = "/workspace/apps";
+const APPS_LINKS: NavLink[] = [
+  { id: "modules", label: "Modules", href: `${APPS_HREF}?tab=modules` },
+  { id: "plugins", label: "Plugins", href: `${APPS_HREF}?tab=plugins` },
 ];
 
 const SITES_HREF = "/workspace/sites";
@@ -65,6 +67,17 @@ const CONFIG_LINKS: NavLink[] = [
 ];
 
 const NAV_MENUS: NavMenu[] = [
+  {
+    id: "apps",
+    label: "Apps",
+    href: APPS_HREF,
+    children: APPS_LINKS.map((child) => ({
+      kind: "item" as const,
+      id: child.id,
+      label: child.label,
+      href: child.href,
+    })),
+  },
   ...DIRECT_LINKS.map((item) => ({
     id: item.id,
     label: item.label,
@@ -99,6 +112,19 @@ function resolveWorkspaceNav(
   pathname: string,
   searchParams?: { get: (key: string) => string | null },
 ): { activeNav: string; activeSub: string } {
+  // Apps = Modules + Plugins (plugin settings pages live under /workspace/plugins/<id>)
+  if (isActiveHref(pathname, "/workspace/plugins")) {
+    return { activeNav: "apps", activeSub: "plugins" };
+  }
+  if (isActiveHref(pathname, "/workspace/modules")) {
+    return { activeNav: "apps", activeSub: "modules" };
+  }
+  if (isActiveHref(pathname, APPS_HREF)) {
+    return {
+      activeNav: "apps",
+      activeSub: searchParams?.get("tab") === "plugins" ? "plugins" : "modules",
+    };
+  }
   // Sites (includes legacy /workspace/website and /workspace/stores)
   if (
     isActiveHref(pathname, SITES_HREF) ||
@@ -172,7 +198,7 @@ function resolveWorkspaceNav(
   if (pathname.startsWith("/workspace/")) {
     return { activeNav: "configuration", activeSub: "configuration" };
   }
-  return { activeNav: "modules", activeSub: "modules" };
+  return { activeNav: "apps", activeSub: "modules" };
 }
 
 function navButtonStyle(highlighted: boolean) {
@@ -408,7 +434,7 @@ export function WorkspaceModuleNavbar() {
         <button
           type="button"
           className="inline-flex h-[34px] shrink-0 items-center gap-1.5 px-2.5 text-[12px] font-bold text-white hover:bg-white/[0.06]"
-          onClick={() => router.push("/workspace/modules")}
+          onClick={() => router.push(APPS_HREF)}
         >
           <WorkspaceAppIcon />
           Workspace

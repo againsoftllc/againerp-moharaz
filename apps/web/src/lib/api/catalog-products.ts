@@ -22,6 +22,7 @@ export type ApiCatalogProduct = {
   slug: string;
   sku: string;
   model?: string | null;
+  remarks?: string | null;
   description: string | null;
   short_description: string | null;
   price: string;
@@ -65,10 +66,13 @@ export type ApiCatalogProduct = {
   source_url?: string | null;
   seller_info_json?: string | null;
   dropship_meta_json?: string | null;
+  in_inventory?: boolean;
+  on_website?: boolean;
   gallery_json?: string | null;
   video_urls_json?: string | null;
   created_at: string;
   updated_at: string;
+  updated_by_name?: string | null;
 };
 
 export type ApiProductVariant = {
@@ -209,6 +213,7 @@ export function productListFields(d: ProductDetail): Partial<Product> {
     sku: d.sku,
     slug: d.slug,
     model: d.model,
+    remarks: d.remarks,
     price: d.price,
     compareAtPrice: d.compareAtPrice,
     offerPrice: d.offerPrice,
@@ -242,6 +247,7 @@ export function apiProductToProduct(row: ApiCatalogProduct): Product {
     sku: row.sku,
     sourceUrl: row.source_url ?? null,
     model: row.model ?? null,
+    remarks: row.remarks ?? null,
     price,
     compareAtPrice: compareAt,
     purchasePrice: purchase,
@@ -261,6 +267,7 @@ export function apiProductToProduct(row: ApiCatalogProduct): Product {
     brand: row.brand ?? "Unknown",
     thumbnail: resolveThumbnail(row.thumbnail),
     updatedAt: row.updated_at,
+    updatedBy: row.updated_by_name ?? undefined,
     seoTitle: row.seo_title ?? `${row.name} | Buy Online — AgainERP`,
     description: row.description ?? undefined,
     shortDescription: row.short_description ?? undefined,
@@ -363,6 +370,7 @@ export type CreateCatalogProductInput = {
   slug: string;
   sku: string;
   model?: string | null;
+  remarks?: string | null;
   price: number;
   stock?: number;
   status?: ProductStatus;
@@ -404,6 +412,8 @@ export type CreateCatalogProductInput = {
   stock_status?: string | null;
   /** Marks product for Dropshipping module list (`channel=dropshipping`). */
   dropship_meta_json?: string | null;
+  in_inventory?: boolean;
+  on_website?: boolean;
 };
 
 export type ProductInventoryInput = {
@@ -447,6 +457,7 @@ function productPayload(input: CreateCatalogProductInput | UpdateCatalogProductI
   if (input.slug !== undefined) payload.slug = input.slug;
   if (input.sku !== undefined) payload.sku = input.sku;
   if (input.model !== undefined) payload.model = input.model;
+  if (input.remarks !== undefined) payload.remarks = input.remarks;
   if (input.price !== undefined) payload.price = input.price.toFixed(2);
   if (input.compare_at_price !== undefined) {
     payload.compare_at_price =
@@ -489,6 +500,8 @@ function productPayload(input: CreateCatalogProductInput | UpdateCatalogProductI
   if (input.track_quantity !== undefined) payload.track_quantity = input.track_quantity;
   if (input.stock_status !== undefined) payload.stock_status = input.stock_status;
   if (input.dropship_meta_json !== undefined) payload.dropship_meta_json = input.dropship_meta_json;
+  if (input.in_inventory !== undefined) payload.in_inventory = input.in_inventory;
+  if (input.on_website !== undefined) payload.on_website = input.on_website;
   if (input.barcode !== undefined) payload.barcode = input.barcode;
   if (input.barcode_type !== undefined) payload.barcode_type = input.barcode_type;
   if (input.not_for_selling !== undefined) payload.not_for_selling = input.not_for_selling;
@@ -497,6 +510,15 @@ function productPayload(input: CreateCatalogProductInput | UpdateCatalogProductI
   if (input.tax_type !== undefined) payload.tax_type = input.tax_type;
   if (input.location_ids !== undefined) payload.location_ids = input.location_ids;
   return payload;
+}
+
+export async function addProductsToInventory(
+  productIds: string[],
+): Promise<{ added: number; already: number; missing: number }> {
+  return apiFetch("/api/v1/catalog/products/add-to-inventory", {
+    method: "POST",
+    body: JSON.stringify({ product_ids: productIds }),
+  });
 }
 
 export function productToApiPayload(input: CreateCatalogProductInput) {

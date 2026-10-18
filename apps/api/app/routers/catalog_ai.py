@@ -133,6 +133,47 @@ def catalog_ai_fill_from_source(
     )
 
 
+class FillApplyRequest(BaseModel):
+    """What the admin approved in the AI review card - their own pick for category / brand / specification profile."""
+
+    brand_id: Optional[str] = None
+    category_ids: List[str] = Field(default_factory=list)  # first = primary
+    profile_id: Optional[str] = None  # an existing profile id, "new" (create from the source) or "none"
+
+
+@router.post("/products/{product_id}/fill-from-source/apply", response_model=FillFromSourceResponse)
+def catalog_ai_fill_apply(
+    product_id: str,
+    payload: FillApplyRequest,
+    db: Session = Depends(get_db),
+    user: AuthUser = Depends(require_permission("catalog", "write")),
+    company_id: str = Depends(get_current_company_id),
+) -> FillFromSourceResponse:
+    """The review card's Accept: fill the draft from its source with the admin's approved category / brand / profile
+    (the extraction the card showed is reused - cached 15 minutes - else read again)."""
+    from app.services.ai.tools.catalog_import_tools import apply_fill, drop_extracted, get_extracted
+
+    row = db.get(CatalogProduct, product_id)
+    if not row or (row.company_id or "default") != company_id:
+        raise HTTPException(status_code=404, detail="Product not found")
+    url = (row.source_url or "").strip()
+    if not url.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="This product has no source URL - add one first")
+    extracted = get_extracted(db, company_id, url)
+    if not extracted.draft.name.strip():
+        raise HTTPException(status_code=422, detail="No product found on the source page")
+    drop_extracted(url)
+    row = apply_fill(
+        db, user, company_id, row, extracted,
+        brand_id=payload.brand_id, category_ids=payload.category_ids, profile_id=payload.profile_id,
+    )
+    return FillFromSourceResponse(
+        id=row.id, name=row.name, source_url=url, price=str(row.price) if row.price is not None else None,
+        brand=row.brand, category=row.category, images=len(extracted.draft.images or []), status=row.status,
+        images_reused=getattr(row, "_images_reused", 0), image_warnings=getattr(row, "_image_warnings", []),
+    )
+
+
 class SpecFillField(BaseModel):
     id: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=255)

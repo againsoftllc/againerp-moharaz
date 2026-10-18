@@ -122,6 +122,13 @@ export const INVENTORY_NAV_MENUS: InventoryNavMenu[] = [
     children: [
       {
         kind: "item",
+        id: "rfq",
+        label: "RFQ",
+        href: "/inventory/purchase/rfq",
+        description: "Request quotes from suppliers, compare them, and award to a purchase order.",
+      },
+      {
+        kind: "item",
         id: "orders",
         label: "Order (PO)",
         href: "/inventory/purchase/orders",
@@ -197,6 +204,13 @@ export const INVENTORY_NAV_MENUS: InventoryNavMenu[] = [
         description: "Move stock between warehouses — ship, in transit, then receive.",
       },
     ],
+  },
+  {
+    id: "rma",
+    label: "RMA",
+    direct: true,
+    href: "/inventory/rma",
+    children: [],
   },
   {
     id: "reports",

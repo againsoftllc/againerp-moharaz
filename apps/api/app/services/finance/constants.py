@@ -26,6 +26,11 @@ SOURCE_TYPES = (
     "commerce_order",
     "manual",
     "payment_transfer",
+    "cheque_receipt",
+    "cheque_deposit",
+    "cheque_clearance",
+    "cheque_reversal",
+    "cheque_bank_charge",
 )
 
 SOURCE_TYPE_LABELS = {
@@ -51,12 +56,23 @@ SOURCE_TYPE_LABELS = {
     "commerce_order": "Commerce order",
     "manual": "Manual",
     "payment_transfer": "Payment transfer",
+    "cheque_receipt": "Cheque recorded",
+    "cheque_deposit": "Cheque deposited",
+    "cheque_clearance": "Cheque cleared",
+    "cheque_reversal": "Cheque reversal",
+    "cheque_bank_charge": "Cheque bank charge",
 }
 
 OUTPUT_TAX_CODE = "2210"
 INPUT_TAX_CODE = "1310"
 RETAINED_EARNINGS_CODE = "3000"
 AR_CODE = "1100"
+CHEQUES_IN_HAND_CODE = "1150"
+CHEQUES_UNDER_COLLECTION_CODE = "1160"
+CHEQUES_ISSUED_CODE = "2150"
+BANK_CHARGES_CODE = "6170"
+CUSTOMER_ADVANCES_CODE = "2200"
+SUPPLIER_ADVANCES_CODE = "1400"
 AP_CODE = "2100"
 REVENUE_CODE = "4000"
 COGS_CODE = "5000"
@@ -75,6 +91,8 @@ DEFAULT_ACCOUNTS = (
     {"code": "1010", "name": "Bank", "account_type": "asset"},
     {"code": "1020", "name": "Mobile Wallet", "account_type": "asset"},
     {"code": "1100", "name": "Accounts Receivable", "account_type": "asset"},
+    {"code": "1150", "name": "Cheques in Hand", "account_type": "asset"},
+    {"code": "1160", "name": "Cheques Under Collection", "account_type": "asset"},
     {"code": "1200", "name": "Inventory", "account_type": "asset"},
     {"code": "1300", "name": "Prepaid Expenses", "account_type": "asset"},
     {"code": "1310", "name": "Input Tax", "account_type": "asset"},
@@ -82,6 +100,7 @@ DEFAULT_ACCOUNTS = (
     {"code": "1500", "name": "Furniture & Equipment", "account_type": "asset"},
     {"code": "1510", "name": "Accumulated Depreciation", "account_type": "asset", "parent_code": "1500", "normal_balance": "credit"},
     {"code": "2100", "name": "Accounts Payable", "account_type": "liability"},
+    {"code": "2150", "name": "Cheques Issued (Payable)", "account_type": "liability"},
     {"code": "2200", "name": "Customer Advances", "account_type": "liability"},
     {"code": "2210", "name": "Output Tax Payable", "account_type": "liability"},
     {"code": "2300", "name": "Accrued Expenses", "account_type": "liability"},
@@ -102,6 +121,7 @@ DEFAULT_ACCOUNTS = (
     {"code": "6140", "name": "Office Supplies", "account_type": "expense", "parent_code": "6100"},
     {"code": "6150", "name": "Marketing", "account_type": "expense", "parent_code": "6000"},
     {"code": "6160", "name": "Travel", "account_type": "expense", "parent_code": "6000"},
+    {"code": "6170", "name": "Bank Charges", "account_type": "expense", "parent_code": "6000"},
     {"code": "6200", "name": "Depreciation Expense", "account_type": "expense", "parent_code": "6000"},
 )
 

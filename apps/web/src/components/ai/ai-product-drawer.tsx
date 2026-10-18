@@ -2,21 +2,26 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowUp, Check, FileText, Globe, Loader2, Mic, Paperclip, Settings, Sparkles, Square, X } from "lucide-react";
+import { ArrowUp, Check, FileText, Globe, Info, Languages, Loader2, Mic, Paperclip, Settings, ShieldCheck, Sparkles, Square, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { AgainDrawerLayout, AgainDrawerPanel } from "@/components/again/again-drawer";
 import { AiDocumentDrawer, parseDocLink, type AiDocumentRef } from "@/components/ai/ai-document-drawer";
 import { MarkdownLite } from "@/components/ai/markdown-lite";
 import { Button } from "@/components/ui/button";
+import { AiFillReviewCard } from "@/components/ai/ai-fill-review-card";
+import { AiPreviewCard } from "@/components/ai/ai-preview-card";
 import { AiVoiceError, streamAiChat, transcribeAudio } from "@/lib/api/ai-chat";
+import { applyFillFromSource, type FillApproval, type FillReview } from "@/lib/api/catalog-ai-import";
 import { useAdminAuth } from "@/lib/store/admin-auth-store";
 import { cn } from "@/lib/utils";
 
-type Msg = { id: string; role: "user" | "assistant"; content: string; pending?: boolean; approval?: boolean };
+type Msg = { id: string; role: "user" | "assistant"; content: string; pending?: boolean; approval?: boolean; review?: FillReview; previewData?: { tool: string; preview: Record<string, unknown> }; hideText?: boolean; reviewState?: "open" | "applying" | "done" | "denied" | "superseded" };
 type PendingFile = { name: string; mime: string; size: number; file: File; previewUrl?: string };
 
 // the same reply-language choice the /ai workspace stores
 const LANG_KEY = "againai.reply_language";
+// Manual = the AI shows a review card and waits for Accept; Auto = it fills the product straight away with its own choices
+const APPROVAL_KEY = "againerp.ai_product_approval";
 type Lang = "auto" | "bn" | "en" | "banglish";
 const LANGS: { value: Lang; label: string }[] = [
   { value: "auto", label: "Auto (match my language)" },
@@ -77,6 +82,21 @@ export function AiProductDrawer({
   const [webSearch, setWebSearch] = React.useState(false);
   const langRef = React.useRef<Lang>("auto");
   const webRef = React.useRef(false);
+  const [autoApprove, setAutoApprove] = React.useState(false);
+  const autoRef = React.useRef(false);
+  const sendRef = React.useRef<((t: string) => Promise<void>) | null>(null);
+  const approveRef = React.useRef<((id: string, r: FillReview, a: FillApproval) => Promise<void>) | null>(null);
+  const [infoOpen, setInfoOpen] = React.useState(false);
+  React.useEffect(() => {
+    try {
+      if (localStorage.getItem(APPROVAL_KEY) === "auto") {
+        setAutoApprove(true);
+        autoRef.current = true;
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
   React.useEffect(() => {
     try {
       const v = localStorage.getItem(LANG_KEY);
@@ -167,6 +187,7 @@ export function AiProductDrawer({
       const ctl = new AbortController();
       abortRef.current = ctl;
       let filled = false;
+      let autoConfirm = false; // Auto mode: a plain preview (SEO, specs, an edit) is confirmed for the user once the reply ends
       try {
         const attachments = attached.length
           ? await Promise.all(attached.map(async (f) => ({ name: f.name, mime: f.mime, size: f.size, data: await readAsBase64(f.file) })))
@@ -187,7 +208,31 @@ export function AiProductDrawer({
             onToolResult: (_tool, _e, output) => {
               setStatus("Thinking…");
               const st = output && typeof output === "object" ? (output as { status?: unknown }).status : undefined;
-              setMessages((m) => m.map((x) => (x.id === aid ? { ...x, approval: st === "preview" } : x)));
+              const review = output && typeof output === "object" ? ((output as { review?: FillReview }).review ?? undefined) : undefined;
+              // a structured review is shown as a card with its own Accept / Deny; other previews keep the chat buttons
+              if (review && autoRef.current) {
+                // Auto: no approval - the product is filled with the AI's own category / brand / profile right away
+                setMessages((m) => m.map((x) => (x.id === aid ? { ...x, review, hideText: true, reviewState: "applying" } : x)));
+                void approveRef.current?.(aid, review, {
+                  brandId: review.brand.matched_id ?? undefined,
+                  categoryIds: review.categories.matched_ids,
+                  profileId: review.profile.matched_id ?? (review.profile.status === "new" ? "new" : "none"),
+                });
+              } else {
+                const pv = output && typeof output === "object" ? (output as { preview?: unknown }).preview : undefined;
+                const previewData = st === "preview" && !review && pv && typeof pv === "object" && !Array.isArray(pv) ? { tool: _tool, preview: pv as Record<string, unknown> } : undefined;
+                if (st === "preview" && !review && autoRef.current) autoConfirm = true;
+                // a newer review (the admin added or changed something in the chat) replaces the older open card
+                setMessages((m) =>
+                  m.map((x) =>
+                    x.id === aid
+                      ? { ...x, approval: st === "preview" && !review && !autoRef.current, previewData: autoRef.current ? undefined : previewData, review, reviewState: review ? "open" : x.reviewState }
+                      : review && x.reviewState === "open"
+                        ? { ...x, reviewState: "superseded" as const }
+                        : x,
+                  ),
+                );
+              }
               if (st === "filled") filled = true;
             },
           },
@@ -206,10 +251,38 @@ export function AiProductDrawer({
         setStatus(null);
         abortRef.current = null;
         if (filled) window.setTimeout(() => onChanged?.(), 300);
+        if (autoConfirm) window.setTimeout(() => void sendRef.current?.("Yes, confirm."), 400);
       }
     },
     [sending, onChanged],
   );
+
+  // the review card's Accept: fill the draft with the category / brand / profile the admin approved
+  const approveReview = async (msgId: string, review: FillReview, a: FillApproval) => {
+    setMessages((m) => m.map((x) => (x.id === msgId ? { ...x, reviewState: "applying" } : x)));
+    try {
+      const res = await applyFillFromSource(review.product.id, a);
+      setMessages((m) => [
+        ...m.map((x) => (x.id === msgId ? { ...x, reviewState: "done" as const } : x)),
+        {
+          id: `a_${Date.now()}`,
+          role: "assistant",
+          content: `✅ **${res.name}** was updated from its source: ${res.images} images, brand ${res.brand ?? "—"}, category ${res.category ?? "—"}. It stays a draft. [Open product](doc://product/${res.id})`,
+        },
+      ]);
+      window.setTimeout(() => onChanged?.(), 300);
+    } catch (err) {
+      setMessages((m) => m.map((x) => (x.id === msgId ? { ...x, reviewState: "open" as const } : x)));
+      toast.error(err instanceof Error ? err.message : "Could not update the product");
+    }
+  };
+  approveRef.current = approveReview;
+  sendRef.current = (t: string) => send(t);
+  const denyReview = (msgId: string) =>
+    setMessages((m) => [
+      ...m.map((x) => (x.id === msgId ? { ...x, reviewState: "denied" as const } : x)),
+      { id: `a_${Date.now()}`, role: "assistant", content: "Okay - nothing was changed." },
+    ]);
 
   // opening the drawer for a product starts the work right away
   React.useEffect(() => {
@@ -258,6 +331,12 @@ export function AiProductDrawer({
             </button>
           </header>
           <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+            <label
+              className="relative inline-flex h-8 cursor-pointer items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted focus-within:border-primary"
+              title="Language Aladin replies in"
+            >
+              <Languages className="h-3.5 w-3.5" />
+              <span>{lang === "auto" ? "Auto" : lang === "bn" ? "বাংলা" : lang === "banglish" ? "Bangl." : "EN"}</span>
             <select
               value={lang}
               onChange={(e) => {
@@ -270,9 +349,8 @@ export function AiProductDrawer({
                   /* ignore */
                 }
               }}
-              className="h-8 max-w-[170px] rounded-full border border-border bg-background px-2 text-xs text-muted-foreground outline-none hover:bg-muted focus:border-primary"
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
               aria-label="Reply language"
-              title="Language Aladin replies in"
             >
               {LANGS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -280,10 +358,37 @@ export function AiProductDrawer({
                 </option>
               ))}
             </select>
+            </label>
             <button
               type="button"
               className={cn(
                 "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs",
+                autoApprove ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "border-border text-muted-foreground hover:bg-muted",
+              )}
+              onClick={() => {
+                const next = !autoApprove;
+                autoRef.current = next;
+                setAutoApprove(next);
+                try {
+                  localStorage.setItem(APPROVAL_KEY, next ? "auto" : "manual");
+                } catch {
+                  /* ignore */
+                }
+              }}
+              aria-pressed={autoApprove}
+              title={
+                autoApprove
+                  ? "Auto - Aladin fills the product straight away with its own choices, no approval needed. Click to switch to Manual."
+                  : "Manual - Aladin shows a review card and saves nothing until you press Accept. Click to switch to Auto."
+              }
+            >
+              {autoApprove ? <Zap className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+              {autoApprove ? "Auto" : "Manual"}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-8 w-8 items-center justify-center rounded-full border",
                 webSearch ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted",
               )}
               onClick={() => {
@@ -291,11 +396,44 @@ export function AiProductDrawer({
                 setWebSearch(!webSearch);
               }}
               aria-pressed={webSearch}
-              title="Allow the assistant to search the web for this chat"
+              aria-label={`Web search ${webSearch ? "on" : "off"}`}
+              title={webSearch ? "Web search is ON - Aladin may search the web for extra facts. Click to turn off." : "Web search is OFF - Aladin uses only the source page. Click to turn on."}
             >
-              <Globe className="h-3.5 w-3.5" /> Web search {webSearch ? "on" : "off"}
+              <Globe className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-8 w-8 items-center justify-center rounded-full border",
+                infoOpen ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted",
+              )}
+              onClick={() => setInfoOpen((v) => !v)}
+              aria-pressed={infoOpen}
+              aria-label="What do these buttons do?"
+              title="What do these buttons do?"
+            >
+              <Info className="h-3.5 w-3.5" />
             </button>
           </div>
+          {infoOpen ? (
+            <div className="space-y-1.5 border-b border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+              <p>
+                <span className="inline-flex items-center gap-1 font-medium text-foreground"><ShieldCheck className="h-3 w-3" /> Manual</span> - Aladin reads the source and shows a review
+                card (title, images, price, category, brand, specification profile). Nothing is saved until you press <b>Accept</b>; you can change the category, brand and profile first.
+              </p>
+              <p>
+                <span className="inline-flex items-center gap-1 font-medium text-foreground"><Zap className="h-3 w-3" /> Auto</span> - no approval: Aladin fills the product right away with
+                its own category, brand and profile choices. The product stays a draft.
+              </p>
+              <p>
+                <span className="inline-flex items-center gap-1 font-medium text-foreground"><Globe className="h-3 w-3" /> Web</span> - on: Aladin may also search the web for extra
+                facts. Off: it uses only the product&apos;s source page.
+              </p>
+              <p>
+                <span className="font-medium text-foreground">Language</span> - the language Aladin replies in.
+              </p>
+            </div>
+          ) : null}
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
             {messages.map((m) =>
               m.role === "user" ? (
@@ -304,8 +442,36 @@ export function AiProductDrawer({
                 </div>
               ) : (
                 <div key={m.id} className="mb-4 text-sm">
-                  {m.content ? <MarkdownLite text={m.content} onOpenDocument={openDoc} /> : <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                  {m.approval && !sending ? (
+                  {m.hideText ? (
+                    m.reviewState === "applying" ? (
+                      <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Filling the product from its source (auto approval)…
+                      </p>
+                    ) : null
+                  ) : m.content ? (
+                    <MarkdownLite text={m.content} onOpenDocument={openDoc} />
+                  ) : status ? null : (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  )}
+                  {m.review && !m.hideText && m.reviewState !== "denied" && m.reviewState !== "done" && m.reviewState !== "superseded" ? (
+                    <div className="mt-3">
+                      <AiFillReviewCard
+                        review={m.review}
+                        busy={m.reviewState === "applying"}
+                        onApprove={(a) => void approveReview(m.id, m.review!, a)}
+                        onDeny={() => denyReview(m.id)}
+                      />
+                    </div>
+                  ) : null}
+                  {m.previewData && m.approval && !sending ? (
+                    <AiPreviewCard
+                      tool={m.previewData.tool}
+                      preview={m.previewData.preview}
+                      onAccept={() => void send("Yes, confirm.")}
+                      onDeny={() => void send("No, cancel that.")}
+                    />
+                  ) : null}
+                  {m.approval && !m.previewData && !sending ? (
                     <div className="mt-2 flex gap-2">
                       <Button size="sm" className="h-8 rounded-full px-3" onClick={() => void send("Yes, confirm.")}>
                         <Check className="mr-1 h-3.5 w-3.5" /> Accept

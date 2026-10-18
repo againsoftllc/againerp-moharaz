@@ -46,6 +46,7 @@ from app.services.ai.attachments import AttachmentIn, build_user_content
 from app.services.ai.audit_service import record_chat_turn, record_tool_call
 from app.services.ai.conversation_service import append_turn, get_or_create_conversation, load_history
 from app.services.ai.confirm_guard import apply_confirm_guard, apply_user_value_guard
+from app.services.ai.intent_guard import apply_intent_guard
 from app.services.ai.entitlements import ai_access_allowed
 from app.services.ai import billing_service
 from app.services.ai import memory_service
@@ -162,8 +163,86 @@ SYSTEM_PROMPT = (
 )
 
 
+def _route(db: Session, conversation_id: Optional[str], payload: "ChatRequest", history: list, tools: list):
+    """Send only the tools / prompt parts this message needs (ai.md step 5.2). The product drawer has its own small set."""
+    if payload.scope:
+        return tools, None
+    from app.services.ai import pending_action, tool_router
+
+    prev = pending_action.previous_tool_names(db, conversation_id)
+    users = [m.content for m in history if m.role == "user" and isinstance(m.content, str)]
+    modules = tool_router.detect_modules(payload.message, users, prev, tools)
+    return tool_router.route_tools(tools, modules, prev), modules
+
+
+def _make_followup(db: Session, user: AuthUser, payload: "ChatRequest", tools: list, modules: Optional[set]):
+    """For the steps AFTER a tool ran (ai.md 5.2): the model only reads the result and answers, so it gets a small system prompt (core rules,
+    the action / catalog / image rules only if such a tool ran, the definitions of the modules involved, the data map only if SQL was used) and
+    only the tools of the modules involved - instead of the whole first-step package again."""
+    if payload.scope:
+        return None
+    from app.services.ai import knowledge_service, prompt_parts
+    from app.services.ai.tools.database_tools import _Access
+
+    lang = (payload.reply_language or "auto").lower()
+    if lang not in ("bn", "en", "banglish"):
+        lang = _detect_language(payload.message)
+    by_name = {t.definition.name: t for t in tools}
+    tail: list[str] = []
+    try:
+        memories = memory_service.list_memories(db, company_id=user.company_id, user_id=user.id)
+        if memories:
+            tail.append("Things you've been asked to remember:\n" + "\n".join(f"- {m}" for m in memories))
+    except Exception:  # noqa: BLE001
+        db.rollback()
+
+    def followup(used: set):
+        used_mods = {by_name[n].module for n in used if n in by_name}
+        keep = used | {"search_records", "query_database", "describe_table"}
+        defs = [t.definition for t in tools if t.definition.name in keep]
+        parts = [prompt_parts.followup_core(used), LANGUAGE_RULES[lang]]
+        if used & {"query_database", "describe_table", "list_database_tables", "search_records"}:
+            dm = data_map_text(db, user, only=(modules or used_mods) | used_mods)
+            if dm:
+                parts.append(dm)
+        kn = knowledge_text_for(db, user, knowledge_service, _Access, only=used_mods | {"general"}, glossary=False)
+        if kn:
+            parts.append(kn)
+        try:
+            rules = preset_service.chat_rules_block(db, user.company_id, _readable_preset_modules(db, user) & used_mods)
+            if rules:
+                parts.append(rules)
+        except Exception:  # noqa: BLE001
+            db.rollback()
+        return "\n\n".join(parts + tail), defs
+
+    return followup
+
+
+def _match_text(payload: "ChatRequest", history: list) -> str:
+    """What the user said lately - the glossary entries and routing words are matched against it."""
+    users = [m.content for m in history if m.role == "user" and isinstance(m.content, str)][-2:]
+    return " ".join([*users, payload.message])
+
+
+def _with_pending(system: str, db: Session, conversation_id: Optional[str]) -> str:
+    """Add the previous turn's unanswered preview + the records it touched (ai.md steps 1.1 / 1.5)."""
+    from app.services.ai import pending_action
+
+    block = pending_action.pending_block(db, conversation_id)
+    return system + "\n\n" + block if block else system
+
+
+def knowledge_text_for(db: Session, user: AuthUser, knowledge_service, access_cls, only=None, glossary: bool = True, match: Optional[str] = None) -> str:
+    try:
+        return knowledge_service.knowledge_text([m for m in access_cls(db, user).readable_modules() if only is None or m in only], glossary=glossary, match=match)
+    except Exception:  # noqa: BLE001 - the knowledge is an aid: a failure must never break the chat
+        return ""
+
+
 def _system_prompt(
-    db: Session, *, company_id: str, user: AuthUser, language: Optional[str] = None, message: str = ""
+    db: Session, *, company_id: str, user: AuthUser, language: Optional[str] = None, message: str = "", modules: Optional[set] = None,
+    tool_names: Optional[set] = None, match_text: Optional[str] = None,
 ) -> str:
     """Base prompt + the ERP data map filtered to the modules this user may read (so the model
     can write correct queries first time) + remembered facts/preferences (STEP 30,
@@ -172,15 +251,28 @@ def _system_prompt(
     lang = (language or "auto").lower()
     if lang not in ("bn", "en", "banglish"):
         lang = _detect_language(message)
-    parts = [SYSTEM_PROMPT, LANGUAGE_RULES[lang]]
-    data_map = data_map_text(db, user)
+    from app.services.ai import prompt_parts
+
+    parts = [prompt_parts.base_prompt(tool_names, SYSTEM_PROMPT), LANGUAGE_RULES[lang]]
+    data_map = data_map_text(db, user, only=modules)
     if data_map:
         parts.append(data_map)
+    # business definitions + the Bangla / Banglish glossary, only for the modules this user may read (ai.md step 0.3)
+    from app.services.ai import knowledge_service
+    from app.services.ai.tools.database_tools import _Access
+
+    knowledge = knowledge_text_for(db, user, knowledge_service, _Access, only=modules, match=match_text if modules is not None else None)
+    if knowledge:
+        parts.append(knowledge)
     memories = memory_service.list_memories(db, company_id=company_id, user_id=user.id)
     if memories:
         notes = "\n".join(f"- {m}" for m in memories)
         parts.append(f"Things you've been asked to remember:\n{notes}")
-    preset_rules = preset_service.chat_rules_block(db, company_id, _readable_preset_modules(db, user))
+    # company rules of a module only reach the prompt when that module is what the message is about (the product-upload rules are 3.9k chars)
+    preset_modules = _readable_preset_modules(db, user)
+    if modules is not None:
+        preset_modules = preset_modules & set(modules)
+    preset_rules = preset_service.chat_rules_block(db, company_id, preset_modules)
     if preset_rules:
         parts.append(preset_rules)
     return "\n\n".join(parts)
@@ -190,27 +282,68 @@ _SCOPE_TOOLS = {"product_fill": {"fill_product_from_source", "add_product_seo", 
 _SCOPE_PROMPT = (
     "You are Aladin, the AI assistant of AgainERP, working on ONE catalog product in the product drawer. Do what the user "
     "asks with the tools given; never invent data. To fill a draft product from its source link CALL "
-    "fill_product_from_source (product id given) WITHOUT confirm - it does the whole job; only when it returns "
-    "status=preview (a new brand/category must be created) show what it says and ask the user to approve, then call it "
-    "again with confirm=true after they say yes. For SEO use add_product_seo, for specifications add_product_specs, for "
+    "fill_product_from_source (product id given) WITHOUT confirm - it always returns status=preview and saves "
+    "nothing; the product drawer then shows the user a review card (images, price, category, brand, specification "
+    "profile ... which they can change) with an Accept button, so you only write ONE short line asking them to check it "
+    "and press Accept - never repeat the details. Call it again with confirm=true only if the user explicitly says yes "
+    "in words (that updates the title and fills the product). For SEO use add_product_seo, for specifications add_product_specs, for "
     "any other change update_product - each WITHOUT confirm first, then confirm=true only after the user agrees to that "
     "preview. After a tool succeeds reply in 3-6 short lines (what was filled, anything that needs a look) and link the "
-    "product with the tool's doc_link, e.g. [Open product](doc://product/ID) - use that value exactly. Amounts are BDT."
+    "product with the tool's doc_link, e.g. [Open product](doc://product/ID) - use that value exactly. Amounts are BDT. "
+    "IMPORTANT: everything the user says in this chat belongs to the SAME conversation and the SAME product - earlier "
+    "messages and the review card still apply. ONLY when a review card from THIS conversation is open (you called fill_product_from_source "
+    "earlier in it) and the user adds or changes something (a price "
+    "'price 130000 kore upload koro', a name, warranty ...), call fill_product_from_source AGAIN with `overrides` holding "
+    "only what they just said (the server merges it with what they said before and shows the review card again) - do not "
+    "start a different flow and do not use update_product for it. If NO review is open, a direct change ('price 150000 koro', 'name change koro') is update_product. 'Upload', 'add' and 'fill' mean filling the DRAFT from "
+    "its source: the product ALWAYS stays a draft and private. You can NOT publish or make a product public in this "
+    "drawer - never set status published or visibility public; if the user asks, say it needs someone with publish "
+    "permission, from the product page."
 )
+
+
+def _no_publish(tool):
+    """In the product drawer the AI only prepares DRAFTS: update_product may never set status published / visibility public."""
+    from dataclasses import replace
+
+    original = tool.handler
+
+    def handler(inp):
+        changes = dict((inp or {}).get("changes") or {})
+        blocked = [k for k, v in (("status", "published"), ("visibility", "public")) if changes.get(k) == v]
+        for k in blocked:
+            changes.pop(k, None)
+        if not blocked:
+            return original(inp)
+        msg = (
+            "Publishing is not possible here: in the product drawer Aladin only prepares drafts, and making a product "
+            "public needs someone with publish permission (do it from the product page)."
+        )
+        if not changes and not (inp or {}).get("rewrite"):
+            return {"error": msg}
+        res = original({**inp, "changes": changes})
+        if isinstance(res, dict):
+            res["not_done"] = msg
+        return res
+
+    return replace(tool, handler=handler)
 
 
 def _scoped_tools(tools: list, scope: Optional[str]) -> list:
     names = _SCOPE_TOOLS.get(scope or "")
-    return [t for t in tools if t.definition.name in names] if names else tools
+    picked = [t for t in tools if t.definition.name in names] if names else tools
+    if scope == "product_fill":
+        picked = [_no_publish(t) if t.definition.name == "update_product" else t for t in picked]
+    return picked
 
 
-def _system_for(db: Session, *, company_id: str, user: AuthUser, payload: "ChatRequest") -> str:
+def _system_for(db: Session, *, company_id: str, user: AuthUser, payload: "ChatRequest", modules: Optional[set] = None, tool_names: Optional[set] = None, match_text: Optional[str] = None) -> str:
     if payload.scope in _SCOPE_TOOLS:
         lang = (payload.reply_language or "auto").lower()
         if lang not in ("bn", "en", "banglish"):
             lang = _detect_language(payload.message)
         return f"{_SCOPE_PROMPT}\n\n{LANGUAGE_RULES[lang]}"
-    return _system_prompt(db, company_id=company_id, user=user, language=payload.reply_language, message=payload.message)
+    return _system_prompt(db, company_id=company_id, user=user, language=payload.reply_language, message=payload.message, modules=modules, tool_names=tool_names, match_text=match_text)
 
 
 def _readable_preset_modules(db: Session, user: AuthUser) -> set[str]:
@@ -410,16 +543,19 @@ def chat(
     provider = _chat_provider(db, user.company_id)
     model_id = getattr(provider, "default_model", None) or get_settings().ai_default_model
     tools = _scoped_tools(build_tools(token, db=db, company_id=user.company_id, user=user), payload.scope)
+    tools, modules = _route(db, convo.id, payload, history, tools)
     tools = apply_user_value_guard(
         tools, user_texts=[m.content for m in history if m.role == "user" and isinstance(m.content, str)][-10:] + [payload.message]
     )
+    tools = apply_intent_guard(tools, user_message=payload.message)
     tools = apply_confirm_guard(db, tools, conversation_id=payload.conversation_id, user_message=payload.message)
     orchestrator = Orchestrator(
         provider,
         tools,
-        system=_system_for(db, company_id=user.company_id, user=user, payload=payload),
+        system=_with_pending(_system_for(db, company_id=user.company_id, user=user, payload=payload, modules=modules, tool_names=({t.definition.name for t in tools} if modules is not None else None), match_text=_match_text(payload, history)), db, convo.id),
         max_steps=6,
         enable_web_search=payload.enable_web_search,
+        followup=_make_followup(db, user, payload, tools, modules),
     )
     try:
         result: OrchestratorResult = orchestrator.run(user_content, history=history)
@@ -522,16 +658,19 @@ def chat_stream(
     provider = _chat_provider(db, user.company_id)
     model_id = getattr(provider, "default_model", None) or get_settings().ai_default_model
     tools = _scoped_tools(build_tools(token, db=db, company_id=user.company_id, user=user), payload.scope)
+    tools, modules = _route(db, convo.id, payload, history, tools)
     tools = apply_user_value_guard(
         tools, user_texts=[m.content for m in history if m.role == "user" and isinstance(m.content, str)][-10:] + [payload.message]
     )
+    tools = apply_intent_guard(tools, user_message=payload.message)
     tools = apply_confirm_guard(db, tools, conversation_id=payload.conversation_id, user_message=payload.message)
     orchestrator = Orchestrator(
         provider,
         tools,
-        system=_system_for(db, company_id=user.company_id, user=user, payload=payload),
+        system=_with_pending(_system_for(db, company_id=user.company_id, user=user, payload=payload, modules=modules, tool_names=({t.definition.name for t in tools} if modules is not None else None), match_text=_match_text(payload, history)), db, convo.id),
         max_steps=6,
         enable_web_search=payload.enable_web_search,
+        followup=_make_followup(db, user, payload, tools, modules),
     )
 
     def event_stream():

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import {
+  FILTER_DISPLAY_CHOICES,
   FILTER_DISPLAY_LABELS,
   type CatalogFacetFilter,
   type FilterDisplayType,
@@ -27,13 +28,7 @@ type Props = {
   onLiveChange?: (data: Partial<CatalogFacetFilter> & { id: string }) => void;
 };
 
-const DISPLAY_TYPES: FilterDisplayType[] = [
-  "multi_select",
-  "range",
-  "boolean",
-  "color",
-  "dynamic",
-];
+const DISPLAY_TYPES = FILTER_DISPLAY_CHOICES;
 
 const CATEGORY_SCOPES = [
   "All categories",

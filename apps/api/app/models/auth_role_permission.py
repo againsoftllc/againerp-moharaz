@@ -24,6 +24,12 @@ class AuthRolePermission(Base):
     can_create: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     can_write: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     can_delete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # make records public on the website / go live (publish a product, a page, a post). The AI may only prepare drafts unless the
+    # user's role has this (docs/AI/ai.md step 1.3). Existing roles got it where they could write, so no person lost anything.
+    can_publish: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # export / dump lists of data (phones, e-mails, salaries ...). The AI refuses bulk personal-data lists without it
+    # (docs/AI/ai.md step 1.3). Existing roles got it where they could write.
+    can_export: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()

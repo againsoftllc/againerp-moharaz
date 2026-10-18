@@ -177,7 +177,7 @@ export function SerialDetailSheet({
           <button
             type="button"
             className="text-[11px] text-primary hover:underline"
-            onClick={() => router.push(`/rma/${record.rma_id}`)}
+            onClick={() => router.push(`/inventory/rma/${record.rma_id}`)}
           >
             Open claim
           </button>

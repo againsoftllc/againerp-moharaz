@@ -15,6 +15,7 @@ import re
 import uuid
 from decimal import Decimal
 from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -77,6 +78,7 @@ PRESET_FIELDS = {
     "catalog.product.category": "category_name / category_names",
     "catalog.product.tags": "tags",
     "catalog.product.warranty": "warranty",
+    "catalog.product.spec_values": "specification values",
     "catalog.product.seo": "seo_title / seo_description",
 }
 
@@ -174,6 +176,137 @@ def _complete_gallery(picked: list[str], candidates: list[str]) -> list[str]:
     return images[:_GALLERY_MAX]
 
 
+_SOCIAL_IMAGE = re.compile(r"[-_]1200x630\.[A-Za-z0-9]+(\?|$)", re.I)
+_NO_WARRANTY = re.compile(r"\bno\s+warranty\b|\bwithout\s+warranty\b|\bnone\b|\bn/?a\b", re.I)
+_SAYS_NO_WARRANTY = re.compile(r"\bno\s+warranty\b|\bwithout\s+warranty\b|warranty\s*[:\-]\s*(none|no|n/?a)\b", re.I)
+
+
+_WARRANTY_SPAN = re.compile(r"(\d+(?:\.\d+)?)\s*[-]?\s*(years?|yrs?|months?|mos?)\b", re.I)
+
+
+def normalize_warranty(text: Optional[str], options: Optional[list[str]] = None) -> Optional[str]:
+    """The warranty field is a short choice ('6 Months', '1 Year', '2 Years', 'No Warranty', 'Lifetime'), not the page's
+    sentence - that stays in the specifications. The first duration in the text is the product's own ("02 years
+    International Limited Warranty (Battery 1 year)" -> '2 Years'); our own wording is used when the list has it.
+    None when the text names no duration."""
+    t = (text or "").strip()
+    if not t:
+        return None
+    label: Optional[str] = None
+    if _NO_WARRANTY.search(t):
+        label = "No Warranty"
+    elif re.search(r"\blife\s*-?\s*time\b", t, re.I):
+        label = "Lifetime"
+    else:
+        m = _WARRANTY_SPAN.search(t)
+        if m:
+            n = float(m.group(1))
+            months = round(n * 12) if m.group(2).lower().startswith("y") else round(n)
+            if months and months % 12 == 0:
+                y = months // 12
+                label = f"{y} Year" if y == 1 else f"{y} Years"
+            elif months:
+                label = f"{months} Month" if months == 1 else f"{months} Months"
+    if not label:
+        return None
+    return next((o for o in (options or []) if o.strip().lower() == label.lower()), label)
+
+
+def _fix_warranty(draft: ProductDraft, page, options: Optional[list[str]] = None) -> ProductDraft:
+    """The warranty is what the source page SAYS: a row whose label has 'warranty' ("Warranty", "Warranty Details" ...)
+    when the model missed it. 'No Warranty' is never picked automatically - without a duration the field stays empty."""
+    spec = next(
+        (i["value"] for g in page.spec_groups for i in g["items"] if "warrant" in i["label"].lower() and i["value"].strip()),
+        None,
+    )
+    w = (draft.warranty or "").strip() or None
+    if w and _NO_WARRANTY.search(w):
+        w = None  # a page's "no warranty" sentence (often just price-list prose) is not warranty information: the field stays empty
+    if not w and spec:
+        w = spec.strip()[:200]
+    found = normalize_warranty(w, options)
+    return draft.model_copy(update={"warranty": None if found and _NO_WARRANTY.search(found) else found})
+
+
+_MODEL_LABEL = re.compile(r"^model(\s+(name|number|no\.?))?$", re.I)
+
+
+def _ensure_model(draft: ProductDraft, page) -> ProductDraft:
+    """Every imported product gets its Model: the model's answer, else the page's own 'Model' spec row / highlight,
+    else the product code in the title (the word mixing letters and digits, e.g. 'A1504VA')."""
+    if (draft.model or "").strip():
+        return draft
+    value = next(
+        (i["value"].strip() for g in page.spec_groups for i in g["items"] if _MODEL_LABEL.match(i["label"].strip()) and i["value"].strip()),
+        None,
+    )
+    if not value:
+        for h in page.highlights or []:
+            m = re.match(r"\s*model(?:\s+(?:name|number|no\.?))?\s*[:\-–]\s*(.+)", h, re.I)
+            if m:
+                value = m.group(1).strip()
+                break
+    if not value:
+        code = next((w for w in re.split(r"\s+", draft.name or "") if len(w) >= 3 and re.search(r"[A-Za-z]", w) and re.search(r"\d", w)), None)
+        value = code
+    return draft.model_copy(update={"model": value[:200]}) if value else draft
+
+
+def _warranty_last(draft: ProductDraft) -> ProductDraft:
+    """Warranty rows always sit at the very bottom of the specifications: inside their group, and the groups about warranty last."""
+    is_w = lambda t: "warrant" in (t or "").lower()  # noqa: E731
+    groups = []
+    for g in draft.specifications:
+        items = sorted(g.items, key=lambda i: is_w(i.label))  # stable: only the warranty rows move
+        groups.append(g.model_copy(update={"items": items}))
+    groups.sort(key=lambda g: is_w(g.group) or all(is_w(i.label) for i in g.items))
+    return draft.model_copy(update={"specifications": groups})
+
+
+REMARKS_MARK = "Product Code:"
+_OLD_REMARKS_MARKS = ("Source (AI import):",)  # the longer note written before 2026-10-18
+
+
+def _source_remarks(draft: ProductDraft, page) -> Optional[str]:
+    """The source's own product code - the one id that finds the same source product imported twice. 'Product Code: 53803'; the page's
+    SKU / MPN when it shows no code; nothing when the page has none of them."""
+    ids: dict[str, str] = {k.lower(): v for k, v in dict(getattr(page, "source_ids", None) or {}).items()}
+    structured = getattr(page, "structured", None) or {}
+    code = (
+        ids.get("product code") or ids.get("item code") or ids.get("product id") or ids.get("sku") or ids.get("mpn")
+        or str(structured.get("sku") or "").strip() or str(structured.get("mpn") or "").strip()
+    )
+    return f"{REMARKS_MARK} {code[:60]}" if code else None
+
+
+def _merge_remarks(old: Optional[str], new: Optional[str]) -> Optional[str]:
+    """Staff's own remarks stay; the source line is replaced when it is already there, else appended."""
+    if not new:
+        return old
+    lines = [ln for ln in (old or "").splitlines() if not ln.startswith((REMARKS_MARK, *_OLD_REMARKS_MARKS))]
+    return "\n".join([*lines, new]).strip()[:2000]
+
+
+def _category_path_from_breadcrumb(db: Session, company_id: str, crumbs: list[str], draft: ProductDraft) -> list[CatalogCategory]:
+    """The source's breadcrumb as OUR category chain, root first (Laptop > All Laptop > Asus): each crumb must be a child
+    of the one before it - so the brand level ("Asus") is the Asus under All Laptop, not one of the other 'Asus'
+    categories. A crumb we do not have is skipped; "Home" and the product's own title are not categories."""
+    name_key = _cat_key(draft.name)
+    path: list[CatalogCategory] = []
+    for c in crumbs:
+        k = _cat_key(c)
+        if not k or k == "home" or k == name_key or (len(k) > 20 and k[:20] == name_key[:20]):
+            continue
+        parent_id = path[-1].id if path else None
+        hit = next(
+            (x for x in _catalog_categories(db, company_id).filter(CatalogCategory.parent_id == parent_id).all() if _cat_key(x.name) == k),
+            None,
+        )
+        if hit is not None:
+            path.append(hit)
+    return path
+
+
 def _match_category(db: Session, company_id: str, name: str) -> Optional[CatalogCategory]:
     leaf = name.split(">")[-1].strip()
     if not leaf:
@@ -206,11 +339,21 @@ def _category_from_breadcrumb(db: Session, company_id: str, crumbs: list[str], d
         trail.append(c.strip())
     if not trail:
         return None
-    for crumb in reversed(trail):
-        hit = _match_category(db, company_id, crumb)
-        if hit is not None:
-            return hit.name
-    return trail[-1]
+    hit = _match_category(db, company_id, trail[-1])
+    # the source's deepest level is the product's category even when we do not have it yet (Tablet > Tablet Accessories):
+    # it is then created under the deepest level we do have, so the product is not filed one level too high
+    return hit.name if hit is not None else trail[-1]
+
+
+def _clean_title(name: str, seller: Optional[str], url: Optional[str]) -> str:
+    """The product's title without the source shop's tail: 'X Price in Bangladesh | Star Tech' -> 'X'."""
+    title = re.sub(r"\s+", " ", name or "").strip()
+    title = re.sub(r"\s*[|\-–—:]?\s*price\s+in\s+(bangladesh|bd)\b.*$", "", title, flags=re.I)
+    host = (urlparse(url).netloc if url else "").lower().removeprefix("www.")
+    tails = [t for t in {(seller or "").strip(), host, host.split(".")[0] if host else ""} if len(t) >= 3]
+    for tail in sorted(tails, key=len, reverse=True):
+        title = re.sub(rf"\s*[|\-–—:]\s*{re.escape(tail)}[\w .&,]*$", "", title, flags=re.I)
+    return title.strip(" |-–—:·") or name
 
 
 def extract_from_url(
@@ -231,14 +374,43 @@ def extract_from_url(
         # titles like "Crest T-Shirt | Gymshark" leak separators into the brand ("Gymshark |")
         draft = draft.model_copy(update={"brand_name": draft.brand_name.strip(" |-–—:·•/") or None})
     draft = _apply_structured(draft, page.structured)
-    if page.image_urls and draft.images:
-        draft = draft.model_copy(update={"images": _complete_gallery(draft.images, page.image_urls)})
+    cleaned = _clean_title(draft.name, draft.seller_site_name, page.url)
+    if cleaned != draft.name:
+        draft = draft.model_copy(update={"name": cleaned[:255]})
+    # The page's social-share image (og:image, "...-1200x630.webp") is usually a promo collage, not the product photo:
+    # the gallery is the product's own photos (the model's picks and the same-folder candidates), original order.
+    cands = [u for u in page.image_urls if not _SOCIAL_IMAGE.search(u)]
+    picked = [u for u in draft.images if not _SOCIAL_IMAGE.search(u)]
+    if cands and not picked:
+        picked = cands[:1]
+    if cands and picked:
+        draft = draft.model_copy(update={"images": _complete_gallery(picked, cands)})
+    elif picked != draft.images:
+        draft = draft.model_copy(update={"images": picked})
     # The page's own highlights list is the short description — exact and one point per line,
     # where the LLM (seeing flattened text) often returned just the product name. An admin
     # short-description preset still wins: then the LLM wrote it to the rule on purpose.
     short_rule = preset_service.active_rules(db, company_id, ["catalog.product.short_description"])
     if page.highlights and not short_rule:
         draft = draft.model_copy(update={"short_description": "\n".join(page.highlights)})
+    # the model number is never a short-description bullet ("Model: INSTAX mini 13" - it is the Model field's job)
+    pts = [ln.strip(" -•*·\t") for ln in (draft.short_description or "").splitlines() if ln.strip(" -•*·\t")]
+    pts = [p for p in pts if not description_writer._NOT_A_FEATURE.match(p)]
+    if short_rule and len(pts) > 4:
+        pts = pts[:4]  # rule A9: exactly 4 bullet points - more are cut
+    if short_rule and len(pts) < 4:
+        # ... fewer are topped up from the page's own highlights (real facts, never invented), model lines excluded
+        for h in page.highlights or []:
+            h = h.strip(" -•*·\t")
+            if not h or description_writer._NOT_A_FEATURE.match(h):
+                continue
+            if any(h.lower() in p.lower() or p.lower() in h.lower() for p in pts):
+                continue
+            pts.append(h)
+            if len(pts) >= 4:
+                break
+    if draft.short_description:
+        draft = draft.model_copy(update={"short_description": "\n".join(pts)})
     # Same for the spec table: parsed straight from the HTML (scraper._extract_spec_groups),
     # it is complete and exact, while the LLM only sees truncated page text and often returns
     # a partial table or none. The parsed table wins whenever the page has one.
@@ -262,6 +434,18 @@ def extract_from_url(
             )
             if warranty:
                 draft = draft.model_copy(update={"warranty": warranty[:200]})
+
+    if getattr(page, "no_spec_sheet", False):
+        # the shop lists no specifications (only a price / status / code box): nothing is invented, no profile is picked
+        draft = draft.model_copy(update={"specifications": []})
+    draft = _fix_warranty(draft, page, [w.name for w in db.query(CatalogWarranty).filter(CatalogWarranty.company_id == company_id).all()])
+    draft = _ensure_model(draft, page)
+    draft = _warranty_last(draft)
+    try:  # long descriptive spec values are re-worded when the company has the preset - numbers / names are verified unchanged
+        draft = description_writer.rewrite_spec_values(db, company_id, draft)
+    except Exception:  # noqa: BLE001
+        db.rollback()
+    draft = draft.model_copy(update={"remarks": _source_remarks(draft, page)})
 
     # Price, offer and availability straight from the page, read the way Price Compare reads it (a shop with its own
     # price pattern — Star Tech, Ryans, Techland — is exact). With an offer on the page the OFFER price is the price and
@@ -299,6 +483,16 @@ def extract_from_url(
     if written:
         draft = draft.model_copy(update={"description": written})
 
+    # Rule A9: the short description is WRITTEN too - exactly 4 key-feature bullets in our words (not the source's
+    # highlight lines, never a model / MPN); the cut / top-up above stays as the fallback when the model is unavailable.
+    try:
+        short = description_writer.write_short_description(db, company_id, draft, source_points=list(page.highlights or []))
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        short = None
+    if short:
+        draft = draft.model_copy(update={"short_description": "\n".join(short)})
+
     # Rule A4: the category is the one the source shop itself files the product under (its breadcrumb), mapped to OUR
     # category of the same name; the model's own guess is only the fallback for pages without a trail.
     try:
@@ -312,13 +506,12 @@ def extract_from_url(
     # profile can be created with them.
     try:
         if draft.specifications and crumb_cat:
-            if spec_profile_service.find_profile(db, category_names=[crumb_cat]) is None:
-                links = {str(l.get("name")).strip().lower(): l.get("url") for l in (page.structured.get("breadcrumb_links") or [])}
-                cat_url = links.get(crumb_cat.strip().lower())
-                if cat_url:
-                    from app.services.catalog_ai.scraper import fetch_category_filters
+            links = {str(l.get("name")).strip().lower(): l.get("url") for l in (page.structured.get("breadcrumb_links") or [])}
+            cat_url = links.get(crumb_cat.strip().lower())
+            if cat_url:
+                from app.services.catalog_ai.scraper import fetch_category_filters
 
-                    draft = draft.model_copy(update={"source_filters": fetch_category_filters(cat_url)})
+                draft = draft.model_copy(update={"source_filters": fetch_category_filters(cat_url)})
     except Exception:  # noqa: BLE001 - filters are a bonus
         pass
 
@@ -332,9 +525,21 @@ def extract_from_url(
         else:
             warnings.append(f"Brand '{draft.brand_name}' does not exist yet — will be created on import.")
 
+    # The source breadcrumb as our own chain (Laptop > All Laptop > Asus), deepest first = primary - when the trail maps.
+    try:
+        path = _category_path_from_breadcrumb(db, company_id, list(page.structured.get("breadcrumb") or []), draft)
+    except Exception:  # noqa: BLE001
+        path = []
+
     # Primary category first, then every other fitting one the model chose.
-    wanted = [n for n in [draft.category_name, *draft.category_names] if n and n.strip()]
-    matched_category_ids: list[str] = []
+    wanted = [n for n in [draft.category_name, *draft.category_names] if n and n.strip()] if not path else []
+    matched_category_ids: list[str] = [c.id for c in reversed(path)]
+    if path and draft.category_name:  # the by-name match of the deepest crumb we know, when the chain did not reach it
+        named = _match_category(db, company_id, draft.category_name)
+        if named is not None and named.id not in matched_category_ids:
+            matched_category_ids.append(named.id)
+    if path and draft.category_name and _match_category(db, company_id, draft.category_name) is None:
+        warnings.append(f"Category '{draft.category_name}' does not exist yet — will be created under '{path[-1].name}' on import.")
     for name in wanted:
         category = _match_category(db, company_id, name)
         if category is None:
@@ -355,6 +560,10 @@ def extract_from_url(
             if node is not None and node.channel == IMPORT_CHANNEL and node.id not in matched_category_ids:
                 matched_category_ids.append(node.id)
 
+    if short_rule:
+        n_pts = len([ln for ln in (draft.short_description or "").splitlines() if ln.strip()])
+        if n_pts != 4:
+            warnings.append(f"Short description has {n_pts} bullet point(s) — the rule is exactly 4.")
     if not draft.price:
         warnings.append("No price found on the page — set one before creating.")
     if not draft.images:
@@ -422,7 +631,7 @@ def _unique_brand_slug(db: Session, base: str) -> str:
     return slug
 
 
-def _resolve_or_create_category(db: Session, name: str, company_id: str) -> str:
+def _resolve_or_create_category(db: Session, name: str, company_id: str, parent_id: Optional[str] = None) -> str:
     """Same reasoning as _resolve_or_create_brand: a URL import routinely names a category
     that does not exist yet ('Monitors', '4K TV', ...) — create it as a top-level category
     rather than leaving the product uncategorised. Uses the exact path/depth/sort-order
@@ -440,8 +649,11 @@ def _resolve_or_create_category(db: Session, name: str, company_id: str) -> str:
     )
     db.add(category)
     db.flush()
-    _apply_path_depth(category, None)
-    category.sort_order = _next_sort_order(db, None)
+    parent = db.get(CatalogCategory, parent_id) if parent_id else None
+    if parent is not None and parent.channel != IMPORT_CHANNEL:
+        parent = None
+    _apply_path_depth(category, parent)
+    category.sort_order = _next_sort_order(db, parent.id if parent else None)
     db.flush()
     return category.id
 
@@ -557,9 +769,13 @@ def create_product_from_draft(
     user: AuthUser,
     existing: Optional[CatalogProduct] = None,
     create_spec_profile: bool = False,
+    update_name: bool = False,
+    extend_spec_profile: bool = False,
+    spec_profile_id: Optional[str] = None,
 ) -> CatalogProduct:
     """Create the catalog product from a draft — or, with `existing`, fill that product in place (its id, SKU, slug,
-    status and Price Compare links stay; every field the draft carries is written onto it)."""
+    status and Price Compare links stay; every field the draft carries is written onto it; the name too when
+    `update_name`)."""
     draft = payload.draft
     if not draft.name.strip():
         raise HTTPException(status_code=400, detail="Product name is required")
@@ -567,8 +783,13 @@ def create_product_from_draft(
     identity_svc = ItemIdentityService(db)
     base_slug = slugify(draft.name) or "product"
     slug = existing.slug if existing is not None else _unique_slug(db, base_slug, getattr(user, "company_id", None) or "default")
-    base_sku = re.sub(r"\s+", "-", draft.sku.strip()).upper()[:40] if draft.sku else _short_sku_seed(draft)
-    sku = existing.sku if existing is not None else _unique_sku(db, base_sku, identity_svc)
+    # the page's own SKU / MPN when it has one; otherwise the next number of the company's serial (SKU-000001 ...)
+    if existing is not None:
+        sku = existing.sku
+    elif draft.sku:
+        sku = _unique_sku(db, re.sub(r"\s+", "-", draft.sku.strip()).upper()[:40], identity_svc)
+    else:
+        sku = identity_svc.next_serial_sku(getattr(user, "company_id", None) or "default")
 
     company_id = getattr(user, "company_id", None) or "default"
 
@@ -579,6 +800,10 @@ def create_product_from_draft(
     category_id = payload.category_id or (payload.category_ids[0] if payload.category_ids else None)
     if not category_id and draft.category_name and payload.create_category_if_missing:
         category_id = _resolve_or_create_category(db, draft.category_name, company_id)
+    elif category_id and draft.category_name and payload.create_category_if_missing and _match_category(db, company_id, draft.category_name) is None:
+        # the source files the product one level below the deepest category we have: create that level under it, make it primary
+        category_id = _resolve_or_create_category(db, draft.category_name, company_id, parent_id=category_id)
+        payload = payload.model_copy(update={"category_id": category_id, "category_ids": [category_id, *payload.category_ids]})
     our_company = _company_name(db, company_id)
     # Long-form page text → description; the highlights block → short description (each falls
     # back to the other), with the seller's own name swapped for ours in both.
@@ -591,6 +816,7 @@ def create_product_from_draft(
         slug=slug,
         sku=sku,
         model=draft.model[:200] if draft.model else None,
+        remarks=_merge_remarks(getattr(existing, "remarks", None) if existing is not None else None, draft.remarks),
         # The product editor stores HTML: highlights as a bullet list, long copy as paragraphs.
         description=content_html.paragraphs_html(description),
         short_description=content_html.list_html(short_description),
@@ -632,11 +858,14 @@ def create_product_from_draft(
 
     if existing is not None:
         row = existing
-        keep = {"id", "company_id", "sku", "slug", "status", "visibility", "name"}
+        # the slug is write-once (rule A3); the name follows the approved draft only when asked (`update_name`)
+        keep = {"id", "company_id", "sku", "slug", "status", "visibility"} | (set() if update_name else {"name"})
         for key, value in data.items():
             if key not in keep and value is not None:
                 setattr(row, key, value)
         row.compare_at_price = draft.compare_at_price  # replaced, or cleared when the offer is over
+        if draft.warranty is None and _NO_WARRANTY.search(row.warranty or ""):
+            row.warranty = None  # a "No Warranty" an earlier import guessed - the source does not say so
         db.flush()
     else:
         row = CatalogProduct(**data)
@@ -739,7 +968,7 @@ def create_product_from_draft(
     # (add_product_specs chat tool), so it never happens silently here.
     if draft.specifications:
         spec_profile_service.apply_from_source(db, company_id, row, spec_profile_service.specs_from_draft(draft), replace=existing is not None,
-            create_profile_if_missing=create_spec_profile, source_filters=draft.source_filters,
+            create_profile_if_missing=create_spec_profile, source_filters=draft.source_filters, extend_profile=extend_spec_profile, profile_choice=spec_profile_id,
         )
         db.refresh(row)
 

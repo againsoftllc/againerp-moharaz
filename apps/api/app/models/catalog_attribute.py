@@ -37,7 +37,7 @@ class CatalogAttribute(Base):
     is_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # How this filter renders on the storefront when is_filterable.
-    filter_display_type: Mapped[str] = mapped_column(String(30), nullable=False, default="multi_select")
+    filter_display_type: Mapped[str] = mapped_column(String(30), nullable=False, default="single_select")
     storefront_filter_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     unit: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     help_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

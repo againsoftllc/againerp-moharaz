@@ -351,7 +351,7 @@ export function ServiceJobWorkspace({
               {warranty || job.rma_id ? (
                 <div className="mt-2 border border-border bg-muted/40 px-2 py-1.5 text-[11px]">
                   Source: {job.rma_id ? (
-                    <Link href={`/rma?claim=${job.rma_id}`} className="text-primary hover:underline">
+                    <Link href={`/inventory/rma?claim=${job.rma_id}`} className="text-primary hover:underline">
                       RMA
                     </Link>
                   ) : (

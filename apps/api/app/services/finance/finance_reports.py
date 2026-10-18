@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.models.commerce_customer import CommerceCustomer
@@ -48,6 +48,14 @@ from app.services.finance.posting import (
 )
 
 ZERO = Decimal("0")
+
+
+def _not_pending_cheque():
+    """Exclude cheque payments that have not reached the bank (no payment account until clearance)."""
+    return ~and_(
+        FinancePayment.source_type.in_(("cheque", "cheque_reversal")),
+        FinancePayment.payment_account_id.is_(None),
+    )
 
 
 def _period(date_from: Optional[date], date_to: Optional[date]) -> tuple[date, date]:
@@ -774,6 +782,7 @@ class FinanceReportService:
             )
             if restrict:
                 query = query.filter(FinancePayment.payment_account_id.in_(account_ids or ["__none__"]))
+            query = query.filter(_not_pending_cheque())
             if before is not None:
                 query = query.filter(FinancePayment.payment_date < before)
             if within:
@@ -798,6 +807,7 @@ class FinanceReportService:
                 FinancePayment.direction == direction,
                 FinancePayment.payment_date <= until,
             )
+            query = query.filter(_not_pending_cheque())
             if restrict:
                 query = query.filter(FinancePayment.payment_account_id.in_(account_ids or ["__none__"]))
             return money(query.scalar())
@@ -812,6 +822,7 @@ class FinanceReportService:
             FinancePayment.payment_date >= start,
             FinancePayment.payment_date <= end,
         )
+        pay_query = pay_query.filter(_not_pending_cheque())
         if restrict:
             pay_query = pay_query.filter(FinancePayment.payment_account_id.in_(account_ids or ["__none__"]))
         else:

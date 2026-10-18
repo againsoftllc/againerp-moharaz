@@ -23,6 +23,7 @@ import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { useViewerWriteUrlGuard } from "@/lib/hooks/use-viewer-write-url-guard";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { addProductsToInventory } from "@/lib/api/catalog-products";
 
 const ProductGrid = dynamic(
   () => import("@/components/products/product-grid").then((module) => module.ProductGrid),
@@ -63,7 +64,7 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
   };
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { products: allProducts, loading, error, refetch } = useCatalogProducts({ channel: "catalog" });
+  const { products: allProducts, loading, error, refetch } = useCatalogProducts({ channel: "catalog", scope: "website" });
   const products = useMemo(() => (draftOnly ? allProducts.filter((p) => p.status === "draft") : allProducts), [allProducts, draftOnly]);
   const { categories } = useCatalogCategories({ channel: "catalog" });
   const canWrite = useAdminCanWrite();
@@ -334,6 +335,18 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
           onView={handleView}
           onEdit={handleEdit}
           onProductsChanged={() => void refetch()}
+          onAddToInventory={async (rows) => {
+            try {
+              const r = await addProductsToInventory(rows.map((p) => p.id));
+              toast.success(
+                r.added
+                  ? `Added ${r.added} product${r.added > 1 ? "s" : ""} to Inventory`
+                  : "Already in Inventory",
+              );
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "Could not add to Inventory");
+            }
+          }}
           onAdvancedFilterCountChange={setAdvancedFilterCount}
           headerLeftActions={headerLeftActions}
           className="min-h-0 flex-1"

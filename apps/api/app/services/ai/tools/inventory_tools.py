@@ -54,7 +54,9 @@ def build_inventory_tools(bearer_token: str) -> list[OrchestratorTool]:
         OrchestratorTool(
             definition=AIToolDefinition(
                 name="check_stock_level",
-                description="Look up current stock on hand/available for a product by SKU or name, across warehouses.",
+                description=("Look up current stock on hand/available for a product by SKU or name, across warehouses. It answers 'how many do we have "
+                "in stock' only - NOT how many products exist in the catalog (use query_database on catalog_products), and it cannot change "
+                "stock (to change stock use adjust_stock)."),
                 input_schema={
                     "type": "object",
                     "properties": {

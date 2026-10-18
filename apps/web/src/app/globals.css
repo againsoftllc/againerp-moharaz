@@ -627,6 +627,30 @@ body.storefront-site {
   font-size: var(--ag-font-size, 11px);
 }
 
+/* One font and one size across every Again List Datatable, whatever a column renderer puts in the cell
+   (font-mono ids, text-xs / text-sm spans, bold numbers). Odoo's list view: Inter, same size everywhere.
+   Size follows the zoom control via --ag-font-size. Icon fonts are left alone. */
+.ag-theme-quartz.ag-theme-again-list,
+.ag-theme-quartz-dark.ag-theme-again-list {
+  --font-list: var(--font-inter), "Inter", -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ag-font-family: var(--font-list);
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-cell,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-cell,
+.ag-theme-quartz.ag-theme-again-list .ag-cell *:not(.ag-icon):not(.ag-checkbox-input-wrapper):not(svg):not(svg *),
+.ag-theme-quartz-dark.ag-theme-again-list .ag-cell *:not(.ag-icon):not(.ag-checkbox-input-wrapper):not(svg):not(svg *) {
+  font-family: var(--font-list) !important;
+  font-size: var(--ag-font-size, 11px) !important;
+}
+
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell,
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell,
+.ag-theme-quartz.ag-theme-again-list .ag-header-cell *:not(.ag-icon):not(.ag-checkbox-input-wrapper):not(svg):not(svg *),
+.ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell *:not(.ag-icon):not(.ag-checkbox-input-wrapper):not(svg):not(svg *) {
+  font-family: var(--font-list) !important;
+}
+
 /* Badges inside list cells — compact so rows stay even */
 .ag-theme-quartz.ag-theme-again-list .ag-cell [class*="inline-flex items-center rounded-none border"],
 .ag-theme-quartz-dark.ag-theme-again-list .ag-cell [class*="inline-flex items-center rounded-none border"] {
@@ -680,12 +704,12 @@ body.storefront-site {
 .ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell {
   cursor: default;
   font-weight: 600;
-  font-size: 10px;
+  font-size: var(--ag-font-size, 11px);
 }
 
 .ag-theme-quartz.ag-theme-again-list .ag-header-cell-text,
 .ag-theme-quartz-dark.ag-theme-again-list .ag-header-cell-text {
-  font-size: calc(10px * var(--ag-list-zoom, 1));
+  font-size: var(--ag-font-size, 11px);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -1253,4 +1277,12 @@ body.storefront-site {
 .ag-theme-quartz .ag-cell.live-edit-cell:not(.ag-cell-inline-editing):hover {
   background-color: color-mix(in oklab, var(--primary) 7%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 35%, transparent);
+}
+
+/* Header text centred over a centred icon column (e.g. the AI import button). */
+.ag-theme-quartz .ag-header-cell.product-grid-center-col .ag-header-cell-label,
+.ag-theme-quartz-dark .ag-header-cell.product-grid-center-col .ag-header-cell-label,
+.ag-theme-quartz .ag-header-cell.product-grid-center-col .ag-header-cell-comp-wrapper,
+.ag-theme-quartz-dark .ag-header-cell.product-grid-center-col .ag-header-cell-comp-wrapper {
+  justify-content: center;
 }

@@ -244,7 +244,7 @@ export function profileToBulkForm(
         id: attr.id,
         name: attr.name,
         filterable: attr.isFilterable,
-        filterDisplayType: attr.filterDisplayType ?? "multi_select",
+        filterDisplayType: attr.filterDisplayType === "multi_select" ? "multi_select" : "single_select",
         storefrontFilterVisible: attr.storefrontFilterVisible ?? true,
         predefinedValues: attr.predefinedValues ?? [],
       })),
@@ -261,7 +261,7 @@ export function createEmptyBulkAttribute(): BulkAttributeRow {
     key: `attr_new_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     name: "",
     filterable: false,
-    filterDisplayType: "multi_select",
+    filterDisplayType: "single_select",
     storefrontFilterVisible: true,
     predefinedValues: [],
   };

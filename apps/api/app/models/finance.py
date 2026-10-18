@@ -341,3 +341,62 @@ class FinanceAllocationRuleLine(Base):
     basis_value: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False, default=0)
     percentage: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False, default=0)
     fixed_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+
+
+class FinanceCheque(Base):
+    """Received / issued cheque. Accounting lives in the normal journal — rows here only track lifecycle."""
+
+    __tablename__ = "finance_cheques"
+    # Duplicate numbers are blocked in ChequeService (cancelled cheques free their number),
+    # so there is deliberately no DB unique constraint.
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    company_id: Mapped[str] = mapped_column(String(36), nullable=False, default="default", index=True)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False, index=True)  # received | issued
+    cheque_number: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    bank_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    cheque_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="received", index=True)
+    party_type: Mapped[str] = mapped_column(String(20), nullable=False)  # customer | supplier
+    party_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    receivable_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("finance_receivables.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    payable_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("finance_payables.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    # Bank the cheque is deposited into / drawn on. Set on deposit (received) or clearance (issued).
+    payment_account_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    receipt_journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    deposit_journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    clearance_journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    reversal_journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    bank_charge_journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    payment_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    bank_charge: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now(),
+    )
+
+
+class FinanceChequeEvent(Base):
+    """Append-only audit trail of cheque status changes."""
+
+    __tablename__ = "finance_cheque_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    cheque_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("finance_cheques.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    from_status: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    event_date: Mapped[date] = mapped_column(Date, nullable=False)
+    journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    actor: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())

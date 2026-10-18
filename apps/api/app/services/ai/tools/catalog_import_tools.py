@@ -21,6 +21,7 @@ Two-step like every other action tool:
 
 from __future__ import annotations
 
+import re
 import time
 from decimal import Decimal
 from typing import Any, Optional
@@ -38,6 +39,7 @@ from app.models.catalog_product import CatalogProduct
 from app.services.ai.image_service import find_product
 from app.services.catalog_ai import seo_writer, spec_profile_service
 from app.services.catalog_ai.importer_service import (
+    normalize_warranty,
     _company_name,
     _sanitize_description,
     create_product_from_draft,
@@ -177,6 +179,227 @@ def _spec_preview(db: Session, extracted: CatalogAiExtractResponse) -> dict:
             "custom specs; after import I will ask for approval to create a profile from them."
         ),
     }
+
+
+def _category_chain(db: Session, category_id: str) -> str:
+    names: list[str] = []
+    node, seen = db.get(CatalogCategory, category_id), set()
+    while node is not None and node.id not in seen:
+        seen.add(node.id)
+        names.append(node.name)
+        node = db.get(CatalogCategory, node.parent_id) if node.parent_id else None
+    return " > ".join(reversed(names))
+
+
+def _fill_preview_md(db: Session, company_id: Optional[str], row: CatalogProduct, extracted: CatalogAiExtractResponse) -> str:
+    """The review sheet shown BEFORE anything is written to a draft: what the AI collected from the source page and which
+    category / brand / specification profile it will be connected to (and which of those would be created new)."""
+    d = extracted.draft
+    our_company = _company_name(db, company_id)
+    clean = lambda t: _sanitize_description(t, seller_name=d.seller_site_name, source_url=d.source_url, our_company=our_company)  # noqa: E731
+    specs = spec_profile_service.specs_from_draft(d)
+    n_specs = spec_profile_service.spec_item_count(specs)
+    cat_names = [c.name for cid in extracted.matched_category_ids if (c := db.get(CatalogCategory, cid)) is not None]
+    profile = spec_profile_service.find_profile(db, category_names=[*cat_names, d.category_name or "", *d.category_names]) if n_specs else None
+
+    if extracted.matched_category_id:
+        category = f"{_category_chain(db, extracted.matched_category_id)} — existing"
+    elif d.category_name:
+        category = f"{d.category_name} — **NEW, will be created** (needs your approval)"
+    else:
+        category = "not found on the page"
+    others = [n for n in cat_names[1:]]
+    if extracted.matched_brand_id:
+        brand = f"{d.brand_name} — existing"
+    elif d.brand_name:
+        brand = f"{d.brand_name} — **NEW, will be created** (needs your approval)"
+    else:
+        brand = "not found on the page"
+    if not n_specs:
+        spec = "no specification table found on the page"
+    elif profile is not None:
+        spec = f"{n_specs} attributes from the source → connected to the existing **{profile.name}** profile"
+        unmatched = spec_profile_service.unmatched_filters(spec_profile_service.profile_fields(db, profile.id), d.source_filters or [])
+        if unmatched:
+            spec += (
+                f"\n  - **{len(unmatched)} source filter(s) have no attribute in this profile** → will be added to its "
+                f"**{spec_profile_service.KEY_FEATURE_GROUP}** group (multi-select) and filled for this product (needs your approval): "
+                + ", ".join(f"{u['title']} ({len(u['options'])} options)" for u in unmatched)
+            )
+    else:
+        n_flt = len(d.source_filters or [])
+        spec = (
+            f"{n_specs} attributes from the source → no profile for this category yet: **NEW profile "
+            f"'{d.category_name or row.category or 'General'}' will be created** from them"
+            + (f" with {n_flt} filters from the source shop (those no attribute names go to a '{spec_profile_service.KEY_FEATURE_GROUP}' group)" if n_flt else "")
+            + " (needs your approval)"
+        )
+    desc = (clean(d.description or "") or "").strip()
+    words = len(desc.split())
+    short = [ln.strip(" -•\t") for ln in (clean(d.short_description or "") or "").splitlines() if ln.strip()]
+    lines = [
+        f"### Review before updating `{row.name}`",
+        f"- **Title:** {row.name}  →  **{d.name}**" if d.name.strip() != (row.name or "").strip() else f"- **Title:** {d.name} (unchanged)",
+        f"- **Category:** {category}" + (f"  (also filed under: {', '.join(others)})" if others else ""),
+        f"- **Brand:** {brand}",
+        f"- **Specification profile:** {spec}",
+        f"- **Price:** {_f(d.price) if d.price else 'not found'}"
+        + (f"  (old price {_f(d.compare_at_price)})" if d.compare_at_price else "")
+        + f"  ·  **Stock status:** {d.stock_status or 'in_stock'}",
+        f"- **Warranty:** {d.warranty or '—'}  ·  **Origin:** {d.origin or '—'}",
+        f"- **Images:** {len(d.images)} found",
+        f"- **Tags:** {', '.join(d.tags) if d.tags else '—'}",
+        f"- **SEO:** {d.seo_title or '—'}",
+    ]
+    if short:
+        lines.append("- **Short description:**")
+        lines += [f"  - {s}" for s in short[:6]]
+    if desc:
+        lines.append(f"- **Description:** {words} words — “{desc[:280]}{'…' if len(desc) > 280 else ''}”")
+    if d.variants:
+        lines.append(f"- **Variants:** {len(d.variants)}")
+    for w in extracted.warnings:
+        lines.append(f"- ⚠️ {w}")
+    lines.append("\nNothing is saved yet. The product stays a **draft**; its slug and SKU do not change.")
+    return "\n".join(lines)
+
+
+def fill_review(db: Session, company_id: Optional[str], row: CatalogProduct, extracted: CatalogAiExtractResponse) -> dict:
+    """The structured review the product drawer shows (as a card, not text) BEFORE a draft is filled from its source:
+    the scraped data plus what the AI selected for category / brand / specification profile - the admin can change those
+    three in the card, then approve."""
+    d = extracted.draft
+    our_company = _company_name(db, company_id)
+    clean = lambda t: _sanitize_description(t, seller_name=d.seller_site_name, source_url=d.source_url, our_company=our_company)  # noqa: E731
+    specs = spec_profile_service.specs_from_draft(d)
+    n_specs = spec_profile_service.spec_item_count(specs)
+    cat_names = [c.name for cid in extracted.matched_category_ids if (c := db.get(CatalogCategory, cid)) is not None]
+    profile = spec_profile_service.find_profile(db, category_names=[*cat_names, d.category_name or "", *d.category_names]) if n_specs else None
+    unmatched = (
+        spec_profile_service.unmatched_filters(spec_profile_service.profile_fields(db, profile.id), d.source_filters or [])
+        if profile is not None else []
+    )
+    desc = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", clean(d.description or "") or "")).strip()  # plain text, no tags
+    short = [ln.strip(" -•\t") for ln in (clean(d.short_description or "") or "").splitlines() if ln.strip(" -•\t")]
+    return {
+        "overrides": dict(_overrides.get(d.source_url or "", {})),  # values the admin set in the chat
+        "product": {"id": row.id, "name": row.name, "source_url": d.source_url},
+        "title": {"current": row.name, "new": d.name},
+        "images": list(d.images[:20]),
+        "price": _f(d.price),
+        "compare_at_price": _f(d.compare_at_price),  # the source's old price -> the product's Compare-at price
+        "stock_status": d.stock_status or "in_stock",
+        "warranty": d.warranty,
+        "origin": d.origin,
+        "brand": {"name": d.brand_name, "matched_id": extracted.matched_brand_id},
+        "categories": {
+            "name": d.category_name,
+            "matched_ids": list(extracted.matched_category_ids),  # primary first, then its parents
+            "is_new": bool(d.category_name and not extracted.matched_category_id),
+            "new_level": next((w for w in extracted.warnings if w.startswith("Category '") and "will be created under" in w), None),
+        },
+        "profile": {
+            "status": "existing" if profile is not None else ("new" if n_specs else "none"),
+            "matched_id": profile.id if profile is not None else None,
+            "matched_name": profile.name if profile is not None else None,
+            "attributes": n_specs,
+            "source_filters": len(d.source_filters or []),
+            "key_feature_filters": [u["title"] for u in unmatched],
+        },
+        "tags": list(d.tags),
+        "short_description": short[:6],
+        "description_words": len(desc.split()),
+        "description_excerpt": desc[:400],
+        "warnings": list(extracted.warnings),
+    }
+
+
+def apply_fill(
+    db: Session,
+    user: Any,
+    company_id: Optional[str],
+    row: CatalogProduct,
+    extracted: CatalogAiExtractResponse,
+    *,
+    brand_id: Optional[str] = None,
+    category_ids: Optional[list[str]] = None,
+    profile_id: Optional[str] = None,
+) -> CatalogProduct:
+    """Fill the draft from the extracted source data - the AI's choices, or the admin's own (`brand_id`, `category_ids`
+    first = primary, `profile_id` = an existing profile id / "new" / "none") from the review card. Raises HTTPException."""
+    d = extracted.draft
+    cat_ids = [c for c in (category_ids or []) if c]
+    has_specs = bool(spec_profile_service.spec_item_count(spec_profile_service.specs_from_draft(d)))
+    cat_for_profile = d.category_name or row.category
+    needs_profile = bool(
+        has_specs and cat_for_profile and spec_profile_service.find_profile(db, category_names=[cat_for_profile]) is None
+    )
+    payload = CatalogAiCreateRequest(
+        draft=d,
+        brand_id=brand_id or extracted.matched_brand_id,
+        category_id=(cat_ids[0] if cat_ids else extracted.matched_category_id),
+        category_ids=cat_ids or extracted.matched_category_ids,
+        create_brand_if_missing=not brand_id,
+        # the admin left the AI's category pick alone -> a missing deeper level of the source's breadcrumb is created under it
+        create_category_if_missing=(not cat_ids) or cat_ids == list(extracted.matched_category_ids),
+        import_images=True,
+        status=row.status if row.status in ("draft", "published") else "draft",
+    )
+    row = create_product_from_draft(
+        db, payload, user, existing=row, create_spec_profile=needs_profile or profile_id == "new",
+        update_name=True, extend_spec_profile=True, spec_profile_id=profile_id or None,
+    )
+    try:
+        from app.services.plugins import price_update_service as pus
+
+        pus.ensure_source_site(db, company_id)  # type: ignore[arg-type]
+        pus.refresh_product_competitor(
+            db, company_id=company_id, product=row, competitor=pus.SOURCE_ID,  # type: ignore[arg-type]
+            settings=pus.get_or_create_settings(db, company_id), allow_ai=False,  # type: ignore[arg-type]
+        )
+    except Exception:  # noqa: BLE001
+        db.rollback()
+    return row
+
+
+# What the admin said in the chat while a review was open ("price 130000"): kept per source URL and laid over the
+# extraction every time it is shown or applied, so a later message adds to the earlier context instead of replacing it.
+_OVERRIDABLE = ("price", "compare_at_price", "name", "model", "warranty", "origin", "stock_status")
+_overrides: dict[str, dict] = {}
+
+
+def _apply_overrides(extracted: CatalogAiExtractResponse, ov: dict) -> CatalogAiExtractResponse:
+    upd: dict = {}
+    for k, v in (ov or {}).items():
+        if k in ("price", "compare_at_price"):
+            try:
+                upd[k] = Decimal(str(v).replace(",", "").strip())
+            except Exception:  # noqa: BLE001
+                continue
+        elif k == "warranty":
+            upd[k] = normalize_warranty(str(v)) or str(v).strip()[:200]
+        elif k == "stock_status":
+            if str(v) in ("in_stock", "out_of_stock", "pre_order", "coming_soon"):
+                upd[k] = str(v)
+        elif k in ("name", "model", "origin") and str(v).strip():
+            upd[k] = str(v).strip()[:255]
+    if not upd:
+        return extracted
+    return extracted.model_copy(update={"draft": extracted.draft.model_copy(update=upd)})
+
+
+def get_extracted(db: Session, company_id: Optional[str], url: str) -> CatalogAiExtractResponse:
+    """The extraction the review showed (cached 15 min), else a fresh one - with the admin's chat overrides laid over it."""
+    cached = _cache_get(url)
+    if cached is None:
+        cached = extract_from_url(db, url, company_id=company_id)  # type: ignore[arg-type]
+        db.rollback()
+    return _apply_overrides(cached, _overrides.get(url, {}))
+
+
+def drop_extracted(url: str) -> None:
+    _extract_cache.pop(url, None)
+    _overrides.pop(url, None)
 
 
 def build_catalog_import_tools(*, db: Session | None, company_id: str | None, user: Any | None) -> list[OrchestratorTool]:
@@ -331,6 +554,7 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
         if not inp.get("confirm"):
             return {"status": "preview", "preview": summary, "note": CONFIRM_NOTE}
         _seo_cache.pop(product.id, None)
+        was = {"focus_keyphrase": product.focus_keyphrase, "meta_title": product.seo_title, "meta_description": product.seo_description}
         product.focus_keyphrase = focus_keyphrase[:200]
         product.seo_title = meta_title[:255]
         product.seo_description = meta_description
@@ -343,6 +567,8 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
             "focus_keyphrase": product.focus_keyphrase,
             "meta_title": product.seo_title,
             "meta_description": product.seo_description,
+            "before": was,
+            "after": {"focus_keyphrase": product.focus_keyphrase, "meta_title": product.seo_title, "meta_description": product.seo_description},
             "doc_link": f"doc://product/{product.id}",
             "path": f"/website/products?edit={product.id}",
         }
@@ -508,7 +734,12 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
         if not url.lower().startswith(("http://", "https://")):
             return {"error": f"'{row.name}' has no source URL - add one in Price Compare's Source column first."}
         confirming = bool(inp.get("confirm"))
-        extracted = _cache_get(url) if confirming else None
+        said = inp.get("overrides") if isinstance(inp.get("overrides"), dict) else {}
+        said = {k: v for k, v in said.items() if k in _OVERRIDABLE and v not in (None, "")}
+        if said:
+            _overrides[url] = {**_overrides.get(url, {}), **said}  # later messages ADD to the earlier ones
+        # a follow-up with changes re-uses the page that was already read (no second scrape / AI run)
+        extracted = _cache_get(url) if (confirming or said) else None
         if extracted is None:
             try:
                 extracted = extract_from_url(db, url, company_id=company_id)  # type: ignore[arg-type]
@@ -520,6 +751,7 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
                 return {"error": f"Could not read the source page: {exc}"}
         if not extracted.draft.name.strip():
             return {"error": "No product found on the source page."}
+        extracted = _apply_overrides(extracted, _overrides.get(url, {}))
         d = extracted.draft
         new_things = []
         if d.brand_name and not extracted.matched_brand_id:
@@ -535,43 +767,33 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
             n_attr = spec_profile_service.spec_item_count(spec_profile_service.specs_from_draft(d))
             n_flt = len(d.source_filters or [])
             new_things.append(f"specification profile '{cat_for_profile}' ({n_attr} attributes from the source" + (f", {n_flt} filters from the source shop" if n_flt else "") + ")")
-        if new_things and not confirming:
+        if not confirming:
+            # Always review first: what the AI collected from the source and what it will be connected to.
             _cache_set(url, extracted)
             return {
                 "status": "preview",
-                "needs_approval": f"This will create: {', '.join(new_things)}. Ask the user to approve (or to pick an existing one).",
+                # the drawer shows this as a review card (gallery, price / old price, category / brand / specification
+                # profile pickers the admin can change) with Accept / Deny - nothing more to show in words
+                "review": fill_review(db, company_id, row, extracted),  # type: ignore[arg-type]
+                "needs_approval": (f"This will create: {', '.join(new_things)}. " if new_things else "")
+                + "The admin can pick existing ones in the card.",
                 "product": {"id": row.id, "name": row.name},
-                "note": CONFIRM_NOTE,
+                "note": (
+                    "Nothing was saved. A review card with all the collected data is now shown to the user, who "
+                    "approves it there. Reply with ONE short line asking them to check it and press Accept - do NOT "
+                    "repeat the details. Call again with confirm=true only if the user explicitly agrees in words."
+                ),
             }
         _extract_cache.pop(url, None)
-        payload = CatalogAiCreateRequest(
-            draft=d,
-            brand_id=extracted.matched_brand_id,
-            category_id=extracted.matched_category_id,
-            category_ids=extracted.matched_category_ids,
-            create_brand_if_missing=True,
-            create_category_if_missing=True,
-            import_images=True,
-            status=row.status if row.status in ("draft", "published") else "draft",
-        )
+        _overrides.pop(url, None)
         try:
-            row = create_product_from_draft(db, payload, user, existing=row, create_spec_profile=needs_profile)  # type: ignore[arg-type]
+            row = apply_fill(db, user, company_id, row, extracted)  # type: ignore[arg-type]
         except HTTPException as exc:
             db.rollback()  # type: ignore[union-attr]
             return {"error": exc.detail}
         except Exception as exc:  # noqa: BLE001
             db.rollback()  # type: ignore[union-attr]
             return {"error": f"Could not fill the product: {exc}"}
-        try:
-            from app.services.plugins import price_update_service as pus
-
-            pus.ensure_source_site(db, company_id)  # type: ignore[arg-type]
-            pus.refresh_product_competitor(
-                db, company_id=company_id, product=row, competitor=pus.SOURCE_ID,  # type: ignore[arg-type]
-                settings=pus.get_or_create_settings(db, company_id), allow_ai=False,  # type: ignore[arg-type]
-            )
-        except Exception:  # noqa: BLE001
-            db.rollback()  # type: ignore[union-attr]
         return {
             "status": "filled",
             "product": {"id": row.id, "name": row.name},
@@ -689,15 +911,30 @@ def build_catalog_import_tools(*, db: Session | None, company_id: str | None, us
                     "Fill an EXISTING draft product from its own source URL (the Source link saved on the product): "
                     "description, price / offer (compare-at), stock, brand, category, warranty, specifications and filters, "
                     "images (originals, 500x500 WebP) and SEO, following docs/AI/product-upload.md. Use when asked to "
-                    "'fill / upload / complete this product from its source'. Call WITHOUT confirm: it does the whole job "
-                    "at once, and only returns status=preview when a NEW brand or category would have to be created - "
-                    "then ask the user, and call again with confirm=true after they approve."
+                    "'fill / upload / complete this product from its source'. ALWAYS call WITHOUT confirm first: it reads "
+                    "the source and returns status=preview with `preview_markdown` (new title, category, brand, "
+                    "specification profile it will connect to, price, images, SEO ...) and saves NOTHING - show that "
+                    "text exactly as written and ask the user to approve. Only after they explicitly approve, call again "
+                    "with confirm=true: that updates the title and fills the product."
                 ),
                 input_schema={
                     "type": "object",
                     "properties": {
                         "product": {"type": "string", "description": "Product id (preferred), SKU or name"},
-                        "confirm": {"type": "boolean", "description": "true only after the user approved the new brand/category"},
+                        "overrides": {
+                            "type": "object",
+                            "description": "ONLY when a review card from an EARLIER fill_product_from_source call in THIS conversation is open: the values the user just dictated (e.g. {\"price\": 130000}). They are MERGED into the review and the card is shown again. If no review is open, a direct change (price, compare_at_price, name, tags ... 'dao' / 'koro') is update_product, never this.",
+                            "properties": {
+                                "price": {"type": "number"},
+                                "compare_at_price": {"type": "number"},
+                                "name": {"type": "string"},
+                                "model": {"type": "string"},
+                                "warranty": {"type": "string"},
+                                "origin": {"type": "string"},
+                                "stock_status": {"type": "string", "enum": ["in_stock", "out_of_stock", "pre_order", "coming_soon"]},
+                            },
+                        },
+                        "confirm": {"type": "boolean", "description": "true only after the user approved the preview"},
                     },
                     "required": ["product"],
                 },

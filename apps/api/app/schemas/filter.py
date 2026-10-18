@@ -5,7 +5,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-FilterDisplayType = Literal["multi_select", "range", "boolean", "color", "dynamic"]
+FilterDisplayType = Literal["single_select", "multi_select", "range", "boolean", "color", "dynamic"]  # range/boolean: built-in filters only
 FilterSource = Literal["built_in", "attribute"]
 
 

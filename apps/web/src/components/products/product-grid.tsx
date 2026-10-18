@@ -24,8 +24,10 @@ import {
   ExternalLink,
   Sparkles,
   Loader2,
+  Warehouse,
 } from "lucide-react";
 import { toast } from "sonner";
+import { CategoryTreeFilter, categoryNamesWithDescendants } from "@/components/categories/category-tree-filter";
 import {
   archiveCatalogProducts,
   deleteCatalogProduct,
@@ -188,9 +190,12 @@ function CompetitorPriceCellBody({
   pickable,
   picked,
   onTogglePick,
+  sourceUrl,
 }: {
   match: PriceUpdateMatch | undefined;
   ourPrice: number;
+  /** The product's own source page, when it was imported from this competitor's site. */
+  sourceUrl?: string;
   /** Re-check just this one product/competitor pair, without a full bulk refresh. */
   onSync?: () => void;
   /** True while this exact product/competitor pair is being processed by an in-progress
@@ -338,7 +343,19 @@ function CompetitorPriceCellBody({
         {match?.status === "no_price" && match.matched_url && !/(fix|check) the link/i.test(match.status_message ?? "") ? (
           <StockDot stock={stock} title={withSyncedTitle(match.status_message)} />
         ) : null}
-        {match?.status === "no_price" && match.matched_url ? null : (
+        {match?.status === "no_price" && match.matched_url ? null : sourceUrl ? (
+          // The product was imported from this site: not checked yet, but the page is known — link to it.
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title={`Not synced yet — open the source page: ${sourceUrl}`}
+            className="shrink-0 hover:underline"
+          >
+            Not synced
+          </a>
+        ) : (
           <span className="shrink-0">
             {match?.manual_url && !match.matched_url
               ? "No link"
@@ -397,7 +414,6 @@ function CompetitorPriceCell(props: Parameters<typeof CompetitorPriceCellBody>[0
   );
 }
 
-const UPDATED_BY = ["Admin", "Sadia Rahman", "Rahim Uddin", "Manager"];
 const STOCK_STATUSES: StockStatusLabel[] = ["In Stock", "Out of Stock", "Pre-order", "Coming Soon"];
 
 function Shimmer({ className }: { className?: string }) {
@@ -820,28 +836,6 @@ const DEFAULT_LIVE_EDIT: Record<LiveEditKey, boolean> = {
   alertQuantity: false,
 };
 
-function ProductCategoryLabel({
-  name,
-  categories,
-  showPath = false,
-}: {
-  name: string;
-  categories: Category[];
-  /** Renders the ancestor trail so a sub-category is distinguishable from a root one. */
-  showPath?: boolean;
-}) {
-  const { label, parentPath } = getProductCategoryDisplay(name, categories);
-  if (!showPath) return <span className="truncate leading-tight">{label}</span>;
-  return (
-    <span className="flex min-w-0 flex-col leading-tight">
-      {parentPath ? (
-        <span className="truncate text-[10px] text-muted-foreground">{parentPath}</span>
-      ) : null}
-      <span className="truncate">{label}</span>
-    </span>
-  );
-}
-
 function productCategoryNames(product: Product, categories: Category[]): string[] {
   const ids = product.categoryIds?.filter(Boolean) ?? [];
   if (ids.length > 0) {
@@ -912,20 +906,6 @@ function getCategoryBreadcrumbTitle(name: string, categories: Category[]) {
   return parentPath ? `${parentPath} › ${label}` : label;
 }
 
-function categoryMatchesSearch(name: string, query: string, categories: Category[]) {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-
-  const category = categories.find((c) => c.name === name);
-  if (!category) return name.toLowerCase().includes(q);
-
-  const { label, parentPath } = getProductCategoryDisplay(category.name, categories);
-  const haystack = [category.name, category.caption, label, parentPath ?? "", category.slug]
-    .join(" ")
-    .toLowerCase();
-  return haystack.includes(q);
-}
-
 function CategoryFilterDropdown({
   value,
   onChange,
@@ -935,82 +915,7 @@ function CategoryFilterDropdown({
   onChange: (value: string) => void;
   categories: Category[];
 }) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-
-  const filteredCategories = useMemo(
-    () => categories.filter((category) => categoryMatchesSearch(category.name, search, categories)),
-    [categories, search],
-  );
-
-  const selectValue = (next: string) => {
-    onChange(next);
-    setOpen(false);
-    setSearch("");
-  };
-
-  return (
-    <DropdownMenu
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setSearch("");
-      }}
-    >
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          className="w-[172px] justify-between gap-1 rounded-none px-2 text-left font-normal shadow-sm"
-          title={
-            value === "all" ? "All categories" : getCategoryBreadcrumbTitle(value, categories)
-          }
-        >
-          <span className="min-w-0 flex-1 overflow-hidden truncate">
-            {value === "all" ? (
-              <span>All categories</span>
-            ) : (
-              <ProductCategoryLabel name={value} categories={categories} />
-            )}
-          </span>
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        side="bottom"
-        avoidCollisions={false}
-        className="w-[220px] overflow-hidden p-0"
-      >
-        <FilterDropdownSearch
-          value={search}
-          onChange={setSearch}
-          placeholder="Search category…"
-        />
-        <div className="max-h-60 overflow-y-auto p-1">
-          <DropdownMenuItem
-            className={cn("items-start rounded-none", value === "all" && "bg-accent")}
-            onClick={() => selectValue("all")}
-          >
-            <span>All categories</span>
-          </DropdownMenuItem>
-          {filteredCategories.length === 0 ? (
-            <p className="px-2 py-2.5 text-[11px] text-muted-foreground">No categories found</p>
-          ) : (
-            filteredCategories.map((category) => (
-              <DropdownMenuItem
-                key={category.id}
-                className={cn("items-start rounded-none", value === category.name && "bg-accent")}
-                onClick={() => selectValue(category.name)}
-                title={getCategoryBreadcrumbTitle(category.name, categories)}
-              >
-                <ProductCategoryLabel name={category.name} categories={categories} showPath />
-              </DropdownMenuItem>
-            ))
-          )}
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+  return <CategoryTreeFilter categories={categories} value={value} onChange={onChange} />;
 }
 
 function BrandFilterDropdown({
@@ -1199,8 +1104,10 @@ function applyFilters(rows: Product[], f: FilterState, categories: Category[]) {
     if (f.website === "off" && isProductOnWebsite(p, categories)) return false;
     if (f.status !== "all" && p.status !== f.status) return false;
     if (f.category !== "all") {
+      // a parent category also lists the products filed under its sub-categories
+      const wanted = categoryNamesWithDescendants(f.category, categories);
       const names = productCategoryNames(p, categories);
-      if (!names.includes(f.category) && p.category !== f.category) return false;
+      if (!names.some((n) => wanted.has(n)) && !wanted.has(p.category)) return false;
     }
     if (f.brand !== "all" && p.brand !== f.brand) return false;
     if (f.stockStatus !== "all" && p.stockStatus !== f.stockStatus) return false;
@@ -1238,6 +1145,8 @@ type Props = {
   /** Hide the catalogue bulk actions (publish / remove from website, archive, delete, export)
    * — Price Compare's bulk bar is only about competitor prices. */
   hideCatalogBulkActions?: boolean;
+  /** Website product list: bulk "Add to Inventory" (inventory has its own catalog, so this is explicit). */
+  onAddToInventory?: (selected: Product[]) => void | Promise<void>;
   /** false while columns are still being added (Price Compare's sites) — the grid stays
    * invisible until then so the saved layout applies without columns jumping. */
   layoutReady?: boolean;
@@ -1315,6 +1224,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   competitorMatches,
   onSyncCompetitor,
   onBulkCheckCompetitorPrices,
+  onAddToInventory,
   bulkCheckSitesLabel,
   onSetCellPicks,
   pickedCells,
@@ -2142,11 +2052,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         hide: isInventory,
         flex: 1,
         minWidth: 120,
-        valueGetter: (p) => {
-          if (!p.data) return "";
-          const n = parseInt(p.data.id.replace(/\D/g, ""), 10) || 0;
-          return UPDATED_BY[n % UPDATED_BY.length];
-        },
+        valueGetter: (p) => p.data?.updatedBy || "—",
       },
       ...(competitorMatches && competitors
         ? competitors.map(({ key, label }) => ({
@@ -2182,6 +2088,11 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
                 <CompetitorPriceCell
                   match={match}
                   ourPrice={p.data.price}
+                  sourceUrl={
+                    p.data.sourceUrl && p.data.sourceUrl.toLowerCase().includes(String(key).toLowerCase())
+                      ? p.data.sourceUrl
+                      : undefined
+                  }
                   onSync={onSyncCompetitor ? () => onSyncCompetitor(productId, key) : undefined}
                   bulkSyncing={competitorSyncingKeys?.has(`${productId}::${key}`)}
                   pickable={Boolean(onToggleCellPick && canWrite)}
@@ -2215,6 +2126,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
             {
               colId: "ai-import",
               headerName: "AI",
+              headerClass: "product-grid-center-col",
               headerTooltip: "Fill this product from its source URL with AI",
               width: 64,
               minWidth: 56,
@@ -2579,6 +2491,12 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
           >
             Remove from website
           </Button>
+          {onAddToInventory ? (
+            <Button size="sm" variant="secondary" onClick={() => void onAddToInventory(selected)}>
+              <Warehouse className="mr-1.5 h-3.5 w-3.5" />
+              Add to Inventory
+            </Button>
+          ) : null}
           <Button
             variant="secondary"
             size="sm"

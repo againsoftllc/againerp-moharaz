@@ -3160,6 +3160,37 @@ def ensure_vendor_pricing_columns() -> None:
             conn.execute(text(stmt))
 
 
+def ensure_catalog_product_updated_by_columns() -> None:
+    """catalog_products.updated_by_id / updated_by_name - who made the last change (app/services/audit_actor.py)."""
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS updated_by_id VARCHAR(36)"))
+        conn.execute(text("ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS updated_by_name VARCHAR(255)"))
+
+
+def ensure_role_publish_column() -> None:
+    """auth_role_permissions.can_publish (docs/AI/ai.md step 1.3). Added once; roles that could write get it, so nobody loses a right."""
+    with engine.begin() as conn:
+        conn.execute(text(
+            "DO $$ BEGIN "
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'auth_role_permissions' AND column_name = 'can_publish') THEN "
+            "ALTER TABLE auth_role_permissions ADD COLUMN can_publish BOOLEAN NOT NULL DEFAULT FALSE; "
+            "UPDATE auth_role_permissions SET can_publish = TRUE WHERE can_write = TRUE; "
+            "END IF; END $$;"
+        ))
+
+
+def ensure_role_export_column() -> None:
+    """auth_role_permissions.can_export (docs/AI/ai.md step 1.3). Added once; roles that could write get it."""
+    with engine.begin() as conn:
+        conn.execute(text(
+            "DO $$ BEGIN "
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'auth_role_permissions' AND column_name = 'can_export') THEN "
+            "ALTER TABLE auth_role_permissions ADD COLUMN can_export BOOLEAN NOT NULL DEFAULT FALSE; "
+            "UPDATE auth_role_permissions SET can_export = TRUE WHERE can_write = TRUE; "
+            "END IF; END $$;"
+        ))
+
+
 def seed_vendor_types(db) -> int:
     """SPEC.md §5 — example types, seeded so the admin UI isn't empty on day one."""
     existing_codes = {code for code, in db.query(VendorType.code).all()}
@@ -3412,6 +3443,8 @@ def ensure_catalog_product_pos_fields_columns() -> None:
     """Not for selling, Weight, Applicable Tax, Selling Price Tax Type (AgainPOS-style)."""
     statements = [
         "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS not_for_selling BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS in_inventory BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS on_website BOOLEAN NOT NULL DEFAULT TRUE",
         "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS weight VARCHAR(50)",
         "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS tax_rate NUMERIC(5, 2)",
         "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS tax_type VARCHAR(20) NOT NULL DEFAULT 'exclusive'",
@@ -4862,6 +4895,7 @@ def ensure_product_columns() -> None:
         "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS gallery_json TEXT",
         "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS video_urls_json TEXT",
         "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS model VARCHAR(200)",
+        "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS remarks TEXT",
         "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS last_selling_price NUMERIC(12,2)",
         "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS purchase_price NUMERIC(12,2)",
         "ALTER TABLE catalog_products ADD COLUMN IF NOT EXISTS focus_keyphrase VARCHAR(200)",
@@ -6356,6 +6390,15 @@ def main() -> None:
 
     print("Creating tables…")
     Base.metadata.create_all(bind=engine)
+    ensure_catalog_product_updated_by_columns()
+    ensure_role_publish_column()
+    ensure_role_export_column()
+    try:  # trigram indexes for the AI's record search (ai.md step 2.1) - optional, never blocks startup
+        from scripts.ensure_search_indexes import ensure_search_indexes
+
+        print("  " + ensure_search_indexes())
+    except Exception as exc:  # noqa: BLE001
+        print(f"  search indexes skipped: {exc}")
     ensure_cloudflare_plugin_columns()
     ensure_catalog_attribute_filter_columns()
     ensure_catalog_review_columns()

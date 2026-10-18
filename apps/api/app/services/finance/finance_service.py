@@ -76,6 +76,7 @@ def ensure_finance_payment_account_columns() -> None:
         "ALTER TABLE finance_receivables ADD COLUMN IF NOT EXISTS posting_error TEXT",
         "ALTER TABLE finance_payables ADD COLUMN IF NOT EXISTS posting_status VARCHAR(20) DEFAULT 'pending'",
         "ALTER TABLE finance_payables ADD COLUMN IF NOT EXISTS posting_error TEXT",
+        "ALTER TABLE IF EXISTS finance_cheques DROP CONSTRAINT IF EXISTS uq_finance_cheque_number",
     ]
     with engine.begin() as conn:
         for stmt in statements:
@@ -2201,12 +2202,15 @@ class FinanceService:
         *,
         company_id: str = "default",
         status: Optional[str] = None,
+        supplier_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[FinancePayable], int]:
         query = self._db.query(FinancePayable).filter(FinancePayable.company_id == company_id)
         if status:
             query = query.filter(FinancePayable.status == status)
+        if supplier_id:
+            query = query.filter(FinancePayable.supplier_id == supplier_id)
         total = query.count()
         rows = query.order_by(FinancePayable.created_at.desc()).offset(offset).limit(limit).all()
         return rows, total

@@ -1,9 +1,15 @@
+/** single_select = radio buttons (one value), multi_select = checkboxes (several). range / boolean belong to built-in
+ * filters; color / dynamic are old values that read as single-select. */
 export type FilterDisplayType =
+  | "single_select"
   | "multi_select"
   | "range"
   | "boolean"
   | "color"
   | "dynamic";
+
+/** The only two a user can pick. */
+export const FILTER_DISPLAY_CHOICES: FilterDisplayType[] = ["single_select", "multi_select"];
 
 export type FilterSource = "built_in" | "attribute";
 
@@ -26,6 +32,7 @@ export type CatalogFacetFilter = {
 };
 
 export const FILTER_DISPLAY_LABELS: Record<FilterDisplayType, string> = {
+  single_select: "Single select",
   multi_select: "Multi-select",
   range: "Range",
   boolean: "Boolean",

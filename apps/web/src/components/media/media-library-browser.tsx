@@ -47,6 +47,8 @@ type Props = {
   onImport?: (items: MediaLibraryItem[]) => void;
   accept?: MediaLibraryItemType[];
   compact?: boolean;
+  /** "page" = the Media screen (stacks the details under the grid on phones); the picker modal uses "default". */
+  variant?: "default" | "page";
   hideToolbar?: boolean;
   /** more files on the server than `items` holds: scrolling to the end asks for the next page */
   hasMore?: boolean;
@@ -82,12 +84,14 @@ export function MediaLibraryBrowser({
   onDelete,
   accept,
   compact,
+  variant = "default",
   hideToolbar = false,
   hasMore = false,
   loadingMore = false,
   onLoadMore,
 }: Props) {
   const canWrite = useAdminCanWrite();
+  const page = variant === "page";
   const focusedItem = items.find((item) => item.id === focusedId) ?? null;
   const usageMap = useMediaUsageMap();
   const [shown, setShown] = useState(TILE_BATCH);
@@ -196,7 +200,7 @@ export function MediaLibraryBrowser({
       </div>
       )}
 
-      <div className="flex min-h-0 flex-1 gap-3 overflow-hidden">
+      <div className={cn("flex min-h-0 flex-1 gap-3 overflow-hidden", page && "flex-col md:flex-row")}>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden">
           {activeTab === "upload" && canWrite ? (
             <MediaLibraryUploadPanel
@@ -214,7 +218,15 @@ export function MediaLibraryBrowser({
             </div>
           ) : (
             <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1">
-              <div className="grid grid-cols-2 content-start items-start gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+              <div
+                className={cn(
+                  "grid content-start items-start gap-3",
+                  !page && "grid-cols-2",
+                  page
+                    ? "grid-cols-[repeat(auto-fill,minmax(150px,1fr))] sm:gap-3"
+                    : "sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5",
+                )}
+              >
               {visibleItems.map((item) => {
                 const selected = selectedIds.includes(item.id);
                 const focused = focusedId === item.id;
@@ -232,17 +244,20 @@ export function MediaLibraryBrowser({
                     onClick={() => onItemClick(item)}
                     className={cn(
                       "group flex min-w-0 w-full flex-col overflow-hidden rounded-none border bg-card text-left transition",
+                      page && "hover:shadow-md",
                       !selectable && "opacity-75",
                       selected || focused
                         ? "border-primary ring-1 ring-primary"
-                        : "border-border hover:border-foreground/40",
+                        : page
+                          ? "border-border/70 hover:border-primary/50"
+                          : "border-border hover:border-foreground/40",
                     )}
                   >
                     {/*
                       In-flow pt-[100%] spacer forces a square. aspect-ratio alone
                       collapses inside flex <button> when children are absolute / broken.
                     */}
-                    <div className="relative w-full shrink-0 overflow-hidden bg-muted">
+                    <div className={cn("relative w-full shrink-0 overflow-hidden", page ? "bg-muted/50" : "bg-muted")}>
                       <div className="block w-full pt-[100%]" aria-hidden />
 
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-muted-foreground">
@@ -255,9 +270,52 @@ export function MediaLibraryBrowser({
                       </div>
 
                       {(item.type === "image" || item.type === "video") ? (
-                        <MediaTileCover item={item} />
+                        <MediaTileCover item={item} className={page ? "object-contain p-2" : undefined} />
                       ) : null}
 
+                      {page ? (
+                        <>
+                          <span
+                            className={cn(
+                              "absolute left-1.5 top-1.5 z-[2] flex h-5 w-5 items-center justify-center border bg-background/95 transition",
+                              !selectable && "hidden",
+                              selected
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border opacity-0 group-hover:opacity-100",
+                            )}
+                          >
+                            {selected && <Check className="h-3 w-3" />}
+                          </span>
+                          {usageCount > 0 ? (
+                            <span className="absolute right-1.5 top-1.5 z-[2] bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-white">
+                              {usageCount}× used
+                            </span>
+                          ) : null}
+                          {(() => {
+                            const chip =
+                              item.provider === "youtube"
+                                ? "YouTube"
+                                : item.type === "video"
+                                  ? "Video"
+                                  : item.type === "document"
+                                    ? getDocumentKindLabel(item.name, item.mimeType)
+                                    : showFileStorageBadge && fileStorage === "r2"
+                                      ? "R2"
+                                      : null;
+                            return chip ? (
+                              <span className="absolute bottom-1.5 left-1.5 z-[2] bg-black/65 px-1.5 py-0.5 text-[9px] font-medium uppercase leading-none text-white">
+                                {chip}
+                              </span>
+                            ) : null;
+                          })()}
+                          {!selectable && (
+                            <span className="absolute bottom-1.5 right-1.5 z-[2] bg-amber-600 px-1 text-[8px] font-medium text-white">
+                              SAVED
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <>
                       <div className="absolute left-1 top-1 z-[2] flex max-w-[calc(100%-2rem)] flex-wrap gap-0.5">
                         {showFileStorageBadge ? (
                           <span
@@ -341,12 +399,22 @@ export function MediaLibraryBrowser({
                           SAVED
                         </span>
                       )}
+                        </>
+                      )}
                     </div>
 
                     <div className="min-w-0 border-t border-border px-1.5 py-1.5">
                       <p className="truncate text-[11px] font-medium leading-tight text-foreground">
                         {item.title || item.name}
                       </p>
+                      {page ? (
+                        <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                          {item.type === "image" ? "Image" : item.type === "video" ? "Video" : "Document"}
+                          {item.sizeKb > 0
+                            ? ` · ${item.sizeKb >= 1024 ? `${(item.sizeKb / 1024).toFixed(1)} MB` : `${Math.round(item.sizeKb)} KB`}`
+                            : ""}
+                        </p>
+                      ) : null}
                     </div>
                   </button>
                 );
@@ -361,12 +429,28 @@ export function MediaLibraryBrowser({
           )}
         </div>
 
-        <aside className="flex min-h-0 w-56 shrink-0 flex-col overflow-hidden border-l border-border pl-3 sm:w-72">
+        <aside
+          className={cn(
+            "flex min-h-0 shrink-0 flex-col overflow-hidden",
+            page
+              ? cn(
+                  "border-t border-border pt-3 max-md:max-h-[45vh] md:w-72 md:border-l md:border-t-0 md:pl-3 md:pt-0",
+                  !focusedItem && "max-md:hidden",
+                )
+              : "w-56 border-l border-border pl-3 sm:w-72",
+          )}
+        >
           <div className="shrink-0">
-            <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Attachment details
-            </p>
-            <p className="mb-2 px-1 text-[10px] text-muted-foreground">Actual ratio preview</p>
+            {page ? (
+              <p className="mb-2 px-1 text-sm font-semibold text-foreground">Details</p>
+            ) : (
+              <>
+                <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Attachment details
+                </p>
+                <p className="mb-2 px-1 text-[10px] text-muted-foreground">Actual ratio preview</p>
+              </>
+            )}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             <MediaLibraryDetailPanel

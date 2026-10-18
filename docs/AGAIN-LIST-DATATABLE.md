@@ -26,6 +26,8 @@ Living UI rules: `docs/ERP-UI-COMMON.md`. This file is the **inventory** of whic
 | List shell | `apps/web/src/components/shared/again-list-grid.tsx` | Filter bar, zoom, 27px pager, empty overlay, day/night — **one change updates every list** |
 | Finance wrapper | `apps/web/src/components/finance/finance-ag-list-grid.tsx` | Column picker + CSV + mobile cards on top of `AgainListGrid` |
 
+**Typography is shared too:** Inter (Odoo's list font) at one size for every cell and header — set once in `.ag-theme-again-list` (`--font-list`, `--ag-font-size`). Cell renderers must not set `font-mono`, `text-xs`/`text-sm` or any font size/family; use weight or colour for emphasis. See `docs/ERP-UI-COMMON.md` §8.
+
 Page files pass columns, rows, `filterBar`, `headerLeftActions`, sheets as children. Do **not** fork chrome (`ag-theme-again-list`, zoom, pager) in a grid file.
 
 ---
@@ -57,7 +59,7 @@ Local admin: prefix `http://localhost:3210`.
 | Sales orders | `sales-order-grid.tsx` | `/sales` |
 | Sales returns | `sales-return-grid.tsx` | `/sales/returns` |
 | Service jobs | `service-job-grid.tsx` | `/service/jobs` |
-| RMA | `rma-grid.tsx` | `/rma` |
+| RMA (one datatable, **Stage** column + filter) | `rma-grid.tsx` | `/inventory/rma` |
 
 ### Purchase
 
@@ -110,6 +112,7 @@ Local admin: prefix `http://localhost:3210`.
 | Cost centers | `cost-center-grid.tsx` → `FinanceAgListGrid` | `/finance/cost-centers` |
 | Allocation rules | `allocation-rule-grid.tsx` → `FinanceAgListGrid` | `/finance/allocation-rules` |
 | Payments | `payment-grid.tsx` | `/finance/payments` |
+| Cheques (Cheques tab) | `cheque-grid.tsx` → `FinanceAgListGrid` | `/finance/payments` |
 | Payables | `payable-grid.tsx` | `/finance/payables` |
 | Receivables | `receivable-grid.tsx` | `/finance/receivables` |
 | P&amp;L | `profit-loss-grid.tsx` → `FinanceAgListGrid` | `/finance/reports/profit-loss` |

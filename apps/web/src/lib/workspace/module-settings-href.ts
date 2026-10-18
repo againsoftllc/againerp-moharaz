@@ -4,7 +4,7 @@ export const MODULE_SETTINGS_HREF: Record<string, string> = {
   catalog: "/catalog/settings",
   inventory: "/inventory/settings",
   purchase: "/purchase/settings",
-  rma: "/rma/settings",
+  rma: "/inventory/rma/settings",
   service: "/service/settings",
   vendors: "/vendors/settings",
   dropshipping: "/dropshipping/settings",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Eye, FileText, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, Eye, FileText, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,6 +29,8 @@ import { apiStockToStockItem, type ApiStockListResponse } from "@/lib/api/invent
 import {
   createPurchaseRfq,
   sendPurchaseRfq,
+  cancelPurchaseRfq,
+  updatePurchaseRfqStatus,
   updatePurchaseRfq,
   type PurchaseRfqInput,
 } from "@/lib/api/purchase-rfq";
@@ -82,7 +84,7 @@ type LineDraft = {
   productId?: string;
 };
 
-type NotebookTab = "lines" | "compare" | "notes";
+type NotebookTab = "lines" | "compare" | "other";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -180,7 +182,6 @@ export function RfqFormDrawer({
   const [invited, setInvited] = useState<string[]>([]);
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [saving, setSaving] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [tab, setTab] = useState<NotebookTab>("lines");
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
@@ -274,8 +275,17 @@ export function RfqFormDrawer({
     }
   };
 
+  // Re-initialise only when the drawer opens or a different RFQ is shown. The same RFQ arriving again (after a
+  // bid, a status change, ...) must not bounce the user back to "Request Lines".
+  const initKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initKeyRef.current = null;
+      return;
+    }
+    const initKey = rfq?.id ?? "new";
+    if (initKeyRef.current === initKey) return;
+    initKeyRef.current = initKey;
     setTitle(rfq?.title ?? "");
     setDeadline(rfq?.deadline ?? todayIso());
     setBuyer(rfq?.buyer ?? "");
@@ -283,7 +293,6 @@ export function RfqFormDrawer({
     setInvited(rfq?.invitedSupplierIds ?? []);
     setLines(rfq?.lines?.length ? toDraftLines(rfq.lines) : []);
     setTab("lines");
-    setDetailsOpen(false);
     setQuickAddOpen(false);
     setViewProductId(null);
     setSupplierOpen(false);
@@ -366,6 +375,22 @@ export function RfqFormDrawer({
     }
   };
 
+  const changeStatus = async (next: "closed" | "cancelled") => {
+    if (!rfq) return;
+    if (!window.confirm(next === "cancelled" ? `Cancel ${rfq.number}?` : `Close ${rfq.number} without awarding?`)) return;
+    setSaving(true);
+    try {
+      if (next === "cancelled") await cancelPurchaseRfq(rfq.id);
+      else await updatePurchaseRfqStatus(rfq.id, next);
+      toast.success(`${rfq.number} ${next === "cancelled" ? "cancelled" : "closed"}`);
+      onSaved?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not change status");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const submit = async (statusSend = false) => {
     setSaving(true);
     try {
@@ -391,9 +416,6 @@ export function RfqFormDrawer({
       }));
   }, [allSuppliers, invited, supplierQuery]);
 
-  const detailsSummary = [deadline || null, buyer || null, invited.length ? `${invited.length} invited` : null]
-    .filter(Boolean)
-    .join(" · ");
 
   const nestedOpen = viewProductId || quickAddOpen || supplierFormOpen;
 
@@ -445,7 +467,33 @@ export function RfqFormDrawer({
                 Send
               </button>
             )}
+            {isEdit && rfq && ["sent", "vendor_response", "quotation"].includes(rfq.status) && (
+              <button
+                type="button"
+                className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]")}
+                disabled={saving}
+                title="Stop collecting bids and close this RFQ without awarding"
+                onClick={() => void changeStatus("closed")}
+              >
+                Close RFQ
+              </button>
+            )}
+            {isEdit && rfq && ["sent", "vendor_response", "quotation", "approved"].includes(rfq.status) && (
+              <button
+                type="button"
+                className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]")}
+                disabled={saving}
+                onClick={() => void changeStatus("cancelled")}
+              >
+                Cancel RFQ
+              </button>
+            )}
             <span className="ml-1 text-[13px] font-medium text-foreground">{formTitle}</span>
+            {isEdit && rfq?.status ? (
+              <span className="border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                {RFQ_STATUS_LABELS[rfq.status]}
+              </span>
+            ) : null}
           </AgainDrawerControlBar>
 
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
@@ -542,47 +590,6 @@ export function RfqFormDrawer({
               </div>
             </div>
 
-            <div className="border border-border">
-              <button
-                type="button"
-                className="flex h-8 w-full items-center gap-1.5 rounded-none bg-muted/20 px-2 text-left hover:bg-muted/40"
-                aria-expanded={detailsOpen}
-                onClick={() => setDetailsOpen((v) => !v)}
-              >
-                {detailsOpen ? (
-                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                ) : (
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                )}
-                <span className="shrink-0 text-xs font-medium text-foreground">RFQ details</span>
-                {!detailsOpen ? (
-                  <span className="min-w-0 truncate text-[11px] font-normal text-muted-foreground">
-                    {detailsSummary}
-                  </span>
-                ) : null}
-              </button>
-              {detailsOpen ? (
-                <div className="grid grid-cols-2 gap-3 border-t border-border px-2 py-3">
-                  <Field label="Deadline">
-                    <Input
-                      type="date"
-                      value={deadline}
-                      onChange={(e) => setDeadline(e.target.value)}
-                      className="rounded-none"
-                    />
-                  </Field>
-                  <Field label="Buyer">
-                    <Input
-                      value={buyer}
-                      onChange={(e) => setBuyer(e.target.value)}
-                      placeholder="Who is raising this RFQ"
-                      className="rounded-none"
-                    />
-                  </Field>
-                </div>
-              ) : null}
-            </div>
-
             <div className="-mx-4">
               <AgainFormNotebook
                 tabs={[
@@ -590,7 +597,7 @@ export function RfqFormDrawer({
                   ...(isEdit && (rfq?.invitedSupplierIds.length ?? 0) > 0
                     ? [{ id: "compare" as const, label: "Compare Bids" }]
                     : []),
-                  { id: "notes" as const, label: "Notes" },
+                  { id: "other" as const, label: "Other" },
                 ]}
                 active={tab}
                 onChange={setTab}
@@ -604,6 +611,7 @@ export function RfqFormDrawer({
                     onAward={(quoteId, supplierId) => {
                       if (onAward) void onAward(rfq, quoteId, supplierId);
                     }}
+                    onRecorded={() => onSaved?.()}
                   />
                 ) : tab === "lines" ? (
                   <>
@@ -769,12 +777,34 @@ export function RfqFormDrawer({
                     </div>
                   </>
                 ) : (
-                  <Textarea
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Internal notes for this RFQ"
-                    className="min-h-[160px] rounded-none"
-                  />
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Deadline">
+                        <Input
+                          type="date"
+                          value={deadline}
+                          onChange={(e) => setDeadline(e.target.value)}
+                          className="rounded-none"
+                        />
+                      </Field>
+                      <Field label="Buyer">
+                        <Input
+                          value={buyer}
+                          onChange={(e) => setBuyer(e.target.value)}
+                          placeholder="Who is raising this RFQ"
+                          className="rounded-none"
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Notes">
+                      <Textarea
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="Internal notes for this RFQ"
+                        className="min-h-[160px] rounded-none"
+                      />
+                    </Field>
+                  </div>
                 )}
               </AgainFormNotebook>
             </div>

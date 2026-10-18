@@ -15,7 +15,9 @@ import {
 import { ListGridHeaderStart } from "@/components/shared/list-grid-header-start";
 import { ListGridOpenFallback } from "@/components/shared/list-grid-open-fallback";
 import { useApiHealth } from "@/lib/api/use-api-health";
-import { fetchFinancePayments, type ApiFinancePayment } from "@/lib/api/finance";
+import { fetchFinanceCheques, fetchFinancePayments, type ApiFinanceCheque, type ApiFinancePayment } from "@/lib/api/finance";
+import { ChequeDetailDrawer } from "@/components/finance/cheque-detail-drawer";
+import { ChequeFormDrawer } from "@/components/finance/cheque-form-drawer";
 import type { PaymentGridHandle } from "@/components/finance/payment-grid";
 import { cn, formatMoney } from "@/lib/utils";
 
@@ -26,6 +28,38 @@ const PaymentGrid = dynamic(
     loading: () => <ListGridOpenFallback label="Opening payments…" />,
   },
 );
+
+const ChequeGrid = dynamic(
+  () => import("@/components/finance/cheque-grid").then((module) => module.ChequeGrid),
+  {
+    ssr: false,
+    loading: () => <ListGridOpenFallback label="Opening cheques…" />,
+  },
+);
+
+type Tab = "payments" | "cheques";
+
+function TabSwitch({ value, onChange }: { value: Tab; onChange: (tab: Tab) => void }) {
+  return (
+    <div className="flex h-[26px] shrink-0 items-center border border-input" role="tablist">
+      {(["payments", "cheques"] as const).map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          role="tab"
+          aria-selected={value === tab}
+          onClick={() => onChange(tab)}
+          className={cn(
+            "h-full px-2 text-xs capitalize",
+            value === tab ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
+          )}
+        >
+          {tab}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function money(value: number) {
   return formatMoney(value);
@@ -38,6 +72,26 @@ export default function FinancePaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterCount, setFilterCount] = useState(0);
+  const [tab, setTab] = useState<Tab>("payments");
+  const [cheques, setCheques] = useState<ApiFinanceCheque[]>([]);
+  const [chequesLoading, setChequesLoading] = useState(false);
+  const [chequeFormOpen, setChequeFormOpen] = useState(false);
+  const [chequeId, setChequeId] = useState<string | null>(null);
+
+  const loadCheques = useCallback(async () => {
+    setChequesLoading(true);
+    try {
+      setCheques((await fetchFinanceCheques({ limit: 500 })).data);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load cheques");
+    } finally {
+      setChequesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "cheques") void loadCheques();
+  }, [tab, loadCheques]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,6 +129,7 @@ export default function FinancePaymentsPage() {
 
   const headerLeftActions = (
     <ListGridHeaderStart title="Payments">
+      <TabSwitch value={tab} onChange={setTab} />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -134,6 +189,60 @@ export default function FinancePaymentsPage() {
       </DropdownMenu>
     </ListGridHeaderStart>
   );
+
+  if (tab === "cheques") {
+    const chequeHeader = (
+      <ListGridHeaderStart title="Payments">
+        <TabSwitch value={tab} onChange={setTab} />
+        <Button size="sm" className="rounded-none" onClick={() => setChequeFormOpen(true)}>
+          New cheque
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-[26px] w-[26px] shrink-0 rounded-none"
+          aria-label="Refresh cheques"
+          onClick={() => void loadCheques()}
+          disabled={chequesLoading}
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", chequesLoading && "animate-spin")} />
+        </Button>
+      </ListGridHeaderStart>
+    );
+    return (
+      <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
+        <ChequeGrid
+          rows={cheques}
+          loading={chequesLoading && cheques.length === 0}
+          headerLeftActions={chequeHeader}
+          onOpen={(row) => setChequeId(row.id)}
+          footerLeftActions={(visible) => (
+            <span className="px-2 text-[10px] text-muted-foreground">{visible.length} shown</span>
+          )}
+          className="min-h-0 flex-1"
+        />
+        <ChequeFormDrawer
+          open={chequeFormOpen}
+          onOpenChange={setChequeFormOpen}
+          onCreated={(created) => {
+            void loadCheques();
+            setChequeId(created.id);
+          }}
+        />
+        <ChequeDetailDrawer
+          chequeId={chequeId}
+          onOpenChange={(next) => {
+            if (!next) setChequeId(null);
+          }}
+          onChanged={() => {
+            void loadCheques();
+            void load();
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">

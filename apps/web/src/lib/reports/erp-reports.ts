@@ -57,7 +57,7 @@ export const ERP_REPORT_GROUPS: ErpReportGroup[] = [
       {
         id: "rma-overview",
         label: "RMA reports",
-        href: "/rma/reports",
+        href: "/inventory/rma/reports",
         description: "Returns by status, warranty, and resolution.",
       },
     ],

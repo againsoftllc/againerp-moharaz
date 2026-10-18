@@ -24,10 +24,25 @@ def _num(value: Any) -> float:
         return 0.0
 
 
+_PERIODS = ("this_month", "last_month", "this_quarter", "last_30_days", "last_90_days", "this_year", "fiscal_year")
+# words a small model copies from the user's sentence into the argument -> the tool value they mean
+_PERIOD_ALIASES = {
+    "gotomas": "last_month", "gato mas": "last_month", "goto mas": "last_month", "গত মাস": "last_month", "গতমাস": "last_month",
+    "previous_month": "last_month", "last month": "last_month", "lastmonth": "last_month",
+    "ei mas": "this_month", "eimas": "this_month", "এই মাস": "this_month", "current_month": "this_month", "this month": "this_month", "month": "this_month",
+    "ei bochor": "this_year", "এই বছর": "this_year", "this year": "this_year", "year": "this_year", "ytd": "this_year",
+    "last 30 days": "last_30_days", "30_days": "last_30_days", "last 90 days": "last_90_days", "90_days": "last_90_days",
+    "quarter": "this_quarter", "this quarter": "this_quarter", "fy": "fiscal_year", "fiscal year": "fiscal_year",
+}
+
+
 def _period(name: Optional[str], today: Optional[date] = None) -> tuple[date, date]:
     """Named period → (from, to). Fiscal year starts in July (company default)."""
     today = today or date.today()
-    name = (name or "this_month").lower()
+    name = _PERIOD_ALIASES.get((name or "this_month").strip().lower(), (name or "this_month").strip().lower())
+    if name not in _PERIODS:
+        # never silently report the wrong period (it used to fall through to the fiscal year)
+        raise ValueError(f"period must be one of {', '.join(_PERIODS)} (or give date_from and date_to as YYYY-MM-DD), not {name!r}")
     first_of_month = today.replace(day=1)
     if name == "this_month":
         return first_of_month, today
@@ -252,7 +267,7 @@ def build_finance_report_tools(bearer_token: str) -> list[OrchestratorTool]:
                 description=(
                     "Customers with overdue (past due date) unpaid invoices as of a date, from the Aged "
                     "Receivable report: overdue amount per customer, aging buckets, oldest days overdue and "
-                    "their largest open invoices. Use for 'who owes us', 'overdue invoices', 'collections'."
+                    "their largest open invoices. Use for 'who owes us', 'overdue invoices', 'collections' and, in Bangla, 'baki' / 'paona' / 'dhar' - money CUSTOMERS owe US (for one customer: 'Ryans er kache koto paona'). NOT for what we owe suppliers (that is get_overdue_payables)."
                 ),
                 input_schema={
                     "type": "object",
@@ -272,7 +287,7 @@ def build_finance_report_tools(bearer_token: str) -> list[OrchestratorTool]:
                 name="get_overdue_payables",
                 description=(
                     "Suppliers we owe with overdue bills as of a date, from the Aged Payable report: "
-                    "overdue amount per supplier, aging buckets and their largest open bills."
+                    "overdue amount per supplier, aging buckets and their largest open bills. Use for 'dena' - money WE owe suppliers. Never for money customers owe us (get_overdue_receivables)."
                 ),
                 input_schema={
                     "type": "object",
@@ -338,7 +353,7 @@ def build_finance_report_tools(bearer_token: str) -> list[OrchestratorTool]:
                 name="get_top_suppliers",
                 description=(
                     "Suppliers ranked by purchase value (bills) in a period, with amount paid and balance "
-                    "still owed. Use for 'top suppliers', 'who do we buy most from', supplier spend."
+                    "still owed. Use for 'top suppliers', 'who do we buy most from', supplier spend. SUPPLIERS ONLY - for top CUSTOMERS use get_sales_summary (it ranks customers) or query_database."
                 ),
                 input_schema={
                     "type": "object",

@@ -143,6 +143,9 @@ const nextConfig: NextConfig = {
       { source: "/shop", destination: "/login", permanent: false },
       { source: "/shop/:path*", destination: "/login", permanent: false },
       ...legacyStorefrontRedirects,
+      // RMA lives inside Inventory now — keep old bookmarks and emailed links working.
+      { source: "/rma", destination: "/inventory/rma", permanent: false },
+      { source: "/rma/:path*", destination: "/inventory/rma/:path*", permanent: false },
       { source: "/media", destination: "/workspace/media", permanent: false },
       { source: "/media/:path*", destination: "/workspace/media", permanent: false },
       { source: "/finance/expenses", destination: "/expenses", permanent: true },

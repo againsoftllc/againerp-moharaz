@@ -1,0 +1,52 @@
+{
+  "_note": "One-line business meaning of the tables people ask about, and of columns whose name alone is not enough. describe_table / list_database_tables show these next to the live schema. Written from the ERP's own reports; the module owners confirm them (docs/AI/ai.md step 0.7).",
+  "sales_orders": {
+    "about": "A customer sales order (header). Counts as a sale when status is confirmed, processing or completed; draft and cancelled are not sales.",
+    "columns": {
+      "status": "draft -> confirmed -> processing -> completed, or cancelled",
+      "delivery_status": "pending until goods are delivered, then delivered",
+      "total": "subtotal + tax_total - discount_total, as stored",
+      "invoice_number": "set once the order is invoiced (with invoiced_at)",
+      "customer_id": "-> commerce_customers.id"
+    }
+  },
+  "sales_order_lines": {"about": "Lines of a sales order: item, quantity ordered / delivered / returned, unit price.", "columns": {"quantity_delivered": "how many were delivered so far", "line_total": "quantity_ordered * unit_price - discount_amount"}},
+  "sales_invoices": {"about": "Customer invoices (bills we send). Money owed lives in finance_receivables."},
+  "sales_quotations": {"about": "Customer quotations; sales_order_id is set once converted to an order."},
+  "sales_deliveries": {"about": "Deliveries (challan) of a sales order."},
+  "sales_returns": {"about": "Goods a customer sent back; credit_amount is what we credit them."},
+  "commerce_customers": {"about": "The customer master (one row per customer). total_spend / total_orders / last_order_date are kept on the row; party_id links the shared partner master.", "columns": {"credit_limit": "the most this customer may owe us", "status": "active / inactive"}},
+  "commerce_orders": {"about": "ONLINE storefront orders (the website). Not the same as sales_orders (the ERP sales module)."},
+  "commerce_suppliers": {"about": "The supplier master: whom we buy from.", "columns": {"spend_ytd": "purchases from them this year", "open_pos": "purchase orders not completed"}},
+  "parties": {"about": "Shared partner master behind customers and suppliers (type customer, vendor or both)."},
+  "purchase_orders": {"about": "Purchase orders to suppliers.", "columns": {"status": "draft -> confirmed -> partial_received -> completed, or cancelled"}},
+  "purchase_order_lines": {"about": "Lines of a purchase order.", "columns": {"quantity_received": "how many arrived so far", "unit_cost": "price we pay per unit"}},
+  "purchase_receipts": {"about": "Goods received against a purchase order (GRN)."},
+  "purchase_bills": {"about": "Supplier bills; what we owe lives in finance_payables."},
+  "items": {"about": "The item master (every product / part we stock or sell). catalog_products rows link to it by item_id."},
+  "inventory_stock_levels": {
+    "about": "Current stock: one row per item per warehouse. Stock value = sum(on_hand * unit_cost) here, never from catalog prices.",
+    "columns": {"on_hand": "physically in the warehouse", "reserved": "promised to open orders", "incoming": "on open purchase orders", "reorder_level": "below this the item is 'low stock'"}
+  },
+  "inventory_stock_movements": {"about": "The history behind every stock change: movement_type, quantity, qty_before / qty_after, reference (the document that caused it)."},
+  "inventory_warehouses": {"about": "Warehouses / locations; is_default marks the main one."},
+  "inventory_stock_adjustments": {"about": "Manual stock corrections (header). Lines are in inventory_stock_adjustment_lines."},
+  "inventory_stock_transfers": {"about": "Stock moved from one warehouse to another (header)."},
+  "catalog_products": {
+    "about": "Website products. status is draft or published (a draft is never on the site); price = selling price, compare_at_price = old price, purchase_price = cost.",
+    "columns": {"source_url": "the page the product was copied from (AI import)", "item_id": "-> items.id (the inventory item)"}
+  },
+  "catalog_categories": {"about": "Product categories as a tree (parent_id)."},
+  "catalog_brands": {"about": "Product brands."},
+  "finance_receivables": {"about": "Money customers owe us (AR). Open when balance > 0; overdue when due_date has passed.", "columns": {"balance": "amount - amount_paid"}},
+  "finance_payables": {"about": "Money we owe suppliers (AP). Open when balance > 0."},
+  "finance_payments": {"about": "Money in / out.", "columns": {"direction": "in = received, out = paid"}},
+  "finance_expenses": {"about": "Business expenses. draft until approved.", "columns": {"status": "draft -> approved -> paid"}},
+  "finance_accounts": {"about": "Chart of accounts (code, name, account_type)."},
+  "finance_journal_entries": {"about": "Accounting journal entries; lines in finance_journal_lines (debit / credit)."},
+  "hrm_employees": {"about": "Employees. department_id / designation_id / branch_id point to the name tables."},
+  "hrm_attendance_records": {"about": "Daily attendance: clock_in / clock_out, is_late, is_absent, total_hours."},
+  "hrm_leave_applications": {"about": "Leave requests.", "columns": {"status": "pending / approved / rejected"}},
+  "crm_leads": {"about": "Prospects before they become a deal.", "columns": {"estimated_value": "what we hope to sell"}},
+  "crm_deals": {"about": "Sales opportunities with a stage and a value."}
+}

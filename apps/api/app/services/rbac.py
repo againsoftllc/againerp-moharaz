@@ -33,7 +33,7 @@ RBAC_MODULES: tuple[str, ...] = (
     "pos",
 )
 
-RBAC_ACTIONS: tuple[str, ...] = ("read", "create", "write", "delete")
+RBAC_ACTIONS: tuple[str, ...] = ("read", "create", "write", "delete", "publish", "export")
 
 SYSTEM_MANAGER_SLUG = "system_manager"
 
@@ -166,6 +166,10 @@ def user_permissions(db: Session, user: AuthUser) -> dict[str, set[str]]:
             matrix[row.module].add("write")
         if row.can_delete:
             matrix[row.module].add("delete")
+        if getattr(row, "can_publish", False):
+            matrix[row.module].add("publish")
+        if getattr(row, "can_export", False):
+            matrix[row.module].add("export")
     return matrix
 
 
@@ -240,7 +244,7 @@ def set_user_roles(db: Session, user: AuthUser, role_ids: list[str]) -> list[Aut
 def default_permission_flags(slug: str, module: str) -> dict[str, bool]:
     """Seed matrix for system roles."""
     if slug == SYSTEM_MANAGER_SLUG:
-        return {"can_read": True, "can_create": True, "can_write": True, "can_delete": True}
+        return {"can_read": True, "can_create": True, "can_write": True, "can_delete": True, "can_publish": True, "can_export": True}
 
     if slug == "viewer":
         return {
@@ -248,13 +252,15 @@ def default_permission_flags(slug: str, module: str) -> dict[str, bool]:
             "can_create": False,
             "can_write": False,
             "can_delete": False,
+            "can_publish": False,
+            "can_export": False,
         }
 
     if slug == "staff":
         # Ops write; no workspace/plugins manage
         if module in {"workspace", "plugins"}:
-            return {"can_read": module == "workspace", "can_create": False, "can_write": False, "can_delete": False}
-        return {"can_read": True, "can_create": True, "can_write": True, "can_delete": False}
+            return {"can_read": module == "workspace", "can_create": False, "can_write": False, "can_delete": False, "can_publish": False, "can_export": False}
+        return {"can_read": True, "can_create": True, "can_write": True, "can_delete": False, "can_publish": True, "can_export": True}
 
     # Custom role default: read-only business modules
     return {
@@ -262,6 +268,8 @@ def default_permission_flags(slug: str, module: str) -> dict[str, bool]:
         "can_create": False,
         "can_write": False,
         "can_delete": False,
+        "can_publish": False,
+        "can_export": False,
     }
 
 

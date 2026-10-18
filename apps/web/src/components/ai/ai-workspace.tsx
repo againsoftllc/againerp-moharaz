@@ -32,6 +32,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AiPreviewCard } from "@/components/ai/ai-preview-card";
 import { MarkdownLite } from "@/components/ai/markdown-lite";
 import { AiPresetSettingsPanel } from "@/components/ai/ai-preset-settings-panel";
 import { AiDocumentDrawer, parseDocLink, type AiDocumentRef } from "@/components/ai/ai-document-drawer";
@@ -69,6 +70,8 @@ type ChatMessage = {
   pending?: boolean;
   /** Set when the assistant's last tool call returned a preview awaiting the user's go-ahead. */
   pendingAction?: string;
+  /** the structured preview of that action - shown as a review card (ai-preview-card.tsx) */
+  previewData?: { tool: string; preview: Record<string, unknown> };
   /** Files the user sent with this message (client-side only; history keeps a text note). */
   attachments?: ChatAttachment[];
 };
@@ -669,7 +672,7 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
         attachments: files.length ? files.map(({ name, mime, size, previewUrl }) => ({ name, mime, size, previewUrl })) : undefined,
       };
       const assistantId = `a_${Date.now()}`;
-      setMessages((m) => [...m.map((msg) => (msg.pendingAction ? { ...msg, pendingAction: undefined } : msg)), userMsg, { id: assistantId, role: "assistant", content: "", pending: true }]);
+      setMessages((m) => [...m.map((msg) => (msg.pendingAction || msg.previewData ? { ...msg, pendingAction: undefined, previewData: undefined } : msg)), userMsg, { id: assistantId, role: "assistant", content: "", pending: true }]);
       setSending(true);
       setStatus("Thinking…");
       const controller = new AbortController();
@@ -702,8 +705,11 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
               // A preview means the assistant is about to ask "Confirm?" — offer Accept / Deny
               // buttons on this reply instead of making the user type it.
               const st = output && typeof output === "object" ? (output as { status?: unknown }).status : undefined;
+              const pv = output && typeof output === "object" ? (output as { preview?: unknown }).preview : undefined;
+              const previewData =
+                st === "preview" && pv && typeof pv === "object" && !Array.isArray(pv) ? { tool: toolName, preview: pv as Record<string, unknown> } : undefined;
               setMessages((m) =>
-                m.map((msg) => (msg.id === assistantId ? { ...msg, pendingAction: st === "preview" ? toolName : undefined } : msg)),
+                m.map((msg) => (msg.id === assistantId ? { ...msg, pendingAction: st === "preview" ? toolName : undefined, previewData } : msg)),
               );
             },
           },
@@ -1013,7 +1019,16 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
                       {m.content ? (
                         <>
                           <MarkdownLite text={m.content} onOpenDocument={openDocLink} />
-                          {m.pendingAction && !m.pending ? (
+                          {m.previewData && !m.pending ? (
+                            <AiPreviewCard
+                              tool={m.previewData.tool}
+                              preview={m.previewData.preview}
+                              busy={sending}
+                              onAccept={() => void send("Yes, confirm.")}
+                              onDeny={() => void send("No, cancel that.")}
+                            />
+                          ) : null}
+                          {m.pendingAction && !m.previewData && !m.pending ? (
                             <div className="mt-2 flex flex-wrap items-center gap-2">
                               <Button size="sm" className="h-8 rounded-full px-3" disabled={sending} onClick={() => void send("Yes, confirm.")}>
                                 <Check className="mr-1 h-3.5 w-3.5" /> Accept

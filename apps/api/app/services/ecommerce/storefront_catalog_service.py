@@ -733,9 +733,12 @@ class StorefrontCatalogService:
             ]
 
             cfg_row = code_cfg.get(code, (True, 0, None))[2]
-            display_type = (cfg_row.display_type if cfg_row is not None and cfg_row.display_type else None) or (
-                getattr(lead, "filter_display_type", None) or "multi_select"
-            )
+            # single_select (radio) or multi_select (checkboxes) - the attribute's own kind unless the filter row says
+            # otherwise; range / boolean stay for the built-in filters; older values (color, dynamic ...) read as single
+            own = "multi_select" if getattr(lead, "field_type", "") == "multi_select" else "single_select"
+            display_type = (cfg_row.display_type if cfg_row is not None and cfg_row.display_type else None) or own
+            if display_type not in ("single_select", "multi_select", "range", "boolean"):
+                display_type = own
             if display_type == "boolean" and not options and seen:
                 options = [
                     {"value": label_of[k], "label": label_of[k].replace("_", " "), "count": len(pids)}

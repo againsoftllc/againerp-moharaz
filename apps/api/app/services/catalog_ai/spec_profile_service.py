@@ -186,6 +186,7 @@ def profile_fields(db: Session, profile_id: str) -> list[dict]:
             "unit": a.unit,
             "options": parse_json_list(a.predefined_values),
             "filterable": bool(a.is_filterable),
+            "field_type": a.field_type,
         }
         for a in attrs
     ]
@@ -540,13 +541,37 @@ def propose_profile(name: str, specs: SourceSpecs) -> dict:
     return {"name": name.strip()[:255] or "General", "groups": groups}
 
 
+KEY_FEATURE_GROUP = "Others"  # the group of the source filters no attribute names; "Key Feature" before 2026-10-18 (that name is
+#                                the storefront's key-feature list, which these filters are not part of)
+_LEGACY_KEY_FEATURE_GROUP = "Key Feature"
+
+
+def _filter_matches_label(title: str, label: str) -> bool:
+    return bool(_label_words(title) & _label_words(label))
+
+
+def unmatched_filters(fields: list[dict], source_filters: list[dict]) -> list[dict]:
+    """The source shop's filters (>= 2 options) that NO attribute of the profile names - each becomes an attribute of the
+    "Key Feature" group (multi-select, filterable, the shop's options as its predefined values)."""
+    out: list[dict] = []
+    for f in source_filters or []:
+        title, options = str(f.get("title") or "").strip(), [str(o) for o in f.get("options") or []]
+        if len(options) < 2 or not title:
+            continue
+        if any(_filter_matches_label(title, fld["name"]) for fld in fields):
+            continue
+        out.append({"title": title[:255], "options": options})
+    return out
+
+
 def attach_source_filters(proposal: dict, specs: SourceSpecs, source_filters: list[dict]) -> dict:
     """Make the proposal's attributes filterable from the SOURCE shop's own filters (its category page): a source filter
-    ("Wi-Fi Standard": Wi-Fi 6 / Wi-Fi 5 …) belongs to the attribute whose label shares a meaningful word with it, else to
-    the one whose value on this product is one of its options. The attribute gets the filter's options (as the shop
-    writes them) as its predefined values. Returns the proposal with `filters` {attribute label: [options]}."""
+    ("Wi-Fi Standard": Wi-Fi 6 / Wi-Fi 5 ...) belongs to the attribute whose label shares a meaningful word with it. The
+    attribute gets the filter's options (as the shop writes them) as its predefined values. A filter that no source row
+    names (e.g. "Key Feature": Curved / HDR / ...) becomes an attribute of the "Key Feature" group - multi-select, since a
+    product can have several of them. Returns the proposal with `filters` {attribute label: [options]} and `multi`
+    (the attribute labels that are multi-select)."""
     labels = [a for g in proposal.get("groups", []) for a in g["attributes"]]
-    value_of = {i["label"]: i["value"] for g in _clean_specs(specs) for i in g["items"]}
     taken: set[str] = set()
     filters: dict[str, list[str]] = {}
     extra: list[tuple[str, list[str]]] = []
@@ -554,25 +579,99 @@ def attach_source_filters(proposal: dict, specs: SourceSpecs, source_filters: li
         title, options = str(f.get("title") or ""), [str(o) for o in f.get("options") or []]
         if len(options) < 2:
             continue
-        best: tuple[int, int, Optional[str]] = (0, 0, None)
+        best: Optional[str] = None
         for label in labels:
-            if label in taken:
-                continue
-            words = len(_label_words(title) & _label_words(label))
-            # only a label that names the same thing: a value that merely contains an option ("4 10/100Mbps LAN PORTS" ->
-            # 4) must not be cut down to it, that is a separate "Filters" attribute
-            if words > best[0]:
-                best = (words, 0, label)
-        if best[2]:
-            taken.add(best[2])
-            filters[best[2]] = options
-        elif "feature" not in title.lower() and title not in labels:
-            extra.append((title[:255], options))  # a shop filter no source row names: its own attribute, filled from the page
+            if label not in taken and _filter_matches_label(title, label):
+                best = label
+                break
+        if best:
+            taken.add(best)
+            filters[best] = options
+        elif title and title not in labels:
+            extra.append((title[:255], options))
     groups = [dict(g) for g in proposal.get("groups", [])]
+    multi: list[str] = []
     if extra:
-        groups.append({"name": "Filters", "attributes": [t_ for t_, _ in extra]})
+        groups.append({"name": KEY_FEATURE_GROUP, "attributes": [t_ for t_, _ in extra]})
         filters.update({t_: o_ for t_, o_ in extra})
-    return {**proposal, "groups": groups, "filters": filters}
+        multi = [t_ for t_, _ in extra]
+    return {**proposal, "groups": groups, "filters": filters, "multi": multi}
+
+
+def extend_profile_with_filters(db: Session, profile: CatalogAttributeProfile, unmatched: list[dict]) -> int:
+    """Add the unmatched source filters to an EXISTING profile as attributes of its "Key Feature" group (the group is
+    created when missing). Saved through the admin editor's own structure save, which updates in place - every product's
+    saved values stay. Returns how many attributes were added. Caller commits."""
+    from app.routers.catalog_attribute_profiles import _replace_profile_structure
+
+    if not unmatched:
+        return 0
+    groups = (
+        db.query(CatalogAttributeGroup)
+        .filter(CatalogAttributeGroup.profile_id == profile.id, CatalogAttributeGroup.is_active.is_(True))
+        .order_by(CatalogAttributeGroup.sort_order)
+        .all()
+    )
+    items: list[BulkAttributeGroupItem] = []
+    key_item: Optional[BulkAttributeGroupItem] = None
+    for g in groups:
+        attrs = (
+            db.query(CatalogAttribute)
+            .filter(CatalogAttribute.group_id == g.id, CatalogAttribute.is_active.is_(True))
+            .order_by(CatalogAttribute.sort_order)
+            .all()
+        )
+        item = BulkAttributeGroupItem(
+            id=g.id,
+            name=g.name,
+            attributes=[
+                BulkAttributeItem(
+                    id=a.id, name=a.name, field_type=a.field_type, filterable=bool(a.is_filterable),
+                    filter_display_type=a.filter_display_type, storefront_filter_visible=bool(a.storefront_filter_visible),
+                    predefined_values=parse_json_list(a.predefined_values),
+                )
+                for a in attrs
+            ],
+        )
+        items.append(item)
+        if slugify_code(g.name) in (slugify_code(KEY_FEATURE_GROUP), slugify_code(_LEGACY_KEY_FEATURE_GROUP)):
+            key_item = item
+    if key_item is None:
+        key_item = BulkAttributeGroupItem(name=KEY_FEATURE_GROUP, attributes=[])
+        items.append(key_item)
+    have = {slugify_code(a.name) for it in items for a in it.attributes}
+    added = 0
+    for f in unmatched:
+        if slugify_code(f["title"]) in have:
+            continue
+        key_item.attributes.append(
+            BulkAttributeItem(name=f["title"], field_type="multi_select", filterable=True, predefined_values=list(f["options"]))
+        )
+        have.add(slugify_code(f["title"]))
+        added += 1
+    if added:
+        _replace_profile_structure(db, profile.id, AttributeProfileBulkSaveRequest(profile_name=profile.name, groups=items))
+        db.flush()
+    return added
+
+
+def fill_multi_select(db: Session, product: CatalogProduct, profile: CatalogAttributeProfile, specs: SourceSpecs, extra_text: str = "") -> int:
+    """The profile's multi-select filter attributes (Key Feature ...): the product gets EVERY option the source says about
+    it - option text found in its spec rows / title, whole words only (stored comma-separated, like the admin editor)."""
+    fields = [f for f in profile_fields(db, profile.id) if f.get("field_type") == "multi_select" and f["options"]]
+    if not fields:
+        return 0
+    blob = _canon_text(" ; ".join([extra_text,*[f"{i['label']} {i['value']}" for g in _clean_specs(specs) for i in g["items"]]]))
+    values: dict[str, str] = {}
+    for f in fields:
+        hits = []
+        for option in f["options"]:
+            pat = _option_pattern(option)
+            if pat is not None and pat.search(blob):
+                hits.append(option)
+        if hits:
+            values[f["id"]] = ",".join(hits)
+    return fill_product(db, product, profile, values, overwrite=False) if values else 0
 
 
 def create_profile(db: Session, *, company_id: str, proposal: dict, category_labels: list[str]) -> CatalogAttributeProfile:
@@ -589,7 +688,12 @@ def create_profile(db: Session, *, company_id: str, proposal: dict, category_lab
             BulkAttributeGroupItem(
                 name=g["name"],
                 attributes=[
-                    BulkAttributeItem(name=a, filterable=a in (proposal.get("filters") or {}), predefined_values=list((proposal.get("filters") or {}).get(a, [])))
+                    BulkAttributeItem(
+                        name=a,
+                        field_type="multi_select" if a in (proposal.get("multi") or []) else None,
+                        filterable=a in (proposal.get("filters") or {}),
+                        predefined_values=list((proposal.get("filters") or {}).get(a, [])),
+                    )
                     for a in g["attributes"]
                 ],
             )
@@ -639,11 +743,13 @@ def _leftover_custom_json(db: Session, profile_id: str, specs: SourceSpecs) -> O
     """The source rows the profile has NO attribute for, as this product's custom specs - same groups, source order."""
     names = {_norm(f["name"]) for f in profile_fields(db, profile_id)}
     groups, attrs = [], []
+    prev: Optional[str] = ""  # "" = the first group of the source
     for gi, g in enumerate(_clean_specs(specs)):
         rest = [i for i in g["items"] if _norm(i["label"]) not in names]
+        before, prev = prev, g["group"]
         if not rest:
             continue
-        groups.append({"id": f"ai-{gi}", "name": g["group"]})
+        groups.append({"id": f"ai-{gi}", "name": g["group"], "after": before})  # `after`: the source group just before this one
         attrs += [{"id": f"ai-attr-{gi}-{ii}", "groupId": f"ai-{gi}", "name": i["label"], "value": i["value"]} for ii, i in enumerate(rest)]
     return json.dumps({"customGroups": groups, "customAttrs": attrs}) if attrs else None
 
@@ -657,6 +763,8 @@ def apply_from_source(
     replace: bool = False,
     create_profile_if_missing: bool = False,
     source_filters: Optional[list[dict]] = None,
+    extend_profile: bool = False,
+    profile_choice: Optional[str] = None,
 ) -> Optional[dict]:
     """Import-time hook (rule A11). The specifications follow the SOURCE table: every row, in the source's order.
     A specification profile is used only when it really fits (the product's category profile, else the best match;
@@ -672,7 +780,15 @@ def apply_from_source(
             product.attribute_profile_id = None
         # The profile is the product TYPE's: chosen by the product's category. A table-based guess is only for a product
         # with no category at all (it picked wrong profiles - a router filled into "Earbuds").
+        if profile_choice == "none":  # the admin chose "no profile": every source row stays a custom spec of this product
+            product.attribute_profile_id = None
+            db.commit()
+            return None
+        if profile_choice == "new":
+            create_profile_if_missing = True
         profile = find_profile(db, product=product)
+        if profile_choice and profile_choice not in ("new", "none"):  # the admin picked a profile in the review
+            profile = db.get(CatalogAttributeProfile, profile_choice) or profile
         has_category = bool(_category_names(db, product))
         if profile is None and not has_category:
             profile = find_profile_by_specs(db, specs)
@@ -686,6 +802,12 @@ def apply_from_source(
             db.commit()
             return None
         fields = profile_fields(db, profile.id)
+        key_added = 0
+        if extend_profile and not created and source_filters:
+            # the source shop's filters no attribute of the profile names -> its "Key Feature" group (approved by the user)
+            key_added = extend_profile_with_filters(db, profile, unmatched_filters(fields, source_filters))
+            if key_added:
+                fields = profile_fields(db, profile.id)
         fit = profile_fit(db, profile, specs)
         if fit >= FIT_MIN or created:
             values, off = map_values_detailed(db, company_id, specs, fields)
@@ -696,9 +818,10 @@ def apply_from_source(
         for fid, v in filterable_off.items():
             values[fid] = v
         fill_product(db, product, profile, values, overwrite=replace)
+        multi = fill_multi_select(db, product, profile, specs, extra_text=product.name or "")
         product.custom_specs_json = _leftover_custom_json(db, profile.id, specs)
         db.commit()
-        return {"profile": profile.name, "filled": len(values), "fields": len(fields), "options_added": added, "created": created}
+        return {"profile": profile.name, "filled": len(values) + multi, "fields": len(fields), "options_added": added, "created": created, "key_feature_added": key_added}
     except Exception:  # noqa: BLE001
         db.rollback()
         return None

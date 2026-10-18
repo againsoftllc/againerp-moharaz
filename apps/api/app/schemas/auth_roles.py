@@ -21,6 +21,8 @@ class RolePermissionFlags(BaseModel):
     can_create: bool = False
     can_write: bool = False
     can_delete: bool = False
+    can_publish: bool = False
+    can_export: bool = False
 
 
 class RoleRead(BaseModel):

@@ -1,0 +1,153 @@
+{
+  "_note": "Business definitions the AI must use so a chat answer matches the ERP's own reports. Owners: Sales / Inventory / Catalog / Finance leads confirm (docs/AI/ai.md step 0.7). Keep each line short - it goes into the system prompt.",
+  "general": [
+    {
+      "term": "Names, not ids",
+      "means": "Always show customer / supplier / item / warehouse NAMES to the user, never raw ids; join to the name table. Money is BDT."
+    },
+    {
+      "term": "Periods",
+      "means": "'today / aj', 'this month / ei mas', 'last month / gotomas', 'this year' are calendar periods in Bangladesh time. TOOL ARGUMENTS use English values only: period = this_month | last_month | this_quarter | last_30_days | last_90_days | this_year | fiscal_year, or date_from / date_to as YYYY-MM-DD (use these for today, yesterday or a specific day). Never pass Bangla / Banglish words as argument values. If the user gives no period for a report, say which period you used."
+    },
+    {
+      "term": "Draft first",
+      "means": "The AI prepares drafts. It never publishes a product, posts a journal, pays or deletes unless the user's role allows it AND they said so in words."
+    },
+    {
+      "term": "Look it up, don't ask",
+      "means": "When the user gives a name or number (a customer, supplier, product, order, employee), search for it first (search_records / search_customer / query_database) and act on what you find. Ask the user only when the search returns several matches or none - never ask for details you can look up yourself."
+    },
+    {
+      "term": "No tool for it",
+      "means": "If the user asks you to DO something that no tool supports (e.g. adjust stock, post a journal, delete a record), say so plainly and offer what you can do instead. Never call an unrelated tool to look busy, and never pretend it was done."
+    },
+    {
+      "term": "Customers vs suppliers",
+      "means": "Customers owe us (receivables, 'baki' / 'paona'); we owe suppliers (payables, 'dena'). 'Top customers' are ranked by sales; 'top suppliers' by purchases."
+    },
+    {
+      "term": "Previews",
+      "means": "When a tool returns status=preview, the app shows the user a review card with every detail and Accept / Deny buttons. Reply with ONE short sentence (e.g. 'Please check the card and press Accept'); do not repeat the details and do not ask the user to type yes."
+    },
+    {
+      "term": "No bulk exports",
+      "means": "You do not export or dump lists of personal data (phone numbers, e-mails, addresses, salaries ...) into the chat - say so in one sentence and point to the module's own Export button. Looking up a few specific people is fine. Counting (how many customers) is fine."
+    }
+  ],
+  "sales": [
+    {
+      "term": "Sales / revenue",
+      "means": "sales_orders with status confirmed, processing or completed, by order_date. Draft and cancelled orders are NOT sales (list them separately). Use get_sales_summary."
+    },
+    {
+      "term": "Not yet delivered",
+      "means": "sales_orders.delivery_status = 'pending' and status is not cancelled."
+    },
+    {
+      "term": "Invoiced / not invoiced",
+      "means": "A sales order is invoiced when invoice_number / invoiced_at is set."
+    },
+    {
+      "term": "Order total",
+      "means": "sales_orders.total as stored (tax and discount already applied); subtotal, tax_total and discount_total are its parts."
+    },
+    {
+      "term": "Confirming an order",
+      "means": "In this ERP, confirming a sales order (normal counter-sale flow) delivers the goods and deducts stock AND issues the invoice in one step - a separate delivery / invoice is only needed for partial or POS-style orders. Say this when asking the user to confirm."
+    }
+  ],
+  "customers": [
+    {
+      "term": "Customer",
+      "means": "commerce_customers (one row per customer; party_id links the shared partner master). total_spend / total_orders / last_order_date are kept on the row."
+    },
+    {
+      "term": "Money a customer owes",
+      "means": "finance_receivables.balance > 0 for that customer (not a field on the customer row)."
+    },
+    {
+      "term": "Customers with no recent order",
+      "means": "Use SQL on commerce_customers: last_order_date is the date of their latest order (null = never ordered), e.g. last_order_date < now() - interval '6 months' or is null. Do not loop get_customer_orders over customers."
+    }
+  ],
+  "purchase": [
+    {
+      "term": "Purchase order status",
+      "means": "draft, confirmed, partial_received, completed, cancelled. Received quantity = purchase_order_lines.quantity_received."
+    },
+    {
+      "term": "Money we owe a supplier",
+      "means": "finance_payables.balance > 0 for that supplier (or purchase_bills not yet paid)."
+    }
+  ],
+  "inventory": [
+    {
+      "term": "Stock on hand",
+      "means": "inventory_stock_levels.on_hand per warehouse; available = on_hand - reserved; incoming = on open purchase orders."
+    },
+    {
+      "term": "Stock value",
+      "means": "sum(on_hand * unit_cost) from inventory_stock_levels - never from catalog prices."
+    },
+    {
+      "term": "Low stock / reorder",
+      "means": "on_hand below the item's reorder level / min_qty. Use get_reorder_suggestions."
+    },
+    {
+      "term": "Stock movement",
+      "means": "inventory_stock_movements rows (movement_type, quantity, qty_before / qty_after, reference) - the history behind every on_hand change."
+    }
+  ],
+  "catalog": [
+    {
+      "term": "Product status",
+      "means": "catalog_products.status is draft or published. A draft is never shown on the website; the AI keeps products draft and private."
+    },
+    {
+      "term": "Price fields",
+      "means": "price = selling price; compare_at_price = the old / regular price shown struck through (an offer); purchase_price = cost."
+    },
+    {
+      "term": "Upload / fill a product",
+      "means": "'upload', 'add', 'fill' a draft product = read its source page and fill the draft after the admin approves the review card. It is not publishing."
+    },
+    {
+      "term": "Warranty",
+      "means": "A short choice from the warranty list (6 Months, 1 Year, 2 Years ...); the full sentence lives in the specifications. 'No Warranty' only when the source says so."
+    }
+  ],
+  "finance": [
+    {
+      "term": "Receivable (paona)",
+      "means": "finance_receivables.balance > 0 = a customer owes us; overdue when due_date < today. Use get_overdue_receivables."
+    },
+    {
+      "term": "Payable (dena)",
+      "means": "finance_payables.balance > 0 = we owe a supplier. Use get_overdue_payables."
+    },
+    {
+      "term": "Profit",
+      "means": "Gross profit = revenue - cost of revenue; net profit = gross profit - expenses (get_financial_summary). Profit of one product: get_product_profit - it warns when no cost price is recorded."
+    },
+    {
+      "term": "Expense",
+      "means": "finance_expenses (status: draft until approved). create_expense / approve_expense."
+    }
+  ],
+  "hrm": [
+    {
+      "term": "Leave / attendance",
+      "means": "hrm_leave_applications (status pending / approved / rejected), hrm_attendance_records (is_late, is_absent, total_hours)."
+    }
+  ],
+  "crm": [
+    {
+      "term": "Lead vs deal",
+      "means": "crm_leads are prospects (status, source, estimated_value); crm_deals are opportunities with a stage and value; a lead becomes a deal."
+    },
+    {
+      "term": "Deals closed / won / lost",
+      "means": "Past deals are counted with SQL on crm_deals: closed_at is set when a deal closed (by date: closed_at in the period); stage tells won or lost. A forecast tool is only for open deals in the future."
+    }
+  ]
+}

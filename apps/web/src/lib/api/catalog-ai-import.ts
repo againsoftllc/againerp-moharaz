@@ -113,3 +113,47 @@ export function fillSpecsFromSource(url: string, fields: SpecFillField[]): Promi
     body: JSON.stringify({ url, fields }),
   });
 }
+
+/** What the AI collected from a draft's source page, shown as a review card in the product drawer before anything is saved. */
+export type FillReview = {
+  product: { id: string; name: string; source_url?: string | null };
+  title: { current: string; new: string };
+  images: string[];
+  price: number | null;
+  compare_at_price: number | null;
+  stock_status: string;
+  warranty?: string | null;
+  origin?: string | null;
+  brand: { name?: string | null; matched_id?: string | null };
+  categories: { name?: string | null; matched_ids: string[]; is_new: boolean; new_level?: string | null };
+  profile: {
+    status: "existing" | "new" | "none";
+    matched_id?: string | null;
+    matched_name?: string | null;
+    attributes: number;
+    source_filters: number;
+    key_feature_filters: string[];
+  };
+  tags: string[];
+  short_description: string[];
+  description_words: number;
+  description_excerpt: string;
+  warnings: string[];
+  /** values the admin dictated in the chat while this review was open (merged over the scraped data) */
+  overrides?: Record<string, string | number>;
+};
+
+export type FillApproval = {
+  brandId?: string;
+  categoryIds: string[];
+  /** an existing profile id, "new" (create from the source) or "none" */
+  profileId?: string;
+};
+
+/** The review card's Accept: fill the draft with the admin's approved category / brand / specification profile. */
+export async function applyFillFromSource(productId: string, a: FillApproval): Promise<FillFromSourceResult> {
+  return apiFetch<FillFromSourceResult>(`/api/v1/catalog/ai/products/${encodeURIComponent(productId)}/fill-from-source/apply`, {
+    method: "POST",
+    body: JSON.stringify({ brand_id: a.brandId || null, category_ids: a.categoryIds, profile_id: a.profileId || null }),
+  });
+}

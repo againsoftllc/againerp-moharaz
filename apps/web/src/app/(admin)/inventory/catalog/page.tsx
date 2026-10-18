@@ -56,7 +56,7 @@ function buildInventoryCatalogUrl(params: URLSearchParams) {
 function InventoryCatalogContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { products, loading, error, refetch } = useCatalogProducts({ channel: "catalog" });
+  const { products, loading, error, refetch } = useCatalogProducts({ channel: "catalog", scope: "inventory" });
   const { categories } = useCatalogCategories({ channel: "catalog" });
   const canWrite = useAdminCanWrite();
   const apiHealth = useApiHealth();

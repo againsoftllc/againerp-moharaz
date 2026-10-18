@@ -10,6 +10,7 @@ from app.database import get_db
 from app.models.auth_session import AuthSession
 from app.models.auth_user import AuthUser
 from app.models.company import Company
+from app.services import audit_actor  # noqa: F401 - registers the 'updated by' hook
 from app.services import rbac as rbac_service
 
 WRITE_ROLES = frozenset({"admin", "staff", "system_manager"})
@@ -60,6 +61,7 @@ def get_current_user(
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User inactive")
     _check_company_active(db, user.company_id)
+    db.info["actor"] = (user.id, user.name)  # the "updated by" stamp of this request's saves (services/audit_actor.py)
     return user
 
 

@@ -24,6 +24,7 @@ import {
   type RmaStatus,
   type RmaTicket,
 } from "@/lib/api/rma";
+import { isRmaStageId } from "@/lib/rma/stages";
 import { cn } from "@/lib/utils";
 
 const RmaGrid = dynamic(() => import("@/components/rma/rma-grid").then((m) => m.RmaGrid), {
@@ -47,6 +48,8 @@ function RmaPageInner() {
   const warrantyStatus = searchParams.get("warranty_status");
   const rmaType = searchParams.get("rma_type");
   const claimId = searchParams.get("claim");
+  const stageParam = searchParams.get("stage");
+  const stage = isRmaStageId(stageParam) ? stageParam : null;
   const gridRef = useRef<RmaGridHandle>(null);
   const [tickets, setTickets] = useState<RmaTicket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,7 +89,7 @@ function RmaPageInner() {
       if (id) next.set("claim", id);
       else next.delete("claim");
       const q = next.toString();
-      router.replace(q ? `/rma?${q}` : "/rma", { scroll: false });
+      router.replace(q ? `/inventory/rma?${q}` : "/inventory/rma", { scroll: false });
     },
     [router, searchParams],
   );
@@ -107,6 +110,9 @@ function RmaPageInner() {
           New
         </Button>
       ) : null}
+      <Button variant="outline" size="sm" className="rounded-none" onClick={() => router.push("/inventory/rma/dashboard")}>
+        Dashboard
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -166,6 +172,7 @@ function RmaPageInner() {
       tickets={tickets}
       loading={loading && tickets.length === 0}
       claimId={claimId}
+      initialStage={stage}
       onOpenClaim={(id) => setClaimId(id)}
       onCloseClaim={() => setClaimId(null)}
       onChanged={load}

@@ -1115,7 +1115,7 @@ class StorefrontConfiguratorService:
                 {
                     "key": attr.code,
                     "title": attr.name,
-                    "display_type": (cfg.display_type if cfg and cfg.display_type else getattr(attr, "filter_display_type", None)) or "multi_select",
+                    "display_type": (cfg.display_type if cfg and cfg.display_type else None) or ("multi_select" if getattr(attr, "field_type", "") == "multi_select" else "single_select"),
                     "options": [{"value": v, "label": v.replace("_", " ") + unit, "count": seen[v]} for v in ordered],
                 }
             )

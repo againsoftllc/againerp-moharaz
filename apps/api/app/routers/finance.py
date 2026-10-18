@@ -411,11 +411,14 @@ def list_payables(
     _: AuthUser = Depends(require_permission("finance", "read")),
     company_id: str = Depends(get_current_company_id),
     status: Optional[str] = Query(default=None),
+    supplier_id: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> FinancePayableListResponse:
     service = FinanceService(db)
-    rows, total = service.list_payables(company_id=company_id, status=status, limit=limit, offset=offset)
+    rows, total = service.list_payables(
+        company_id=company_id, status=status, supplier_id=supplier_id, limit=limit, offset=offset,
+    )
     data = [_payable_read(db, p) for p in rows]
     return FinancePayableListResponse(data=data, meta=FinanceListMeta(total=total, limit=limit, offset=offset))
 

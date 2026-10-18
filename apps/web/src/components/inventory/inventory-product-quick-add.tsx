@@ -240,6 +240,7 @@ export function InventoryProductQuickAdd({
   const [name, setName] = useState("");
   const [sku, setSku] = useState("");
   const [model, setModel] = useState("");
+  const [remarks, setRemarks] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [categoryName, setCategoryName] = useState("");
@@ -496,6 +497,7 @@ export function InventoryProductQuickAdd({
         setName(detail.name ?? "");
         setSku(detail.sku ?? "");
         setModel(detail.model ?? "");
+        setRemarks(detail.remarks ?? "");
         const loadedIds =
           detail.categoryIds?.length
             ? detail.categoryIds
@@ -746,6 +748,7 @@ export function InventoryProductQuickAdd({
         name: name.trim(),
         sku: finalSku,
         model: model.trim() || null,
+        remarks: remarks.trim() ? remarks.trim().slice(0, 2000) : isEdit ? null : undefined,
         price: Number(price) || 0,
         purchase_price: purchasePrice.trim() ? Number(purchasePrice) : undefined,
         last_selling_price: lastSellingPrice.trim() ? Number(lastSellingPrice) : undefined,
@@ -783,6 +786,9 @@ export function InventoryProductQuickAdd({
         ? await updateCatalogProduct(productId, payload)
         : await createCatalogProduct({
             ...payload,
+            // Inventory-created products stay in Inventory; they reach the website only when added there.
+            in_inventory: true,
+            on_website: false,
             slug: existingSlug || slugify(name),
           });
       if (productType === "variable") {
@@ -1641,6 +1647,17 @@ export function InventoryProductQuickAdd({
                       </Field>
                     </div>
                   ) : null}
+
+                  <Field label="Remarks" hint="Internal note — staff only, not shown on the website.">
+                    <Textarea
+                      id="qa-remarks"
+                      value={remarks}
+                      onChange={(e) => setRemarks(e.target.value)}
+                      placeholder="e.g. Box damaged on arrival, check before sale"
+                      rows={2}
+                      maxLength={2000}
+                    />
+                  </Field>
                 </div>
               </div>
             </div>

@@ -175,7 +175,7 @@ export function RmaWorkspace({
       <div className="p-4">
         <p className="text-sm font-medium">Claim not found</p>
         {!embedded && (
-          <Button size="sm" className="mt-3 rounded-none" onClick={() => router.push("/rma")}>
+          <Button size="sm" className="mt-3 rounded-none" onClick={() => router.push("/inventory/rma")}>
             Back to claims
           </Button>
         )}
@@ -200,7 +200,7 @@ export function RmaWorkspace({
               variant="ghost"
               size="sm"
               className="h-7 rounded-none px-1.5"
-              onClick={() => router.push("/rma")}
+              onClick={() => router.push("/inventory/rma")}
             >
               <ArrowLeft className="h-3.5 w-3.5" />
             </Button>

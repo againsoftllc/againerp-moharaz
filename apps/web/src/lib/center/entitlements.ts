@@ -11,7 +11,6 @@ export const CENTER_MODULE_TO_ERP: Record<string, ToggleableModuleId[]> = {
   catalog: ["catalog", "dropshipping"],
   orders: ["sales"],
   customers: ["customers"],
-  media: ["media"],
   seo: ["website"],
 };
 

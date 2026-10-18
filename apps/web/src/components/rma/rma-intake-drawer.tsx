@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { FilterSelect } from "@/components/shared/filter-select";
 import {
@@ -44,6 +45,15 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       {children}
       {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3 border-b border-border pb-5 last:border-b-0 last:pb-1">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      {children}
+    </section>
   );
 }
 
@@ -321,17 +331,28 @@ export function RmaIntakeDrawer({
         resizable
         className="flex min-w-[160px] w-[480px] max-w-[720px] flex-col p-0"
       >
-        <div className="border-b border-border px-4 py-3 pr-10">
-          <h2 className="text-sm font-semibold">New RMA</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Search by order number, phone, or serial. Pick the sale, then the products coming back.
-          </p>
+        <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3 pr-12">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold">New RMA</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Find the sale, pick the products coming back, then describe the problem.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="outline" size="sm" className="rounded-none" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" className="rounded-none" disabled={blocked || saving} onClick={() => void submit()}>
+              {saving ? "Opening…" : "Open claim"}
+            </Button>
+          </div>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
+          <Section title="Sale">
           <p className="border border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
             Product not purchased from us? Do not create an RMA.{" "}
-            <Link href="/rma/service-jobs" className="text-foreground underline-offset-2 hover:underline">
+            <Link href="/inventory/rma/service-jobs" className="text-foreground underline-offset-2 hover:underline">
               Open a service job
             </Link>{" "}
             instead.
@@ -496,6 +517,9 @@ export function RmaIntakeDrawer({
             </div>
           )}
 
+          </Section>
+
+          <Section title="Customer">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Customer">
               <Input
@@ -522,6 +546,9 @@ export function RmaIntakeDrawer({
             />
           </Field>
 
+          </Section>
+
+          <Section title="Unit">
           <div className={cn("grid gap-3", selectedOrder ? "grid-cols-1" : "grid-cols-2")}>
             {!selectedOrder && (
               <Field label="Product">
@@ -554,7 +581,7 @@ export function RmaIntakeDrawer({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-9 shrink-0 rounded-none px-2.5"
+                  className="h-8 w-8 shrink-0 rounded-none p-0"
                   disabled={!serial.trim() || checkingSerial}
                   onClick={() => void runSerialLookup()}
                 >
@@ -609,11 +636,15 @@ export function RmaIntakeDrawer({
             </div>
           )}
 
+          </Section>
+
+          <Section title="Problem">
           <Field label="Reported fault">
-            <Input
+            <Textarea
               value={fault}
               onChange={(e) => setFault(e.target.value)}
               placeholder="What the customer says is wrong"
+              rows={2}
               className="rounded-none"
             />
           </Field>
@@ -637,6 +668,9 @@ export function RmaIntakeDrawer({
             </Field>
           </div>
 
+          </Section>
+
+          <Section title="Handling">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Received by">
               <Input
@@ -650,6 +684,7 @@ export function RmaIntakeDrawer({
                 value={priority}
                 onChange={setPriority}
                 width="w-full"
+                avoidCollisions
                 ariaLabel="Priority"
                 options={[
                   { value: "low", label: "Low" },
@@ -666,6 +701,7 @@ export function RmaIntakeDrawer({
               value={reasonId}
               onChange={setReasonId}
               width="w-full"
+                avoidCollisions
               ariaLabel="Return reason"
               options={[
                 { value: "", label: "Unspecified" },
@@ -688,6 +724,7 @@ export function RmaIntakeDrawer({
                   value={rmaType}
                   onChange={setRmaType}
                   width="w-full"
+                avoidCollisions
                   ariaLabel="RMA type"
                   options={[
                     { value: "customer", label: "Customer" },
@@ -701,6 +738,7 @@ export function RmaIntakeDrawer({
                   value={startStatus}
                   onChange={setStartStatus}
                   width="w-full"
+                avoidCollisions
                   ariaLabel="Start status"
                   options={[
                     { value: "received", label: "Received (walk-in)" },
@@ -712,15 +750,7 @@ export function RmaIntakeDrawer({
               </Field>
             </div>
           )}
-        </div>
-
-        <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button size="sm" disabled={blocked || saving} onClick={() => void submit()}>
-            {saving ? "Opening…" : "Open claim"}
-          </Button>
+          </Section>
         </div>
       </SheetContent>
     </Sheet>

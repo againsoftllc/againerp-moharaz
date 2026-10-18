@@ -166,7 +166,11 @@ class Orchestrator:
         max_steps: int = 8,
         enable_web_search: bool = False,
         web_search_max_uses: int = 3,
+        followup=None,
     ):
+        # After the first tool call the model only has to read the result and answer: `followup(names of the tools used)` returns the
+        # (smaller) system prompt and tool list for the remaining steps - the first step carries the full routed set (ai.md 5.2).
+        self._followup = followup
         self._provider = provider
         self._tools = {t.definition.name: t for t in tools}
         self._committed = False  # a confirmed action already wrote something in this run
@@ -290,11 +294,12 @@ class Orchestrator:
                 output_tokens=response.output_tokens,
             )
 
+        cur_system, cur_defs, used = self._system, self._tool_defs, set()
         for step_no in range(self._max_steps):
             response: AIResponse = self._provider.tool_call(
                 messages,
-                self._tool_defs,
-                system=self._system,
+                cur_defs,
+                system=cur_system,
                 model=self._model,
                 max_tokens=self._max_tokens,
                 server_tools=self._server_tools,
@@ -338,6 +343,9 @@ class Orchestrator:
                     }
                 )
             messages.append(AIMessage(role="user", content=tool_results))
+            used |= {c.name for c in response.tool_calls}
+            if self._followup:
+                cur_system, cur_defs = self._followup(used)
 
         # Exhausted max_steps without reaching end_turn — stop, don't loop forever.
         return OrchestratorResult(
@@ -383,12 +391,13 @@ class Orchestrator:
             )
             return
 
+        cur_system, cur_defs, used = self._system, self._tool_defs, set()
         for _step_no in range(self._max_steps):
             response: Optional[AIResponse] = None
             for kind, payload in self._provider.tool_call_stream(
                 messages,
-                self._tool_defs,
-                system=self._system,
+                cur_defs,
+                system=cur_system,
                 model=self._model,
                 max_tokens=self._max_tokens,
                 server_tools=self._server_tools,
@@ -460,6 +469,9 @@ class Orchestrator:
                     }
                 )
             messages.append(AIMessage(role="user", content=tool_results))
+            used |= {c.name for c in response.tool_calls}
+            if self._followup:
+                cur_system, cur_defs = self._followup(used)
 
         yield StreamDone(
             stop_reason="max_steps",
@@ -471,12 +483,36 @@ class Orchestrator:
         )
 
 
+MAX_RESULT_ROWS = 40      # a list longer than this is cut, with a note telling the model to narrow the query
+MAX_RESULT_TEXT = 1500    # one long text value (a description, an HTML body) is cut
+
+
+def _compact(value: Any, depth: int = 0) -> Any:
+    """Tool output without what the model cannot use: null / empty fields, very long lists and texts."""
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            c = _compact(v, depth + 1)
+            if c is None or c == "" or c == [] or c == {}:
+                continue
+            out[k] = c
+        return out
+    if isinstance(value, list):
+        rows = [_compact(v, depth + 1) for v in value[:MAX_RESULT_ROWS]]
+        if len(value) > MAX_RESULT_ROWS:
+            rows.append(f"... {len(value) - MAX_RESULT_ROWS} more rows not shown - narrow the query (filter / aggregate / limit) if they are needed")
+        return rows
+    if isinstance(value, str) and len(value) > MAX_RESULT_TEXT:
+        return value[:MAX_RESULT_TEXT] + "..."
+    return value
+
+
 def _stringify(value: Any) -> str:
     if isinstance(value, str):
         return value
     import json
 
     try:
-        return json.dumps(value, default=str)
+        return json.dumps(_compact(value), default=str, ensure_ascii=False, separators=(",", ":"))
     except TypeError:
         return str(value)

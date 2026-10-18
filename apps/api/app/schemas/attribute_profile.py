@@ -110,7 +110,9 @@ class AttributeProfileReorderRequest(BaseModel):
     ordered_ids: List[str] = Field(min_length=1)
 
 
-FILTER_DISPLAY_TYPES = ("multi_select", "range", "boolean", "color", "dynamic")
+# A filter is either single-select (radio buttons: one value at a time) or multi-select (checkboxes: several).
+# Older rows may still hold range / boolean / color / dynamic - those read as single-select.
+FILTER_DISPLAY_TYPES = ("single_select", "multi_select")
 
 
 class BulkAttributeItem(BaseModel):
@@ -118,13 +120,12 @@ class BulkAttributeItem(BaseModel):
     name: str
     field_type: Optional[str] = None  # text | dropdown | multi_select …; None keeps the current type
     filterable: bool = False
-    filter_display_type: str = "multi_select"
+    filter_display_type: str = "single_select"
     storefront_filter_visible: bool = True
     predefined_values: List[str] = []
 
     def normalized_display_type(self) -> str:
-        raw = (self.filter_display_type or "multi_select").strip().lower()
-        return raw if raw in FILTER_DISPLAY_TYPES else "multi_select"
+        return "multi_select" if (self.filter_display_type or "").strip().lower() == "multi_select" else "single_select"
 
 
 class BulkAttributeGroupItem(BaseModel):

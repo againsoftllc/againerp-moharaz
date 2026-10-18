@@ -69,7 +69,7 @@ def _field_to_read(row: CatalogAttribute) -> AttributeFieldRead:
         is_searchable=row.is_searchable,
         is_visible=row.is_visible,
         is_active=row.is_active,
-        filter_display_type=getattr(row, "filter_display_type", None) or "multi_select",
+        filter_display_type="multi_select" if row.field_type == "multi_select" else "single_select",
         storefront_filter_visible=bool(getattr(row, "storefront_filter_visible", True)),
         unit=row.unit,
         help_text=row.help_text,
@@ -519,13 +519,17 @@ def _replace_profile_structure(
             # the code is the shop filter's key, shared across profiles: keep it unless the attribute is renamed
             if renamed or not attr.code:
                 attr.code = slugify_code(attr_item.name)
+            display = attr_item.normalized_display_type()
             if attr_item.field_type:
                 attr.field_type = attr_item.field_type
+            elif attr_item.filterable and (attr_item.predefined_values or attr.field_type in ("dropdown", "multi_select")):
+                # the filter's single / multi choice IS how the spec value is entered: one option, or several
+                attr.field_type = "multi_select" if display == "multi_select" else "dropdown"
             elif attr.field_type != "multi_select":
                 attr.field_type = "dropdown" if attr_item.predefined_values else "text"
             attr.sort_order = attr_index
             attr.is_filterable = attr_item.filterable
-            attr.filter_display_type = attr_item.normalized_display_type()
+            attr.filter_display_type = "multi_select" if attr.field_type == "multi_select" else "single_select"
             attr.storefront_filter_visible = bool(attr_item.storefront_filter_visible)
             attr.predefined_values = json.dumps(attr_item.predefined_values or [])
             db.flush()

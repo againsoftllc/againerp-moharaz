@@ -28,6 +28,8 @@ from app.models.media import Media
 from app.models.ecommerce_item import EcommerceItem
 from app.models.ecommerce_item_category import EcommerceItemCategory
 from app.schemas.product import (
+    ProductAddToInventory,
+    ProductAddToInventoryResponse,
     ProductCreate,
     ProductDetailRead,
     ProductDetailResponse,
@@ -364,6 +366,7 @@ def _product_read(
         slug=row.slug,
         sku=identity["sku"],
         model=row.model,
+        remarks=row.remarks,
         description=None if lean else row.description,
         short_description=None if lean else row.short_description,
         price=row.price,
@@ -415,10 +418,13 @@ def _product_read(
         source_url=getattr(row, "source_url", None),
         seller_info_json=getattr(row, "seller_info_json", None),
         dropship_meta_json=getattr(row, "dropship_meta_json", None),
+        in_inventory=bool(getattr(row, "in_inventory", True)),
+        on_website=bool(getattr(row, "on_website", True)),
         gallery_json=getattr(row, "gallery_json", None),
         video_urls_json=getattr(row, "video_urls_json", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
+        updated_by_name=getattr(row, "updated_by_name", None),
     )
 
 
@@ -688,6 +694,7 @@ def _upsert_product_inventory(
         display_name = f"{product.name} — {variant.name}"
 
     inv = InventoryItemService(db).ensure_for_catalog_product(product)
+    product.in_inventory = True
     item_id = product.item_id or product.id
     movement_svc = StockMovementService(db)
     row = movement_svc.lock_stock(item_id, payload.warehouse_id, product.company_id or "default")
@@ -863,6 +870,11 @@ def list_products(
         pattern="^(list|full)$",
         description="list = grid columns only (no description / short description / meta description / tags)",
     ),
+    scope: Optional[str] = Query(
+        None,
+        pattern="^(inventory|website)$",
+        description="inventory = Inventory module catalog; website = Website module product list",
+    ),
 ) -> ProductListResponse:
     query = db.query(CatalogProduct).filter(CatalogProduct.company_id == company_id)
     if status:
@@ -881,6 +893,11 @@ def list_products(
         query = query.filter(CatalogProduct.dropship_meta_json.isnot(None))
     elif channel == "catalog":
         query = query.filter(CatalogProduct.dropship_meta_json.is_(None))
+    # Inventory and Website keep separate product lists over the same table.
+    if scope == "inventory":
+        query = query.filter(CatalogProduct.in_inventory.is_(True))
+    elif scope == "website":
+        query = query.filter(CatalogProduct.on_website.is_(True))
 
     total = query.count()
     rows = (
@@ -898,6 +915,31 @@ def list_products(
         data=[_product_read(db, r, prefetch, lean=lean) for r in rows],
         meta=ProductListMeta(count=total, page=page, per_page=per_page),
     )
+
+
+@router.post("/add-to-inventory", response_model=ProductAddToInventoryResponse)
+def add_products_to_inventory(
+    payload: ProductAddToInventory,
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("catalog", "write")),
+    company_id: str = Depends(get_current_company_id),
+) -> ProductAddToInventoryResponse:
+    """Explicitly bring website products into the Inventory module's catalog (never automatic)."""
+    ids = list(dict.fromkeys(payload.product_ids))
+    rows = (
+        db.query(CatalogProduct)
+        .filter(CatalogProduct.id.in_(ids), CatalogProduct.company_id == company_id)
+        .all()
+    )
+    added = 0
+    inv_svc = InventoryItemService(db)
+    for row in rows:
+        if not row.in_inventory:
+            added += 1
+        row.in_inventory = True
+        inv_svc.ensure_for_catalog_product(row)
+    db.commit()
+    return ProductAddToInventoryResponse(added=added, already=len(rows) - added, missing=len(ids) - len(rows))
 
 
 @router.get("/slug/check", response_model=ProductSlugCheckResponse)
@@ -1030,11 +1072,8 @@ def _free_slug(db: Session, wanted: str, company_id: str, *, exclude_product_id:
 
 
 def _generate_sku(db: Session, identity_svc: "ItemIdentityService", company_id: str) -> str:
-    """`SKU-nnnnnn`, matching the numbers the quick-add form used to mint client-side."""
-    while True:
-        candidate = f"SKU-{secrets.randbelow(900000) + 100000}"
-        if not identity_svc.sku_taken(candidate, company_id=company_id):
-            return candidate
+    """The next serial SKU (`SKU-000001`, `SKU-000002` ...) - a product saved with no SKU gets one."""
+    return identity_svc.next_serial_sku(company_id)
 
 
 def _sku_conflict_detail(db: Session, sku: str, company_id: str) -> str:
@@ -1100,6 +1139,7 @@ def duplicate_product(
         slug=_unique_slug(db, source.slug, company_id),
         sku=_unique_sku(db, source.sku, company_id),
         model=source.model,
+        remarks=source.remarks,
         description=source.description,
         price=source.price,
         compare_at_price=source.compare_at_price,
@@ -1134,6 +1174,8 @@ def duplicate_product(
         source_url=getattr(source, "source_url", None),
         seller_info_json=getattr(source, "seller_info_json", None),
         dropship_meta_json=getattr(source, "dropship_meta_json", None),
+        in_inventory=bool(getattr(source, "in_inventory", True)),
+        on_website=bool(getattr(source, "on_website", True)),
         gallery_json=getattr(source, "gallery_json", None),
         video_urls_json=getattr(source, "video_urls_json", None),
     )

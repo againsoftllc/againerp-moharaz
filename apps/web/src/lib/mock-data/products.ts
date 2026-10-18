@@ -17,6 +17,8 @@ export type Product = {
   /** where the product was copied from (a competitor page); Product Draft's AI column reads it */
   sourceUrl?: string | null;
   model?: string;
+  /** Internal staff note about the product — not shown on the storefront. */
+  remarks?: string | null;
   price: number;
   compareAtPrice?: number;
   /** Cost the product was bought at — captured at intake from Inventory */
@@ -35,6 +37,8 @@ export type Product = {
   brand: string;
   thumbnail: string;
   updatedAt: string;
+  /** Who made the last change (the signed-in user's name at the time) */
+  updatedBy?: string;
   seoTitle: string;
   description?: string;
   shortDescription?: string;

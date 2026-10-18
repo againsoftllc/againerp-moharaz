@@ -10,7 +10,6 @@ import {
   Settings,
   Sparkles,
   Store,
-  Wrench,
   Truck,
   Users,
   Warehouse,
@@ -40,12 +39,6 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     title: "Inventory",
     icon: Warehouse,
     href: "/inventory/dashboard",
-  },
-  {
-    id: "rma",
-    title: "RMA",
-    icon: Wrench,
-    href: "/rma",
   },
   {
     id: "service",
@@ -117,7 +110,7 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
     id: "workspace",
     title: "Workspace",
     icon: Settings,
-    href: "/workspace/modules",
+    href: "/workspace/apps",
   },
 ];
 

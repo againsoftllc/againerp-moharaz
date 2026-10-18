@@ -20,7 +20,6 @@ export const TOGGLEABLE_MODULE_IDS = [
   "hrm",
   "blog",
   "website",
-  "media",
   "sales",
   "pos",
   "finance",

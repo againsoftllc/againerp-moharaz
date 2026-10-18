@@ -51,7 +51,7 @@ export const DASHBOARD_WIDGETS: DashboardWidgetDef[] = [
     id: "rma",
     title: "RMA",
     moduleIds: ["rma"],
-    href: "/rma",
+    href: "/inventory/rma",
     fetch: () => apiFetch<{ data: any }>("/api/v1/rma/dashboard").then((r) => r.data),
     mapToStats: (d) => [
       { id: "rma-open", label: "Open tickets", value: String(d.open_count ?? 0), change: "" },

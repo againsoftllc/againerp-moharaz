@@ -2,19 +2,24 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Download, Filter, Package } from "lucide-react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Download,
+  ExternalLink,
+  Package,
+  Search,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { PLUGIN_CATEGORIES, PLUGIN_REGISTRY } from "@/lib/settings/plugins/registry";
 import type { PluginCategory } from "@/lib/settings/plugins/types";
 import { usePluginsStore } from "@/lib/store/plugins-store";
-import { PluginBrandMark } from "@/components/settings/plugins/plugin-field-row";
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/native-select";
-import { FilterSelect } from "@/components/shared/filter-select";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 import { installBkashPlugin } from "@/lib/api/bkash-plugin";
 import { installSslcommerzPlugin } from "@/lib/api/sslcommerz-plugin";
 import { installPaypalPlugin } from "@/lib/api/paypal-plugin";
@@ -26,11 +31,16 @@ import { fetchServerPluginStates } from "@/lib/api/plugin-install-state";
 
 type StatusFilter = "all" | "installed" | "available";
 
-export function PluginsHome() {
+const STATUS_TABS: { id: StatusFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "installed", label: "Installed" },
+  { id: "available", label: "Available" },
+];
+
+export function PluginsHome({ embedded = false }: { embedded?: boolean }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [category, setCategory] = useState<"all" | PluginCategory>("all");
-  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const plugins = usePluginsStore((s) => s.plugins);
   const installPlugin = usePluginsStore((s) => s.installPlugin);
   const centerBound = usePluginsStore((s) => s.centerBound);
@@ -58,10 +68,23 @@ export function PluginsHome() {
 
   const visibleRegistry = useMemo(
     () => PLUGIN_REGISTRY.filter((p) => isPluginVisible(p.id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [isPluginVisible, centerBound, plugins],
   );
 
   const installedCount = visibleRegistry.filter((p) => plugins[p.id]?.installed).length;
+  const activeCount = visibleRegistry.filter(
+    (p) => plugins[p.id]?.installed && plugins[p.id]?.enabled,
+  ).length;
+  const statusCounts: Record<StatusFilter, number> = {
+    all: visibleRegistry.length,
+    installed: installedCount,
+    available: visibleRegistry.length - installedCount,
+  };
+
+  const usedCategories = (Object.keys(PLUGIN_CATEGORIES) as PluginCategory[]).filter((id) =>
+    visibleRegistry.some((p) => p.category === id),
+  );
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -119,198 +142,230 @@ export function PluginsHome() {
   };
 
   return (
-    <div className="relative flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
-      <div
-        data-component="plugins-filters"
-        className="product-grid-filters flex min-w-0 shrink-0 items-center gap-1.5 border-b border-border py-1 pl-2 pr-0"
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <Input
-            placeholder="Search plugins… e.g. Pathao, bKash"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-[220px] shrink-0 rounded-none"
-          />
-          <FilterSelect
-            value={category}
-            onChange={(next) => setCategory(next as "all" | PluginCategory)}
-            width="w-[170px]"
-            className="shrink-0"
-            ariaLabel="Category filter"
-            options={[
-              { value: "all", label: "All categories" },
-              ...Object.entries(PLUGIN_CATEGORIES).map(([id, meta]) => ({
-                value: id,
-                label: meta.label,
-              })),
-            ]}
-          />
-          <FilterSelect
-            value={status}
-            onChange={(next) => setStatus(next as StatusFilter)}
-            width="w-[130px]"
-            className="shrink-0"
-            ariaLabel="Status filter"
-            options={[
-              { value: "all", label: "All plugins" },
-              { value: "installed", label: "Installed" },
-              { value: "available", label: "Available" },
-            ]}
-          />
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 pb-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          {embedded ? <h2 className="text-sm font-semibold">Plugins</h2> : <h1 className="page-title">Plugins</h1>}
+          <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
+            Connect couriers, payment gateways, marketing tools and more. Install a plugin, then
+            configure it to start using it.
+          </p>
+        </div>
+        <dl className="flex items-center gap-5 text-xs">
+          <div>
+            <dt className="text-muted-foreground">Installed</dt>
+            <dd className="text-base font-semibold tabular-nums">{installedCount}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Active</dt>
+            <dd className="text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+              {activeCount}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Available</dt>
+            <dd className="text-base font-semibold tabular-nums">{statusCounts.available}</dd>
+          </div>
+        </dl>
+      </header>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-xs">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              placeholder="Search plugins… e.g. Pathao, bKash"
+              aria-label="Search plugins"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-9 rounded-none pl-8 pr-8 text-xs"
+            />
+            {query ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center text-muted-foreground hover:text-foreground"
+                onClick={() => setQuery("")}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+          <div
+            role="tablist"
+            aria-label="Filter by status"
+            className="inline-flex w-full border border-border bg-card sm:w-auto"
+          >
+            {STATUS_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={status === tab.id}
+                onClick={() => setStatus(tab.id)}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors sm:flex-none",
+                  status === tab.id
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                {tab.label}
+                <span
+                  className={cn(
+                    "tabular-nums text-[10px]",
+                    status === tab.id ? "text-primary-foreground/80" : "text-muted-foreground",
+                  )}
+                >
+                  {statusCounts[tab.id]}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div
+          role="tablist"
+          aria-label="Filter by category"
+          className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {(["all", ...usedCategories] as ("all" | PluginCategory)[]).map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={category === id}
+              onClick={() => setCategory(id)}
+              className={cn(
+                "shrink-0 border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                category === id
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
+              )}
+            >
+              {id === "all" ? "All categories" : PLUGIN_CATEGORIES[id].label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto bg-background px-3 py-3">
-        {grouped.length === 0 ? (
-          <div className="flex min-h-[240px] flex-col items-center justify-center rounded-lg border border-dashed border-input bg-card">
-            <Package className="h-8 w-8 text-muted-foreground" />
-            <p className="mt-2 text-sm font-medium">No plugins match your filters</p>
-            <Button size="sm" className="mt-4" onClick={resetFilters}>
-              Clear filters
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-5">
-            {grouped.map(([categoryId, list]) => (
-              <section key={categoryId}>
-                <div className="mb-2">
-                  <h2 className="text-sm font-semibold">
-                    {PLUGIN_CATEGORIES[categoryId as PluginCategory].label}
-                  </h2>
-                  <p className="text-[11px] text-muted-foreground">
-                    {PLUGIN_CATEGORIES[categoryId as PluginCategory].description}
-                  </p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {list.map((plugin) => {
-                    const state = plugins[plugin.id];
-                    const installed = Boolean(state?.installed);
-                    const enabled = Boolean(state?.enabled);
+      {grouped.length === 0 ? (
+        <div className="flex flex-col items-center gap-1 border border-dashed border-border px-4 py-12 text-center">
+          <Package className="h-6 w-6 text-muted-foreground" aria-hidden />
+          <p className="text-sm font-medium">No plugins match your filters</p>
+          <p className="text-xs text-muted-foreground">
+            Try a different search, status or category.
+          </p>
+          <Button variant="outline" size="sm" className="mt-2 rounded-none" onClick={resetFilters}>
+            Reset filters
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {grouped.map(([categoryId, list]) => (
+            <section key={categoryId} aria-labelledby={`plugin-cat-${categoryId}`}>
+              <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
+                <h2 id={`plugin-cat-${categoryId}`} className="text-sm font-semibold">
+                  {PLUGIN_CATEGORIES[categoryId as PluginCategory].label}
+                </h2>
+                <span className="text-[11px] text-muted-foreground">
+                  {list.length} · {PLUGIN_CATEGORIES[categoryId as PluginCategory].description}
+                </span>
+              </div>
+              <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {list.map((plugin) => {
+                  const state = plugins[plugin.id];
+                  const installed = Boolean(state?.installed);
+                  const enabled = Boolean(state?.enabled);
 
-                    return (
-                      <div
-                        key={plugin.id}
-                        className="group flex flex-col rounded-xl border border-input bg-card p-4 shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
-                      >
-                        <div className="flex items-start gap-3">
-                          <PluginBrandMark name={plugin.name} color={plugin.brandColor} />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="text-sm font-semibold">{plugin.name}</p>
-                              {installed ? (
-                                <Badge variant={enabled ? "success" : "muted"}>
-                                  {enabled ? "Active" : "Disabled"}
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline">Not installed</Badge>
-                              )}
-                            </div>
-                            <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
-                              {plugin.description}
-                            </p>
-                            <p className="mt-2 text-[10px] text-muted-foreground">
-                              v{plugin.version} · {plugin.author}
-                            </p>
-                          </div>
+                  return (
+                    <li
+                      key={plugin.id}
+                      className="flex flex-col border border-border bg-card p-3 transition-colors hover:border-primary/50"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div
+                          className="flex h-10 w-10 shrink-0 items-center justify-center text-sm font-bold text-white"
+                          style={{ backgroundColor: plugin.brandColor }}
+                          aria-hidden
+                        >
+                          {plugin.name.charAt(0).toUpperCase()}
                         </div>
-                        <div className="mt-4 flex gap-2 border-t border-input/60 pt-3">
-                          {installed ? (
-                            <Button size="sm" className="flex-1" asChild>
-                              <Link href={plugin.appHref ?? `/workspace/plugins/${plugin.id}`}>
-                                {plugin.appHref ? "Open" : "Configure"}{" "}
-                                <ArrowRight className="ml-1 h-3.5 w-3.5" />
-                              </Link>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <h3 className="text-sm font-semibold">{plugin.name}</h3>
+                            {installed ? (
+                              <Badge variant={enabled ? "success" : "muted"} className="rounded-none">
+                                {enabled ? <CheckCircle2 className="mr-1 h-3 w-3" aria-hidden /> : null}
+                                {enabled ? "Active" : "Disabled"}
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 line-clamp-2 min-h-8 text-[11px] leading-4 text-muted-foreground">
+                            {plugin.description}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex items-center gap-2 border-t border-border/70 pt-2.5">
+                        <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+                          v{plugin.version} · {plugin.author}
+                        </span>
+                        <div className="ml-auto flex shrink-0 items-center gap-1">
+                          {plugin.website ? (
+                            <Button size="icon" variant="ghost" className="h-7 w-7 rounded-none" asChild>
+                              <a
+                                href={plugin.website}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label={`${plugin.name} website`}
+                                title="Visit website"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </a>
                             </Button>
+                          ) : null}
+                          {installed ? (
+                            <>
+                              {plugin.appHref ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 rounded-none px-2 text-xs"
+                                  asChild
+                                >
+                                  <Link href={`/workspace/plugins/${plugin.id}`}>Settings</Link>
+                                </Button>
+                              ) : null}
+                              <Button size="sm" className="h-7 rounded-none px-2.5 text-xs" asChild>
+                                <Link href={plugin.appHref ?? `/workspace/plugins/${plugin.id}`}>
+                                  {plugin.appHref ? "Open" : "Configure"}
+                                  <ArrowRight className="ml-1 h-3 w-3" />
+                                </Link>
+                              </Button>
+                            </>
                           ) : (
                             <Button
                               size="sm"
-                              className="flex-1"
+                              className="h-7 rounded-none px-2.5 text-xs"
                               disabled={!canWrite}
                               onClick={() => void handleInstall(plugin.id)}
                             >
-                              <Download className="mr-1.5 h-3.5 w-3.5" /> Install
-                            </Button>
-                          )}
-                          {plugin.appHref && installed && (
-                            <Button size="sm" variant="outline" asChild>
-                              <Link href={`/workspace/plugins/${plugin.id}`}>Settings</Link>
-                            </Button>
-                          )}
-                          {plugin.website && (
-                            <Button size="sm" variant="outline" asChild>
-                              <a href={plugin.website} target="_blank" rel="noreferrer">
-                                Website
-                              </a>
+                              <Download className="mr-1 h-3 w-3" /> Install
                             </Button>
                           )}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="flex h-[34px] shrink-0 items-center gap-2 border-t border-border bg-background px-2.5">
-        <span className="text-sm font-medium">Plugins</span>
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-7 w-7"
-          onClick={() => setFilterSheetOpen(true)}
-          aria-label="Filters"
-          title="Filters"
-        >
-          <Filter className="h-3.5 w-3.5" />
-        </Button>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {filtered.length} shown · {installedCount} installed · {PLUGIN_REGISTRY.length} total
-        </span>
-      </div>
-
-      <Sheet open={filterSheetOpen} onOpenChange={setFilterSheetOpen}>
-        <SheetContent side="right" className="w-full max-w-sm overflow-y-auto">
-          <h2 className="pr-8 text-base font-semibold">Filters</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Narrow the plugin list by category and install status.
-          </p>
-          <div className="mt-4 space-y-3">
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Category</span>
-              <Select
-                value={category}
-                onChange={(e) => setCategory(e.target.value as "all" | PluginCategory)}
-                className="w-full rounded-none"
-              >
-                <option value="all">All categories</option>
-                {Object.entries(PLUGIN_CATEGORIES).map(([id, meta]) => (
-                  <option key={id} value={id}>
-                    {meta.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Status</span>
-              <Select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as StatusFilter)}
-                className="w-full rounded-none"
-              >
-                <option value="all">All plugins</option>
-                <option value="installed">Installed</option>
-                <option value="available">Available</option>
-              </Select>
-            </label>
-          </div>
-          <Button variant="outline" size="sm" className="mt-4" onClick={resetFilters}>
-            Reset all filters
-          </Button>
-        </SheetContent>
-      </Sheet>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

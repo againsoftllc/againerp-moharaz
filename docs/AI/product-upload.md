@@ -25,6 +25,7 @@ needs the admin's approval first**. Everything else is filled automatically.
 |------|-------|
 | Always fetch the **original** image — never the small / cached copy the page links (`…/cache/…-500x500.webp`, `…-1200x630.png`). The size marker is stripped and the original is tried first; the page's own URL is the fallback | ✅ (`_original_candidates`) — verified on startech.com.bd: `…/image/cache/catalog/…/v50x-01-1200x630.webp` → `…/image/catalog/…/v50x-01.webp` |
 | A product with **several images** gets **all** of them, in the **source order** (first = main image / thumbnail) | ✅ up to **20** images (was 8); duplicates of the same photo collapsed to the largest rendition |
+| The page's **social-share image** (`og:image`, `…-1200x630.webp`) is usually a promo collage, **not** the product photo - it is **never used**. The gallery is the product's **own photos**, in the page order (first = main image) | ✅ (`_SOCIAL_IMAGE`) - verified on startech.com.bd: a collage + 1 image → the 6 real photos of the product |
 | Every image is stored as a **500 × 500 px square**: scaled to *fit* (never stretched or cropped), centred on a white background, transparent PNGs flattened on white, saved as **WebP quality 92** (GIF / SVG kept as they are) | ✅ (`to_square`; Pillow) — verified: 3 source images → three 500×500 WebP files of 9–24 KB |
 | **SEO-friendly file names** from the product's slug and the image's position: `akaso-v50x-action-camera-1.webp`, `-2.webp`, `-3.webp` (a 4-character suffix is added only if that name already exists) | ✅ |
 | **Alt text and title** from the product name: first image `Akaso V50X Action Camera`, the others `… - view 2`, `… - view 3`; no seller name | ✅ |
@@ -47,6 +48,9 @@ needs the admin's approval first**. Everything else is filled automatically.
 | Keep the **source product title as it is** | ✅ (unless a name preset rewrites it) |
 | If the title is **not SEO friendly** (all caps, junk, store name, "Price in BD…" suffix, too long), rewrite it to a **common standard**: `<Brand> <Model> <Key spec> <Product type>` — max 80 characters, no seller name | ✅ preset `catalog.product.name` saved (live, 2026-10-17): strips "Price in Bangladesh \| Star Tech", rewrites to `<Brand> <Model> <Key spec> <Product type>` when not SEO friendly |
 
+The source shop's tail ("Price in Bangladesh", the shop name after a separator) is **always** removed from the title by code - no AI
+cost, no preset needed. - ✅ (`_clean_title`)
+
 ## A3. Slug / URL
 
 | Rule | Today |
@@ -59,10 +63,10 @@ needs the admin's approval first**. Everything else is filled automatically.
 
 | Rule | Today |
 |------|-------|
-| Select the **whole chain**: parent category, sub category, 2nd sub category (whatever exists) | ✅ matched category **plus all its parents** |
+| Select the **whole chain**: parent category, sub category, 2nd sub category (whatever exists) | ✅ the **source breadcrumb mapped onto OUR tree level by level** - each crumb must be a child of the one before (`Laptop > All Laptop > Asus`, brand level included - the right "Asus" of the 25 in the tree). The deepest is the primary; a crumb we do not have is skipped; no usable trail → the model's choice plus its parents (`_category_path_from_breadcrumb`) |
 | If the right category **exists** → select it | ✅ |
 | If it does **not** exist → propose a **new category**; create it **only after admin approval** | 🟡 today it is **created automatically** (`create_category_if_missing`) |
-| At approval time show the **suggested category** and also **other options** (existing categories) so the admin can pick a different one or **type a custom category** when the suggestion does not match | ⬜ |
+| At approval time show the **suggested category** and also **other options** (existing categories) so the admin can pick a different one or **type a custom category** when the suggestion does not match | ✅ the **review card** (A15) shows the AI's categories in the product editor's own searchable tree picker - the admin changes them before approving; a suggestion that does not exist is flagged (created only if none is picked) |
 | Creating a category creates the **whole path** (parent > sub > 2nd sub) — each missing level asked for approval | ⬜ |
 | A new category must follow the **category rules** (naming, slug, caption/SEO text, channel `catalog`, active) and be fully filled in | ⬜ |
 | Never use "Uncategorized" | 🟡 only with a preset |
@@ -72,19 +76,24 @@ needs the admin's approval first**. Everything else is filled automatically.
 | Rule | Today |
 |------|-------|
 | Match against our brands (case-insensitive); select it | ✅ |
-| Not found → propose a new brand; **create only after admin approval**, following the **brand rules** (name, slug, active, logo later) | 🟡 created automatically today |
+| Not found → propose a new brand; **create only after admin approval**, following the **brand rules** (name, slug, active, logo later) | 🟡 the review card (A15) shows the brand picker with the AI's choice and flags a new brand; unless the admin picks one it is created on Accept |
 
 ## A6. Warranty
 
 | Rule | Today |
 |------|-------|
-| **Detect the warranty from the source** (spec row, text, title) | ✅ |
-| **Select it from our warranty list** when it matches (e.g. "1 Year Official Warranty") | ✅ preset `catalog.product.warranty`: normalised to `<N> Year(s) Official Warranty`, our wording reused when it matches; empty when not stated (stored as text) |
-| No match → propose a **new warranty option**; **add only after admin approval** | ⬜ |
+| **Detect the warranty from the source** - any spec row whose label has "warranty" ("Warranty", "Warranty Details" ...), the text or the title | ✅ |
+| The **Warranty field holds only a short choice from our predefined list**: `6 Months`, `1 Year`, `2 Years` ... `Lifetime` - the product's own first duration ("02 years International Limited Warranty (Battery 1 year)" → `2 Years`). The **full sentence stays in the specifications** (the "Warranty Details" row) | ✅ `normalize_warranty`; the list is seeded by `scripts/seed_warranty_options.py` (No Warranty, 3 / 6 Months, 1-5 and 10 Years, Lifetime) |
+| **"No Warranty" is never picked automatically** (changed 2026-10-18): a warranty with no readable duration stays **empty** - never a default, never a guess; only an admin typing it sets "No Warranty" | ✅ `_fix_warranty` (an earlier guessed "No Warranty" is cleared when the draft is re-filled) |
+| A text with no duration ("Official warranty") | ✅ field stays empty, the sentence is in the specifications |
+| No match in the list → propose a **new warranty option**; **add only after admin approval** | ⬜ (the duration label, e.g. `18 Months`, is used as it is) |
 
 ## A7. Origin
 
 Auto-select the country of origin when it is stated or detectable; **otherwise leave it empty** (never guess). — ✅
+
+**Model is always set**: the model's answer, else the page's own "Model" spec row / highlight ("Model: Vivobook 15 A1504VA"), else the
+product code in the title (the word mixing letters and digits, e.g. `A1504VA`). — ✅ (`_ensure_model`)
 
 ## A8. Status, visibility, tags, prices, stock
 
@@ -101,15 +110,35 @@ Auto-select the country of origin when it is stated or detectable; **otherwise l
 
 ## A9. Short description
 
-**Exactly 4 bullet points**, one under the other, each a key selling spec, written for us (no seller name). — 🟡 preset
-`catalog.product.short_description` saved; on the Toshiba test it gave 4 lines but they were plain spec lines — check the wording.
+**Exactly 4 bullet points**, one under the other - the **key features** a shopper decides on (processor, memory / storage, display,
+a standout feature, connectivity ...), each written as **"Label: value"** like the storefront's key-feature list
+(`Processor: Intel Core Ultra 5`, `RAM: 16GB DDR5`, `Display: 14" WUXGA touch`) - changed 2026-10-18 (it used to be free phrases):
+- every line has a short label, a colon and the value; **never** a model number / MPN / SKU / part number;
+- under 80 characters each, no seller name, no price, only facts from the page.
+
+✅ `description_writer.write_short_description` (needs the `catalog.product.short_description` preset): the answer is checked (4 points,
+no model / MPN, every line "Label: value", ≤ 80 characters) and rewritten up to 3 times with the failed checks named. Fallback when the model is
+unavailable: the page's highlights with model / MPN lines removed, cut or topped up to 4 (`_NOT_A_FEATURE`).
+
+### Follow-ups (2026-10-18)
+
+| Rule | How |
+|------|-----|
+| **Warranty is never auto "No Warranty"**: without a duration on the page the field stays empty (a stray "comes with no warranty" sentence is not warranty information). Only an admin typing it sets "No Warranty" | `_fix_warranty` |
+| **Category = the source's deepest breadcrumb level**, also when we do not have it yet (Tablet > Tablet Accessories): it is created **under the deepest level we have** when the admin approves and has left the AI's category pick alone; the review card says so | `_category_from_breadcrumb`, `_resolve_or_create_category(parent_id)` |
+| **No specification sheet on the page → no specifications, no profile**: a box with only Price / Regular Price / Status / Product Code / Brand is not a spec table; nothing is invented from the text either | `scraper._extract_spec_groups` (`no_spec_sheet`) |
+| **Remarks carry only the source's product code**: `Product Code: 53803` (the page's SKU / MPN when it shows no code; nothing when it has none). Staff's own remarks stay; the code line is replaced on a re-import - search it to find a duplicate import. The Remarks box is now the last field of the product form, in a small (7px) font | `_source_remarks`, `_merge_remarks` |
+| **Source filters with no attribute go to an "Others" group** (was "Key Feature" - that name is the storefront's key-feature list, which these filters are not part of); existing "Key Feature" groups were renamed | `KEY_FEATURE_GROUP = "Others"` |
+| **Product-only spec groups show in the source's order**: each leftover group remembers the source group before it (`after`), the editor puts it right after that group instead of at the very end | `_leftover_custom_json`, `product-spec-editor.tsx` |
+| **Warranty is always the last specification**: its row last inside a group, the warranty group last of all (draft, editor default order) | `_warranty_last`, editor |
+| **Long descriptive spec values are re-worded** (consistent wording, not a copy of the source) under the `catalog.product.spec_values` preset, but the **main value is verified**: same numbers, same figure-bearing names (USB 3.2, HDMI 2.1 ...), similar length - else the original stays. Values under 40 characters and "A; B; C" option lists are never touched | `description_writer.rewrite_spec_values` / `spec_value_ok` |
 
 ## A10. Description
 
 | Rule | Today |
 |------|-------|
 | **Never a copy-paste** — rewrite the source description so the content is **unique** | ✅ **done (2026-10-17):** with the description preset a second model pass *writes* the text (`description_writer.py`) |
-| **Minimum 300 words** | ✅ checked and rewritten until it passes (test: 368 words) |
+| **Minimum 300 words** | ✅ checked and rewritten until it passes; the prompt aims for 350-550 words and tells the model not to pad (tests: 404-441 words) |
 | The **focus keyphrase appears in the first paragraph** | ✅ checked (keyphrase = brand + model) |
 | Structure: **2 × H2 and 3 × H3 headings** (minimum) | ✅ checked (test: 5 × H2, 3 × H3) |
 | **At least 2 internal links** (to our brand / category / related product pages) | ⬜ |
@@ -125,7 +154,10 @@ Auto-select the country of origin when it is stated or detectable; **otherwise l
 | Fill the **common attributes** (those the profile has) | ✅ exact label match; the model only decides filter / dropdown fields |
 | Attributes that are **not** in the profile are kept **only for this product** as **custom attributes**, in source order, nothing dropped | ✅ |
 | **No profile for the category yet** → create it **from the source table**: its attributes = exactly the source's attributes (source groups and order), nothing else; creating it needs the admin's approval (shown in the drawer's Accept / Deny with the new brand / category) | ✅ |
-| **Filters come from the source shop**: the filters on the source's category page (Wi-Fi Standard, Number of Bands, …) become filterable attributes of the new profile, options written as the shop writes them; a filter that names the same thing as a source attribute is put on that attribute, the others become attributes in a "Filters" group filled from the page. Multi-value "Additional Features" filters are skipped | ✅ (Star Tech `.filter-group`) |
+| **Filters come from the source shop**: the filters on the source's category page (Wi-Fi Standard, Number of Bands, …) become filterable attributes of the new profile, options written as the shop writes them; a filter that names the same thing as a source attribute is put on that attribute, a filter that **no attribute names** (e.g. "Features" / "Key Feature": Curved, HDR, Touch Screen ...) becomes an attribute of an **"Others" group** (called "Key Feature" before 2026-10-18) - filterable, with the shop's options as its predefined values. Multi-value "Features" filters are no longer skipped | ✅ (Star Tech `.filter-group`; `attach_source_filters`) |
+| **Every filterable attribute is either single-select or multi-select** - no other display types. **Single select** = radio buttons on the storefront, **one** value per product (a dropdown in the product editor); **Multi-select** = checkboxes, **several** values per product (stored comma-separated). The choice sets the attribute's field type, so the specification input follows it; the filter row on the storefront follows the attribute (older range / boolean / colour / dynamic values read as single-select; the built-in price / availability filters are untouched) | ✅ `normalize_filter_display_types.py`, profile save, storefront facets (`display_type` = `single_select` / `multi_select`), moharaz-web radio / checkbox |
+| For a product the **multi-select attributes get every option the source says about it** (option text found as whole words in its spec rows / title); nothing found → empty, nothing invented | ✅ `fill_multi_select` |
+| A profile that **already exists** but has no attribute for some of the source category's filters → they are **added to its "Others" group** (multi-select). Done through the admin editor's own structure save (in place - every product's saved values stay) and **only after the admin approves** the review card | ✅ `extend_profile_with_filters` |
 | When a needed filter option does not exist yet, **add the predefined value** in the style of the existing options | ✅ import adds it for filterable attributes |
 | A profile that barely matches the source (< 50 % of the rows) is used with exact label matches only - no guessing | ✅ |
 | Attribute data can be **modified** later but **not restructured** (the filter system depends on them) | ✅ |
@@ -174,6 +206,41 @@ The admin's SEO panel scores each product out of 100. The import writes the fiel
 | New **filter option** (predefined value) added to a shared attribute | SEO fields |
 | Changing a slug later (manual, with redirect) | |
 
+## A15. The review card (approve before anything is saved)
+
+Product Draft → ✨ opens the Aladin drawer. It **reads the source and saves nothing**; the AI answers with a **review card** inside the chat
+(`status: preview` + a structured `review`, `catalog_import_tools.fill_review`). The card shows:
+
+| Part | What the admin sees / can do |
+|------|------------------------------|
+| Title | old → new (the source's tail removed) |
+| **Image gallery** | every scraped photo as thumbnails (first = main), click to enlarge |
+| Price / **Compare-at price** | the source price and its old price (becomes the Compare-at price); stock status, warranty, origin |
+| **Category** | the product editor's searchable tree multi-select, the AI's chain already ticked - **change it** |
+| **Brand** | the brand picker with the AI's choice - **change it** |
+| **Specification profile** | a list of **all** profiles with the AI's pick marked, plus "Create a new profile from the source" and "No profile"; source filters with no attribute are listed ("will be added to its Others group") |
+| Short description (4 key features), description (word count + start), tags, warnings | read-only |
+
+**Accept** → `POST /api/v1/catalog/ai/products/{id}/fill-from-source/apply` with the admin's `brand_id`, `category_ids` (first = primary) and
+`profile_id` (an id, `new` or `none`) → the draft is filled (the **title is updated**; slug, SKU, status `draft` stay). **Deny** → nothing changes.
+The chat model only writes one line ("check it and press Accept") and never repeats the details.
+
+**Chat context is one conversation.** What the admin says while a review is open ("price 130000 kore upload koro", a new name, warranty ...)
+is **merged into the same review**: the model calls `fill_product_from_source` again with `overrides` (price, compare_at_price, name, model,
+warranty, origin, stock_status); the server keeps them per source URL (later messages add to earlier ones), re-uses the page it already read
+(no second scrape / AI run), lays them over the data and shows the card again ("set by you"); the older card is replaced. Accept applies the
+merged data. The model must not start another flow (`update_product`) for it.
+
+**The AI only prepares drafts.** "Upload / add / fill" fills the draft - the product stays `draft` and `private`. In the drawer `update_product`
+can never set `status = published` or `visibility = public` (blocked in code, `_no_publish`); elsewhere in chat only a system manager can, and
+only when asked in words (the RBAC has no separate "publish" action yet - a role with one would be the next step). Everyone else publishes from
+the product page.
+
+**Approval mode (drawer toolbar, remembered in the browser):** **Manual** (default) = the review card above, nothing is saved until Accept.
+**Auto** = no approval: the drawer applies the AI's own category / brand / profile choices straight away (same `apply` call; a missing brand /
+category is created, the product stays a draft). The toolbar also has a **web icon** (on = Aladin may search the web for extra facts, off = the
+source page only) and an **(i)** button that explains each control.
+
 ---
 
 # Part B — Gap list (what has to be built to meet Part A)
@@ -184,18 +251,20 @@ Ordered by how much of the rules it unlocks. Items 1–2 are pure configuration 
 |---|------|---------------|------|
 | 1 | ✅ **done** — **Turn on the AI key** (`ANTHROPIC_API_KEY` or Aladin key in AI → Settings) | everything | config |
 | 2 | ✅ **done (live, 8 presets, `scripts/seed_product_upload_presets.py`)** — **Save the rules as admin presets** (AI → Settings → Presets: `catalog`, `catalog.product.name`, `.short_description`, `.description`, `.category`, `.tags`, `.warranty`, `.seo`) | A2, A8 (tags), A9, A10 (rewrite, 300 words, headings, links), A13 | config (text in Part A is the source) |
-| 3 | **Approval flow** for new category (with suggestions + custom), brand, warranty; whole-path category creation | A4, A5, A6, A14 | code (chat tool + draft-fill API return "needs approval" instead of auto-creating) |
+| 3 | **Approval flow** for new category (with suggestions + custom), brand, warranty; whole-path category creation | A4, A5, A6, A14 | 🟡 **review card done (A15)**: category / brand / profile are picked or changed before Accept; still ⬜: creating a missing category path / brand / warranty only after its own approval |
 | 4 | **Images**: ✅ originals, all images, 500×500 WebP, SEO names / alt (done 2026-10-17) · ⬜ description images, YouTube | A1, A10 | code (`catalog_media_import`, `importer_service`) |
 | 5 | **Compare-at price, stock status, visibility private, last selling price empty** | A8 | code (`ProductDraft`, extractor schema, create) |
 | 6 | ✅ **done (links still missing)** — **Description generator** with checks: ≥300 words, keyphrase in paragraph 1, 2×H2 + 3×H3, ≥2 internal links; re-write until it passes | A10 | code (post-check after the model) |
-| 7 | **Short description = exactly 4 bullets** | A9 | code / preset |
-| 8 | **Specs & filters**: keep source order, never drop a row, auto-select filters, propose new predefined options for approval | A11 | code (`spec_profile_service`) |
+| 7 | ✅ **done** - **Short description = exactly 4 key-feature bullets**, written, no model / MPN | A9 | code + preset |
+| 8 | ✅ **done** - **Specs & filters**: source order, no row dropped, "Others" group (was "Key Feature") for unmatched source filters, single / multi-select, new options for approval | A11 | code (`spec_profile_service`) |
+| 11 | ✅ **done** - **Warranty from a predefined list**, "No Warranty" never automatic; **Model always set**; **og:image never used**, breadcrumb → category chain | A1, A4, A6, A7 | code (`importer_service`) |
+| 12 | ⬜ **Internal links** in the description (A10), description images, YouTube video, "no match → new warranty option" approval | A6, A10 | code |
 | 9 | **Slug is write-once; manual change creates an SEO redirect** | A3 | code (edit endpoint + `seo_redirects`) — verify first |
 | 10 | ✅ **done via preset** — **Meta title with "Price in BD"** | A13 | preset / `DEFAULT_SEO_RULE` |
 
 ---
 
-# Part C — How the import runs today (as of 2026-10-17)
+# Part C — How the import runs today (as of 2026-10-18)
 
 > A record of what the code does **right now**. Nothing in Part C is a proposal.
 
@@ -210,7 +279,7 @@ Three entry points use the same code:
 |---|-------------|-------|-------|
 | 1 | **AI chat** (Aladin) — tool `import_product_from_url` | AI chat in the admin | Always **preview first, then confirm**. Creates a new draft |
 | 2 | **Import dialog** — `POST /api/v1/catalog/ai/import-from-url/extract` then `/create` | Website → Products → AI import | Extract is read-only; create saves the reviewed draft |
-| 3 | **Product Draft → AI column** — `POST /api/v1/catalog/ai/products/{id}/fill-from-source` | Website → Catalog → Product Draft (the ✨ icon) | Fills the **existing** draft from its own `source_url` (keeps id, SKU, slug, status, Price Compare links) |
+| 3 | **Product Draft → AI column** — the Aladin drawer: tool `fill_product_from_source` (preview, nothing saved) → **review card** → `POST /api/v1/catalog/ai/products/{id}/fill-from-source/apply` (Accept; the older direct `/fill-from-source` still exists) | Website → Catalog → Product Draft (the ✨ icon) | Fills the **existing** draft from its own `source_url` **after the admin approved the review card (A15)**; the title is updated, SKU, slug, status and Price Compare links stay |
 
 **The Source column (Website → Price Compare and Product Draft).** The first column of the Price Compare grid is **Source**:
 the page the product was copied from (`catalog_products.source_url`). It looks and works like a competitor column —
@@ -235,7 +304,7 @@ The extraction needs an AI key. Without one every import answers **501 "AI catal
 | 1 | `ANTHROPIC_API_KEY` (Claude, forced tool call; model = `AI_CATALOG_IMPORT_MODEL`) | Railway service variable |
 | 2 | the company's **Aladin (OpenAI) key** (JSON-schema structured output) | Admin → AI → Settings |
 
-**Moharaz today:** neither is set (local or live) — so no AI import runs until one is added.
+**Moharaz today:** on the **local** stack the OpenAI key is saved as the company's workspace key (`ai_api_connections`, status connected; `ai_key_service.set_openai_key`) - the import runs. Live: set it the same way (AI → Settings) or `ANTHROPIC_API_KEY`.
 
 ---
 
@@ -273,7 +342,7 @@ OpenAI path system line: *"You extract product data from scraped web pages into 
 | `name` | Product name / title |
 | `sku` | Manufacturer part number or SKU, if shown |
 | `model` | Model number/name if shown separately from the title |
-| `short_description` | Copied **verbatim**; the page's own highlights block (Key Features / Highlights / Overview), one feature per line; else the first 1–2 sentences of the description. **Never** the meta description / "Buy X at best price…" blurb |
+| `short_description` | (Without the short-description preset:) copied **verbatim**; the page's own highlights block (Key Features / Highlights / Overview), one feature per line; else the first 1–2 sentences of the description. **Never** the meta description / "Buy X at best price…" blurb |
 | `description` | The page's own full description, **verbatim**, same words / sentences / order; paragraphs separated by a blank line, list items on their own lines. Never the meta description |
 | `brand_name` | Brand/manufacturer; use **our** spelling when it matches one of our brands |
 | `category_name` | Best single, most specific category; the exact name of one of **our** categories when one fits; a new name only when none fits |
@@ -307,7 +376,7 @@ warranty options (up to 100), and the active **admin preset rules** (section 9).
 | Price / brand / SKU / images from the page's **structured data** override the model's | `_apply_structured` |
 | Image list completed from the page's candidates (`_complete_gallery`), max **8** images used | `extract_from_url` / `create` |
 | Short description = the page's own highlights list, one point per line — **unless** an admin `catalog.product.short_description` preset exists | `extract_from_url` |
-| Spec table = the one **parsed from the HTML**, unless it is clearly a fragment (parsed count × 2 < model's count) | `extract_from_url` |
+| Spec table = the one **parsed from the HTML**, unless it is clearly a fragment (parsed count × 2 < model's count). A box with only Price / Status / Product Code / Brand is **not** a spec table: no specs, no profile | `extract_from_url`, `scraper._extract_spec_groups` |
 | Warranty taken from a spec row labelled "Warranty" when the model gave none (max 200 chars) | `extract_from_url` |
 
 **Warnings returned with the preview:** brand will be created · category will be created · no price found · no images found.
@@ -336,7 +405,8 @@ warranty options (up to 100), and the active **admin preset rules** (section 9).
 | `stock_status` | `in_stock`; `track_quantity` = false; stock 0 |
 | `tags` | up to 8 from the model |
 | `source_url` | the page address |
-| `custom_specs_json` | the spec table (when there are specs) |
+| `custom_specs_json` | the spec rows the profile has no attribute for (or the whole table with no profile), source order, each group with `after` (the source group before it); warranty last |
+| `remarks` | `Product Code: <the source's code>` (the staff's own text is kept) |
 | `gallery_json` / `thumbnail` | the image URLs (first = thumbnail) |
 | images | downloaded into our **media library** (alt text = product name), the main ones linked to the product |
 | variants | one per option combination: SKU `<product sku>-<option letters>`, price (own or base), image, `options_json` |
@@ -380,8 +450,7 @@ focus keyphrase is never empty.
 
 ## 9. Admin presets (company rules on top of the defaults)
 
-Admin → AI → Settings → Presets. Each active preset is a written rule injected into the prompt. **Moharaz has none set
-(live DB: 0 rows)** — so only the defaults above apply. Targets and the placeholder text the editor shows:
+Admin → AI → Settings → Presets. Each active preset is a written rule injected into the prompt. **The 8 product-upload presets are saved** (`scripts/seed_product_upload_presets.py --apply`; re-run it after editing the texts there, each save keeps a version) - **without them the AI copies the source text, and the 4-bullet / 300-word / SEO rules do not apply**. On a database with none, only the defaults above apply. Targets and the placeholder text the editor shows:
 
 | Target | Governs | Example in the editor |
 |--------|---------|-----------------------|
@@ -440,4 +509,11 @@ is done.
 
 | # | What to change | Which rule / section | Status |
 |---|----------------|----------------------|--------|
-| 1 | | | |
+| 1 | Review card before saving: gallery, price + old price, category / brand / profile pickers the admin can change | A15 | ✅ 2026-10-18 |
+| 2 | Original product photos + the gallery, never the generated / social-share collage | A1 | ✅ 2026-10-18 |
+| 3 | Category: the full chain incl. the brand level | A4 | ✅ 2026-10-18 |
+| 4 | Warranty: a short predefined choice, the sentence stays in the specifications; "No Warranty" never automatic | A6 | ✅ 2026-10-18 |
+| 5 | Model always set; placeholders "SKU" / "Model" | A7 | ✅ 2026-10-18 |
+| 6 | Short description = 4 key features as "Label: value" (RAM: 16GB), no model / MPN | A9 | ✅ 2026-10-18 |
+| 7 | Filters: unmatched source filters → "Others" group (renamed from "Key Feature" on 2026-10-18); only single-select (radio) or multi-select | A11 | ✅ 2026-10-18 |
+| 8 | | | |

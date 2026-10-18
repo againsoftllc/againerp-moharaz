@@ -4,6 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ListFilter, Plus, Search, X } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { FilterSelect } from "@/components/shared/filter-select";
+import { CategoryTreeFilter, categoryNamesWithDescendants } from "@/components/categories/category-tree-filter";
+import { useCatalogCategories } from "@/lib/api/use-catalog-categories";
 import { SearchDropdown } from "@/components/again/again-search-dropdown";
 
 import { findItemByScan, scanProductCode, type ScanProductHit } from "@/lib/api/product-scan";
@@ -119,15 +121,17 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [items]);
 
-  const filteredItems = useMemo(
-    () =>
-      items.filter((item) => {
-        if (brand && (item.brand ?? "") !== brand) return false;
-        if (category && (item.category ?? "") !== category) return false;
-        return true;
-      }),
-    [items, brand, category],
-  );
+  const { categories: categoryTree } = useCatalogCategories({ channel: "catalog" });
+
+  const filteredItems = useMemo(() => {
+    // a parent category also lists items filed under its sub-categories
+    const wanted = category ? categoryNamesWithDescendants(category, categoryTree) : null;
+    return items.filter((item) => {
+      if (brand && (item.brand ?? "") !== brand) return false;
+      if (wanted && !wanted.has(item.category ?? "")) return false;
+      return true;
+    });
+  }, [items, brand, category, categoryTree]);
 
   const hasFilter = Boolean(brand || category);
   const matches = matchProducts(filteredItems, query, !hasFilter).slice(0, 40);
@@ -310,17 +314,28 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
           </div>
           <div className="space-y-1">
             <p className="text-[11px] text-muted-foreground">Category</p>
-            <FilterSelect
-              value={category}
-              onChange={setCategory}
-              width="w-full"
-              ariaLabel="Category"
-              placeholder="All categories"
-              options={[
-                { value: "", label: "All categories" },
-                ...categories.map((value) => ({ value, label: value })),
-              ]}
-            />
+            {categoryTree.length > 0 ? (
+              <CategoryTreeFilter
+                categories={categoryTree}
+                value={category}
+                onChange={setCategory}
+                allValue=""
+                width="w-full"
+                avoidCollisions
+              />
+            ) : (
+              <FilterSelect
+                value={category}
+                onChange={setCategory}
+                width="w-full"
+                ariaLabel="Category"
+                placeholder="All categories"
+                options={[
+                  { value: "", label: "All categories" },
+                  ...categories.map((value) => ({ value, label: value })),
+                ]}
+              />
+            )}
           </div>
           {hasFilter ? (
             <button

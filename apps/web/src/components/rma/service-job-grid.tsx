@@ -173,7 +173,7 @@ export const ServiceJobGrid = forwardRef<
             <Eye className="mr-1.5 h-3 w-3" /> Open job
           </DropdownMenuItem>
           {data.rma_id ? (
-            <DropdownMenuItem onClick={() => router.push(`/rma?claim=${data.rma_id}`)}>
+            <DropdownMenuItem onClick={() => router.push(`/inventory/rma?claim=${data.rma_id}`)}>
               <Eye className="mr-1.5 h-3 w-3" /> Open RMA
             </DropdownMenuItem>
           ) : null}
@@ -322,7 +322,7 @@ export const ServiceJobGrid = forwardRef<
             <button
               type="button"
               className="text-left text-[11px] hover:underline"
-              onClick={() => router.push(`/rma?claim=${p.data!.rma_id}`)}
+              onClick={() => router.push(`/inventory/rma?claim=${p.data!.rma_id}`)}
             >
               Open RMA
             </button>

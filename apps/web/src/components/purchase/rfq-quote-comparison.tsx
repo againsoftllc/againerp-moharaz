@@ -1,9 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
-import { Trophy } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Pencil, Trophy } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { submitRfqQuote, updateRfqQuote } from "@/lib/api/purchase-rfq";
 import {
   QUOTATION_STATUS_LABELS,
   quotationStatusBadgeVariant,
@@ -33,11 +36,21 @@ export function RfqQuoteComparison({
   rfq,
   suppliers,
   onAward,
+  onRecorded,
 }: {
   rfq: PurchaseRfq;
   suppliers: SupplierOption[];
   onAward: (quoteId: string, supplierId: string) => void;
+  /** Called after staff record or change a bid so the parent reloads the RFQ. */
+  onRecorded?: () => void;
 }) {
+  // Staff-recorded bid (phone / email / WhatsApp quote): one supplier column at a time turns into inputs.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [prices, setPrices] = useState<Record<string, string>>({});
+  const [leadDays, setLeadDays] = useState("7");
+  const [moqValue, setMoqValue] = useState("1");
+  const [validUntil, setValidUntil] = useState("");
+  const [saving, setSaving] = useState(false);
   const supplierName = (id: string) => suppliers.find((s) => s.id === id)?.name ?? id;
 
   const quoteBySupplier = useMemo(() => {
@@ -87,6 +100,64 @@ export function RfqQuoteComparison({
 
   const rfqLocked = AWARD_LOCKED_RFQ_STATUSES.has(rfq.status);
 
+  const lowestTotal = useMemo(() => {
+    let min: number | undefined;
+    for (const id of supplierIds) {
+      const quote = quoteBySupplier.get(id);
+      if (!quote || (quote.status !== "submitted" && quote.status !== "accepted")) continue;
+      if (min == null || quote.totalAmount < min) min = quote.totalAmount;
+    }
+    return min;
+  }, [supplierIds, quoteBySupplier]);
+
+  const bidCount = supplierIds.filter((id) => quoteBySupplier.has(id)).length;
+  const winner = rfq.quotes.find((q) => q.status === "accepted");
+
+  const startRecording = (supplierId: string) => {
+    const existing = quoteBySupplier.get(supplierId);
+    const next: Record<string, string> = {};
+    for (const line of rfq.lines) {
+      const lq = existing?.lineQuotes.find((q) => q.rfqLineId === line.id);
+      next[line.id] = lq ? String(lq.unitPrice) : "";
+    }
+    setPrices(next);
+    setLeadDays(String(existing?.leadTimeDays ?? 7));
+    setMoqValue(String(existing?.moq ?? 1));
+    setValidUntil(existing?.validUntil ?? "");
+    setEditingId(supplierId);
+  };
+
+  const saveRecording = async () => {
+    if (!editingId) return;
+    const lineQuotes = rfq.lines
+      .map((line) => ({ rfq_line_id: line.id, unit_price: Number(prices[line.id]) }))
+      .filter((q) => Number.isFinite(q.unit_price) && q.unit_price > 0);
+    if (lineQuotes.length === 0) {
+      toast.error("Enter a unit price for at least one line");
+      return;
+    }
+    const existing = quoteBySupplier.get(editingId);
+    const input = {
+      supplier_id: editingId,
+      valid_until: validUntil || undefined,
+      lead_time_days: Math.max(0, Math.floor(Number(leadDays) || 0)),
+      moq: Math.max(1, Math.floor(Number(moqValue) || 1)),
+      line_quotes: lineQuotes,
+    };
+    setSaving(true);
+    try {
+      if (existing) await updateRfqQuote(rfq.id, existing.id, input);
+      else await submitRfqQuote(rfq.id, input);
+      toast.success(`Bid recorded for ${supplierName(editingId)}`);
+      setEditingId(null);
+      onRecorded?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not record bid");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (supplierIds.length === 0) {
     return (
       <p className="px-1 py-8 text-center text-xs text-muted-foreground">
@@ -96,6 +167,21 @@ export function RfqQuoteComparison({
   }
 
   return (
+    <div className="space-y-2">
+    <p className="border border-border bg-muted/20 px-2 py-1.5 text-[11px] text-muted-foreground">
+      {winner ? (
+        <>
+          <span className="font-medium text-foreground">Awarded to {supplierName(winner.supplierId)}</span> —
+          other bids were marked Not selected.
+        </>
+      ) : rfqLocked ? (
+        "This RFQ is closed — bids can no longer be changed."
+      ) : bidCount === 0 ? (
+        "No bids yet. Use Record bid under a supplier to enter the price they quoted you."
+      ) : (
+        `${bidCount} of ${supplierIds.length} supplier${supplierIds.length === 1 ? "" : "s"} bid. The lowest price in each row is green — Award the best bid to create the purchase order.`
+      )}
+    </p>
     <div className="overflow-x-auto border border-border">
       <table className="w-full min-w-[640px] border-collapse text-[12px]">
         <thead>
@@ -118,13 +204,36 @@ export function RfqQuoteComparison({
                     >
                       {supplierName(id)}
                     </p>
-                    {quote ? (
+                    {editingId === id ? (
+                      <div className="space-y-1">
+                        <label className="block text-[10px] text-muted-foreground">
+                          Lead time (days)
+                          <Input type="number" min={0} value={leadDays} onChange={(e) => setLeadDays(e.target.value)} className="mt-0.5 h-7 rounded-none px-2 text-[11px]" />
+                        </label>
+                        <label className="block text-[10px] text-muted-foreground">
+                          MOQ
+                          <Input type="number" min={1} value={moqValue} onChange={(e) => setMoqValue(e.target.value)} className="mt-0.5 h-7 rounded-none px-2 text-[11px]" />
+                        </label>
+                        <label className="block text-[10px] text-muted-foreground">
+                          Valid until
+                          <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="mt-0.5 h-7 rounded-none px-2 text-[11px]" />
+                        </label>
+                        <div className="flex gap-1 pt-1">
+                          <Button type="button" size="sm" className="h-6 rounded-none px-2 text-[10px]" disabled={saving} onClick={() => void saveRecording()}>
+                            {saving ? "Saving…" : "Save bid"}
+                          </Button>
+                          <Button type="button" size="sm" variant="ghost" className="h-6 rounded-none px-2 text-[10px]" disabled={saving} onClick={() => setEditingId(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : quote ? (
                       <>
                         <Badge
                           variant={quotationStatusBadgeVariant(quote.status)}
                           className="rounded-none text-[10px]"
                         >
-                          {QUOTATION_STATUS_LABELS[quote.status]}
+                          {quote.status === "rejected" ? "Not selected" : QUOTATION_STATUS_LABELS[quote.status]}
                         </Badge>
                         <p
                           className="truncate font-mono text-[10px] text-muted-foreground"
@@ -147,6 +256,25 @@ export function RfqQuoteComparison({
                         Awaiting bid
                       </Badge>
                     )}
+                    {editingId !== id && !rfqLocked ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="mt-1 mr-1 h-6 rounded-none px-2 text-[10px]"
+                        onClick={() => startRecording(id)}
+                      >
+                        <Pencil className="mr-1 h-3 w-3" />
+                        {quote ? "Edit bid" : "Record bid"}
+                      </Button>
+                    ) : null}
+                    {quote?.status === "accepted" ? (
+                      <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                        <Trophy className="h-3 w-3" />
+                        Awarded
+                      </span>
+                    ) : null}
+                    {quote?.status === "accepted" ? null : (
                     <Button
                       type="button"
                       size="sm"
@@ -167,6 +295,7 @@ export function RfqQuoteComparison({
                       <Trophy className="mr-1 h-3 w-3" />
                       Award
                     </Button>
+                    )}
                   </div>
                 </th>
               );
@@ -201,7 +330,17 @@ export function RfqQuoteComparison({
                       isLowest && "font-semibold text-emerald-600 dark:text-emerald-400",
                     )}
                   >
-                    {lq ? (
+                    {editingId === id ? (
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={prices[line.id] ?? ""}
+                        onChange={(e) => setPrices((p) => ({ ...p, [line.id]: e.target.value }))}
+                        placeholder="Unit price"
+                        className="h-7 rounded-none px-2 text-right text-[12px]"
+                      />
+                    ) : lq ? (
                       formatCurrency(lq.unitPrice)
                     ) : (
                       <span className="text-muted-foreground">—</span>
@@ -222,16 +361,26 @@ export function RfqQuoteComparison({
               return (
                 <td
                   key={id}
-                  className="border-l border-border px-2 py-2 text-right text-[12px] font-semibold tabular-nums"
+                  className={cn(
+                    "border-l border-border px-2 py-2 text-right text-[12px] font-semibold tabular-nums",
+                    quote && lowestTotal != null && quote.totalAmount === lowestTotal &&
+                      (quote.status === "submitted" || quote.status === "accepted") &&
+                      "text-emerald-600 dark:text-emerald-400",
+                  )}
                 >
                   {/* Always the backend-computed total_amount — never re-summed from cells. */}
                   {quote ? formatCurrency(quote.totalAmount) : "—"}
+                  {quote && lowestTotal != null && quote.totalAmount === lowestTotal &&
+                  (quote.status === "submitted" || quote.status === "accepted") ? (
+                    <span className="block text-[10px] font-normal">Lowest total</span>
+                  ) : null}
                 </td>
               );
             })}
           </tr>
         </tfoot>
       </table>
+    </div>
     </div>
   );
 }

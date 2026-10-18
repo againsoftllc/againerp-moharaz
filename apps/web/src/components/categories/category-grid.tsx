@@ -20,6 +20,10 @@ import type {
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   Archive,
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Eye,
   GripVertical,
   MoreHorizontal,
@@ -32,7 +36,7 @@ import { ActivityTriggerButton } from "@/components/activity/activity-trigger-bu
 import { toast } from "sonner";
 import type { Category } from "@/lib/mock-data/categories";
 import { getDisplayOrder } from "@/lib/mock-data/categories";
-import { getCategoryAncestorNames, getCategoryBreadcrumb, getCategoryDepth, getParentLabel, reorderSiblingIds } from "@/lib/category-utils";
+import { getCategoryBreadcrumb, reorderSiblingIds } from "@/lib/category-utils";
 import {
   bulkPatchCatalogCategories,
   createCatalogCategory,
@@ -47,7 +51,7 @@ import { cn } from "@/lib/utils";
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/native-select";
+import { FilterSelect } from "@/components/shared/filter-select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -88,7 +92,7 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
 const DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
   icon: true,
   caption: true,
-  parent: true,
+  parent: false,
   slug: true,
   menu: true,
   products: true,
@@ -250,9 +254,66 @@ export const CategoryGrid = forwardRef<CategoryGridHandle, Props>(function Categ
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTargets, setDeleteTargets] = useState<Category[]>([]);
 
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+
   const ordered = useMemo(() => getDisplayOrder(categories), [categories]);
   const filtered = useMemo(() => applyFilters(ordered, filters), [ordered, filters]);
   const advancedCount = countAdvancedFilters(filters);
+
+  /** depth + child count per category, computed once instead of per cell. */
+  const treeInfo = useMemo(() => {
+    const byId = new Map(categories.map((c) => [c.id, c]));
+    const depthById = new Map<string, number>();
+    const childCount = new Map<string, number>();
+    for (const c of categories) {
+      if (c.parentId) childCount.set(c.parentId, (childCount.get(c.parentId) ?? 0) + 1);
+    }
+    const depthOf = (c: Category): number => {
+      const known = depthById.get(c.id);
+      if (known !== undefined) return known;
+      const parent = c.parentId ? byId.get(c.parentId) : undefined;
+      const d = parent ? depthOf(parent) + 1 : 0;
+      depthById.set(c.id, d);
+      return d;
+    };
+    for (const c of categories) depthOf(c);
+    const parentIds = categories.filter((c) => (childCount.get(c.id) ?? 0) > 0).map((c) => c.id);
+    return { byId, depthById, childCount, parentIds };
+  }, [categories]);
+
+  /** While a search / filter is on, matches are shown with their ancestors and nothing is collapsed. */
+  const filtering = Boolean(filters.search.trim()) || filters.status !== "all" || filters.topMenu !== "all";
+
+  const visibleRows = useMemo(() => {
+    if (filtering) {
+      const keep = new Set<string>();
+      for (const c of filtered) {
+        let cur: Category | undefined = c;
+        while (cur && !keep.has(cur.id)) {
+          keep.add(cur.id);
+          cur = cur.parentId ? treeInfo.byId.get(cur.parentId) : undefined;
+        }
+      }
+      return ordered.filter((c) => keep.has(c.id));
+    }
+    const visible = new Map<string, boolean>();
+    const out: Category[] = [];
+    for (const c of ordered) {
+      const show = !c.parentId || (visible.get(c.parentId) === true && expanded.has(c.parentId));
+      visible.set(c.id, show);
+      if (show) out.push(c);
+    }
+    return out;
+  }, [filtering, filtered, ordered, expanded, treeInfo]);
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     onAdvancedFilterCountChange?.(advancedCount);
@@ -509,7 +570,7 @@ export const CategoryGrid = forwardRef<CategoryGridHandle, Props>(function Categ
       const orderedIds = reorderSiblingIds(categories, dragged.id, over.id);
       if (!orderedIds) {
         toast.error("Same parent er moddhei drag korte hobe");
-        e.api.setGridOption("rowData", filtered);
+        e.api.setGridOption("rowData", visibleRows);
         return;
       }
 
@@ -519,10 +580,10 @@ export const CategoryGrid = forwardRef<CategoryGridHandle, Props>(function Categ
         onCategoriesChanged?.();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Reorder failed");
-        e.api.setGridOption("rowData", filtered);
+        e.api.setGridOption("rowData", visibleRows);
       }
     },
-    [categories, filtered, onCategoriesChanged],
+    [categories, visibleRows, onCategoriesChanged],
   );
 
   const RowActions = useCallback(
@@ -619,28 +680,57 @@ export const CategoryGrid = forwardRef<CategoryGridHandle, Props>(function Categ
       {
         field: "name",
         headerName: "Name",
-        width: 260,
-        minWidth: 140,
+        width: 300,
+        minWidth: 160,
         editable: false,
-        cellStyle: (p) => {
-          if (!p.data) return undefined;
-          return { paddingLeft: `${getCategoryDepth(p.data, categories) * 16}px` };
-        },
         tooltipField: "name",
-        cellRenderer: (p: ICellRendererParams<Category>) =>
-          p.data ? (
-            <button
-              type="button"
-              className="block w-full truncate text-left font-semibold text-foreground hover:underline focus-visible:outline-none"
-              title={p.data.name}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (onEdit) onEdit(p.data!);
-              }}
-            >
-              {p.data.name}
-            </button>
-          ) : null,
+        cellRenderer: (p: ICellRendererParams<Category>) => {
+          const d = p.data;
+          if (!d) return null;
+          const depth = treeInfo.depthById.get(d.id) ?? 0;
+          const kids = treeInfo.childCount.get(d.id) ?? 0;
+          const open = filtering || expanded.has(d.id);
+          return (
+            <div className="flex min-w-0 items-center gap-1" style={{ paddingLeft: depth * 18 }}>
+              {kids > 0 ? (
+                <button
+                  type="button"
+                  aria-label={open ? "Collapse" : "Expand"}
+                  aria-expanded={open}
+                  disabled={filtering}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleExpanded(d.id);
+                  }}
+                >
+                  {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                </button>
+              ) : (
+                <span className="h-5 w-5 shrink-0" aria-hidden />
+              )}
+              <button
+                type="button"
+                className={cn(
+                  "min-w-0 truncate text-left text-foreground hover:underline focus-visible:outline-none",
+                  kids > 0 ? "font-semibold" : "font-normal",
+                )}
+                title={d.name}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onEdit) onEdit(d);
+                }}
+              >
+                {d.name}
+              </button>
+              {kids > 0 ? (
+                <span className="ml-1 shrink-0 text-muted-foreground" title={`${kids} subcategories`}>
+                  ({kids})
+                </span>
+              ) : null}
+            </div>
+          );
+        },
       },
       {
         field: "caption",
@@ -713,7 +803,7 @@ export const CategoryGrid = forwardRef<CategoryGridHandle, Props>(function Categ
         cellRenderer: RowActions,
       },
     ],
-    [categories, RowActions, visibleCols, liveEdit, MenuCell, StatusCell, mediaItems, onView],
+    [categories, RowActions, visibleCols, liveEdit, MenuCell, StatusCell, mediaItems, onView, treeInfo, expanded, filtering, toggleExpanded, onEdit, canWrite],
   );
 
   const toggleVisibleFilter = (key: FilterKey, enabled: boolean) => {
@@ -731,8 +821,9 @@ export const CategoryGrid = forwardRef<CategoryGridHandle, Props>(function Categ
   return (
     <AgainListGrid<Category>
       className={className}
-      rowData={filtered}
+      rowData={visibleRows}
       columnDefs={columnDefs}
+      paginationPageSize={100}
       loading={loading}
       headerLeftActions={headerLeftActions}
       filterBar={
@@ -746,27 +837,57 @@ export const CategoryGrid = forwardRef<CategoryGridHandle, Props>(function Categ
             />
           )}
           {visibleFilters.status && (
-            <Select
+            <FilterSelect
               value={filters.status}
-              onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
-              className="w-[128px] shrink-0 rounded-none"
-            >
-              <option value="all">All status</option>
-              <option value="on">Active</option>
-              <option value="off">Inactive</option>
-            </Select>
+              onChange={(status) => setFilters((f) => ({ ...f, status }))}
+              width="w-[128px]"
+              className="shrink-0"
+              ariaLabel="Status filter"
+              options={[
+                { value: "all", label: "All status" },
+                { value: "on", label: "Active" },
+                { value: "off", label: "Inactive" },
+              ]}
+            />
           )}
           {visibleFilters.menu && (
-            <Select
+            <FilterSelect
               value={filters.topMenu}
-              onChange={(e) => setFilters((f) => ({ ...f, topMenu: e.target.value }))}
-              className="w-[140px] shrink-0 rounded-none"
-            >
-              <option value="all">All menu</option>
-              <option value="top">Menu Yes</option>
-              <option value="not-top">Menu No</option>
-            </Select>
+              onChange={(topMenu) => setFilters((f) => ({ ...f, topMenu }))}
+              width="w-[140px]"
+              className="shrink-0"
+              ariaLabel="Menu filter"
+              options={[
+                { value: "all", label: "All menu" },
+                { value: "top", label: "Menu Yes" },
+                { value: "not-top", label: "Menu No" },
+              ]}
+            />
           )}
+          <div className="ml-1 flex shrink-0 items-center gap-1 border-l border-border pl-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-none px-2 text-xs"
+              disabled={filtering || treeInfo.parentIds.length === 0}
+              onClick={() => setExpanded(new Set(treeInfo.parentIds))}
+              title="Expand every category"
+            >
+              <ChevronsUpDown className="mr-1 h-3.5 w-3.5" />
+              Expand all
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-none px-2 text-xs"
+              disabled={filtering || expanded.size === 0}
+              onClick={() => setExpanded(new Set())}
+              title="Collapse to top-level categories"
+            >
+              <ChevronsDownUp className="mr-1 h-3.5 w-3.5" />
+              Collapse all
+            </Button>
+          </div>
         </>
       }
       banner={

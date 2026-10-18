@@ -30,9 +30,13 @@ import {
 
 export type CatalogProductChannel = "catalog" | "dropshipping";
 
+/** Module-specific product list: Inventory catalog vs Website products (same table, separate lists). */
+export type CatalogProductScope = "inventory" | "website";
+
 type UseCatalogProductsOptions = {
   /** Split Catalog vs Dropshipping product lists (server-side). */
   channel?: CatalogProductChannel;
+  scope?: CatalogProductScope;
 };
 
 type UseCatalogProductsState = {
@@ -60,16 +64,18 @@ const PRODUCT_LIST_MAX_PAGES = 500;
 const productListCache = new Map<string, ProductListCacheEntry>();
 const productListRequests = new Map<string, Promise<ProductListCacheEntry>>();
 
-function productListCacheKey(channel?: CatalogProductChannel) {
-  return channel ?? "all";
+function productListCacheKey(channel?: CatalogProductChannel, scope?: CatalogProductScope) {
+  const base = channel ?? "all";
+  return scope ? `${base}:${scope}` : base;
 }
 
 async function loadProductList(
   channel?: CatalogProductChannel,
+  scope?: CatalogProductScope,
   force = false,
   onPartial?: (entry: ProductListCacheEntry) => void,
 ): Promise<ProductListCacheEntry> {
-  const key = productListCacheKey(channel);
+  const key = productListCacheKey(channel, scope);
   const cached = productListCache.get(key);
   if (!force && cached && Date.now() - cached.savedAt < PRODUCT_LIST_CACHE_MS) {
     return cached;
@@ -90,6 +96,7 @@ async function loadProductList(
         fields: "list",
       });
       if (channel) params.set("channel", channel);
+      if (scope) params.set("scope", scope);
       return apiFetch<ApiProductListResponse>(
         `/api/v1/catalog/products?${params}`,
         force ? { cache: "no-store" } : undefined,
@@ -157,14 +164,15 @@ export function useCatalogProducts(
   options: UseCatalogProductsOptions = {},
 ): UseCatalogProductsState {
   const channel = options.channel;
-  const cached = productListCache.get(productListCacheKey(channel));
+  const scope = options.scope;
+  const cached = productListCache.get(productListCacheKey(channel, scope));
   const [products, setProducts] = useState<Product[]>(cached?.products ?? []);
   const [total, setTotal] = useState(cached?.total ?? 0);
   const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (force = false) => {
-    const currentCache = productListCache.get(productListCacheKey(channel));
+    const currentCache = productListCache.get(productListCacheKey(channel, scope));
     const hasRows = Boolean(currentCache?.products.length);
     if (
       !force &&
@@ -181,7 +189,7 @@ export function useCatalogProducts(
     if (!hasRows) setLoading(true);
     setError(null);
     try {
-      const result = await loadProductList(channel, force, (partial) => {
+      const result = await loadProductList(channel, scope, force, (partial) => {
         // Show rows as pages arrive instead of a spinner for the whole catalog.
         setProducts(partial.products);
         setTotal(partial.total);
@@ -199,7 +207,7 @@ export function useCatalogProducts(
     } finally {
       setLoading(false);
     }
-  }, [channel]);
+  }, [channel, scope]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(false), 0);
@@ -240,6 +248,9 @@ export async function createCatalogProduct(input: CreateCatalogProductInput): Pr
   const asProduct = apiProductToProduct(detail);
   for (const [key, entry] of productListCache.entries()) {
     if (entry.products.some((p) => p.id === detail.id)) continue;
+    // scoped lists only gain the product when it belongs to that module
+    if (key.endsWith(":inventory") && input.in_inventory === false) continue;
+    if (key.endsWith(":website") && input.on_website === false) continue;
     productListCache.set(key, {
       ...entry,
       products: [asProduct, ...entry.products],

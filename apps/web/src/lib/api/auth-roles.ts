@@ -8,6 +8,8 @@ export type RolePermissionFlags = {
   can_create: boolean;
   can_write: boolean;
   can_delete: boolean;
+  can_publish: boolean;
+  can_export: boolean;
 };
 
 export type AuthRoleRecord = {

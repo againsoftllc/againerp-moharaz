@@ -67,6 +67,7 @@ from app.routers import (
     service_categories,
     seo,
     finance,
+    finance_cheques,
     finance_allocation,
     finance_periods,
     core_sequences,
@@ -285,6 +286,8 @@ def _bootstrap() -> None:
             FinanceAccount,
             FinanceAllocationRule,
             FinanceAllocationRuleLine,
+            FinanceCheque,
+            FinanceChequeEvent,
             FinanceCostCenter,
         )
         from app.models.subscription_plan import SubscriptionPlan  # noqa: F401
@@ -792,6 +795,7 @@ app.include_router(service_jobs.router, prefix="/api/v1", dependencies=require_a
 app.include_router(service_categories.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(seo.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(finance_cheques.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_allocation.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_periods.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(core_sequences.router, prefix="/api/v1", dependencies=require_admin)

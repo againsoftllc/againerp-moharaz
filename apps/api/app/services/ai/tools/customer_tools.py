@@ -21,11 +21,14 @@ from app.services.ai.providers.base import AIToolDefinition
 from app.services.ai.tools.internal_api import InternalApiError, internal_get
 
 
-def build_customer_tools(bearer_token: str) -> list[OrchestratorTool]:
+def build_customer_tools(bearer_token: str, *, db=None, company_id=None, user=None) -> list[OrchestratorTool]:
     """Tools bound to one authenticated request's token — a fresh set is built
     per AI gateway call, never cached across users."""
 
     def search_customer(inp: dict) -> dict:
+        ranked = _ranked_customers(db, company_id, user, str(inp.get("query") or ""), min(int(inp.get("limit", 10)), 25))
+        if ranked is not None:
+            return ranked
         try:
             data = internal_get(
                 "/api/v1/commerce/customers",
@@ -43,6 +46,39 @@ def build_customer_tools(bearer_token: str) -> list[OrchestratorTool]:
                 for r in rows
             ],
         }
+
+    def _ranked_customers(db, company_id, user, query: str, limit: int):
+        """Ranked search (record_search) when the DB is at hand and the user may read customers; None = use the API as before."""
+        if db is None or user is None or len(query.strip()) < 2:
+            return None
+        try:
+            from app.services.ai import record_search
+            from app.services.ai.tools.database_tools import _Access
+
+            if not _Access(db, user).can_read_table("commerce_customers"):
+                return None
+            with db.get_bind().connect() as conn:
+                rows = record_search.search_target(
+                    conn, company_id=company_id, table="commerce_customers", id_col="id", label_cols=("name",),
+                    search_cols=("name", "customer_code", "phone", "email"), extra_cols=("customer_code", "phone", "email", "status"),
+                    q=query, limit=limit, trgm=record_search.has_trgm(conn),
+                )
+        except Exception:  # noqa: BLE001 - the API path below still works
+            return None
+        out = {
+            "count": len(rows),
+            "customers": [
+                {"id": r.get("id"), "name": r.get("name"), "phone": r.get("phone"), "email": r.get("email"), "match": r["match"]}
+                for r in rows
+            ],
+        }
+        amb = record_search.ambiguity([{**r, "type": "customer", "_label": r.get("name")} for r in rows])
+        if amb:
+            out["ambiguous"] = amb[0]["candidates"]
+            out["note"] = "Several customers match about equally well. If the request needs ONE customer, ask the user which one - do not pick for them."
+        elif rows and all(r["match"].startswith("similar") for r in rows):
+            out["note"] = "Only SIMILAR spellings were found - ask the user if they meant one of these before acting."
+        return out
 
     def get_customer(inp: dict) -> dict:
         try:
