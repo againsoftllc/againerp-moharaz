@@ -639,6 +639,22 @@ async def lifespan(_app: FastAPI):
     except Exception:
         logger.exception("Could not ensure workspace_sites.company_id column")
     try:
+        # Columns the code now selects on every product / role query: they must exist before the first request, not when the
+        # background bootstrap gets to them (every one is ADD COLUMN IF NOT EXISTS - fast and safe on each start).
+        from scripts.init_db import (
+            ensure_catalog_product_pos_fields_columns,
+            ensure_catalog_product_updated_by_columns,
+            ensure_role_export_column,
+            ensure_role_publish_column,
+        )
+
+        ensure_catalog_product_pos_fields_columns()
+        ensure_catalog_product_updated_by_columns()
+        ensure_role_publish_column()
+        ensure_role_export_column()
+    except Exception:
+        logger.exception("Could not ensure the catalog / role columns")
+    try:
         from app.database import SessionLocal
         from app.services.site_cors import refresh_site_cors_origins
 
