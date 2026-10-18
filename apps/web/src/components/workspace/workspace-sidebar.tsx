@@ -17,6 +17,7 @@ import {
   flattenWorkspaceNav,
   workspaceDashboardItem,
   workspaceNavItems,
+  SIDEBAR_HIDDEN_MODULE_IDS,
   type WorkspaceNavItem,
 } from "@/lib/workspace/navigation-config";
 
@@ -213,6 +214,7 @@ export function WorkspaceSidebar({ className, onNavigate }: Props) {
   const visibleNavItems = useMemo(
     () =>
       workspaceNavItems.filter((item) => {
+        if (SIDEBAR_HIDDEN_MODULE_IDS.has(item.id)) return false;
         // Reports is a hub, not a toggleable RBAC module — always in the sidebar.
         if (item.id === "reports") return true;
         if (isToggleableModuleId(item.id) && moduleEnabled[item.id] === false) return false;

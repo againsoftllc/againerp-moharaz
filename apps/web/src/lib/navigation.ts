@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   workspaceNavItems,
+  SIDEBAR_HIDDEN_MODULE_IDS,
   workspaceHomeItem,
   type WorkspaceNavItem,
 } from "@/lib/workspace/navigation-config";
@@ -28,7 +29,7 @@ export const sidebarNav: NavItem[] = [
     href: workspaceHomeItem.href,
     icon: workspaceHomeItem.icon,
   },
-  ...workspaceNavItems.map(toNavItem),
+  ...workspaceNavItems.filter((item) => !SIDEBAR_HIDDEN_MODULE_IDS.has(item.id)).map(toNavItem),
 ];
 
 export const quickCreateItems = [

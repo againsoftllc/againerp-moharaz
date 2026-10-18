@@ -114,6 +114,9 @@ export const workspaceNavItems: WorkspaceNavItem[] = [
   },
 ];
 
+/** Modules that stay in the Apps list but are not shown in the left menu (Media is opened from the Workspace top bar). */
+export const SIDEBAR_HIDDEN_MODULE_IDS: ReadonlySet<string> = new Set(["media"]);
+
 export const workspaceHomeItem: WorkspaceNavItem = {
   id: "home",
   title: "Home",
