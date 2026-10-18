@@ -43,10 +43,6 @@ const NAV_CHIP_ACTIVE = "text-white";
 const DIRECT_LINKS: NavLink[] = [{ id: "media", label: "Media", href: "/workspace/media" }];
 
 const APPS_HREF = "/workspace/apps";
-const APPS_LINKS: NavLink[] = [
-  { id: "modules", label: "Modules", href: `${APPS_HREF}?tab=modules` },
-  { id: "plugins", label: "Plugins", href: `${APPS_HREF}?tab=plugins` },
-];
 
 const SITES_HREF = "/workspace/sites";
 
@@ -67,17 +63,8 @@ const CONFIG_LINKS: NavLink[] = [
 ];
 
 const NAV_MENUS: NavMenu[] = [
-  {
-    id: "apps",
-    label: "Apps",
-    href: APPS_HREF,
-    children: APPS_LINKS.map((child) => ({
-      kind: "item" as const,
-      id: child.id,
-      label: child.label,
-      href: child.href,
-    })),
-  },
+  // Apps is one page (modules + plugins in one grid) - a plain link, no sub menu
+  { id: "apps", label: "Apps", direct: true, href: APPS_HREF, children: [] as NavEntry[] },
   ...DIRECT_LINKS.map((item) => ({
     id: item.id,
     label: item.label,

@@ -37,6 +37,23 @@ const STATUS_TABS: { id: StatusFilter; label: string }[] = [
   { id: "available", label: "Available" },
 ];
 
+/** Install a plugin: the browser state, then the API registration the storefront checkout reads. Throws when the API refuses. */
+export async function registerPluginInstall(pluginId: string): Promise<void> {
+  usePluginsStore.getState().installPlugin(pluginId);
+  if (pluginId === "bkash") await installBkashPlugin();
+  else if (pluginId === "sslcommerz") await installSslcommerzPlugin();
+  else if (pluginId === "paypal") await installPaypalPlugin();
+  else if (pluginId === "stripe") await installStripePlugin();
+  else if (pluginId === "smart-pc-builder") await installSmartPcBuilderPlugin();
+  else if (pluginId === "marketing-tracking") await installMarketingTrackingPlugin();
+  else if (pluginId === "ai-search") {
+    await upsertPlatformSetting("plugin.ai_search.installed", "true");
+    await upsertPlatformSetting("plugin.ai_search.enabled", "true");
+  } else if (pluginId === "bank-emi") {
+    await upsertPlatformSetting("plugin.bank_emi.installed", "true");
+  }
+}
+
 export function PluginsHome({ embedded = false }: { embedded?: boolean }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
@@ -120,21 +137,8 @@ export function PluginsHome({ embedded = false }: { embedded?: boolean }) {
   };
 
   const handleInstall = async (pluginId: string) => {
-    installPlugin(pluginId);
     try {
-      if (pluginId === "bkash") await installBkashPlugin();
-      else if (pluginId === "sslcommerz") await installSslcommerzPlugin();
-      else if (pluginId === "paypal") await installPaypalPlugin();
-      else if (pluginId === "stripe") await installStripePlugin();
-      else if (pluginId === "smart-pc-builder") await installSmartPcBuilderPlugin();
-      else if (pluginId === "marketing-tracking") await installMarketingTrackingPlugin();
-      else if (pluginId === "ai-search") {
-        await upsertPlatformSetting("plugin.ai_search.installed", "true");
-        await upsertPlatformSetting("plugin.ai_search.enabled", "true");
-      }
-      else if (pluginId === "bank-emi") {
-        await upsertPlatformSetting("plugin.bank_emi.installed", "true");
-      }
+      await registerPluginInstall(pluginId);
       toast.success("Plugin installed for storefront checkout");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to register plugin on API");

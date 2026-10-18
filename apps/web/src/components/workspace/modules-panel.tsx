@@ -28,7 +28,7 @@ import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { moduleSettingsHref } from "@/lib/workspace/module-settings-href";
 import { cn } from "@/lib/utils";
 
-const MODULE_DESCRIPTIONS: Record<string, string> = {
+export const MODULE_DESCRIPTIONS: Record<string, string> = {
   dashboard: "Home overview — always available",
   catalog: "Products, categories, brands, attributes, and reviews",
   inventory: "Stock, warehouses, serials, counts, and movements",
