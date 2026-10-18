@@ -830,7 +830,9 @@ export function AiWorkspace({
     taskStarted.current = productTask.id;
     const task = productTask;
     clearProductTask();
-    const t = setTimeout(() => {
+    // No cleanup on purpose: clearing the task above re-runs this effect, and a cleanup would cancel the start that is scheduled here
+    // (taskStarted already makes sure a task runs once).
+    setTimeout(() => {
       loadSeq.current += 1; // drop any chat still being loaded
       abortRef.current?.abort();
       setActiveId(null);
@@ -840,7 +842,6 @@ export function AiWorkspace({
       setScope(task.product);
       void send(`Fill the draft product "${task.product.name}" (product id ${task.product.id}) from its source link, following the product upload rules.`, { newChat: true });
     }, 0);
-    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productTask, isDrawer]);
 
