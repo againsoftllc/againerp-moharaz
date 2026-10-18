@@ -156,6 +156,114 @@ export function AppsGrid() {
     });
   }, [items, query, filter]);
 
+  const renderCard = (app: AppItem) => {
+    const Icon = app.icon;
+    const hasMenu = Boolean(app.settingsHref || app.website || (app.kind === "module" && !app.locked && canWrite));
+    return (
+      <li
+        key={app.key}
+        className="group flex gap-3 rounded-lg border border-border bg-card p-3 shadow-sm transition-shadow hover:shadow-md"
+      >
+        {app.brandColor ? (
+          <span
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md text-xl font-bold text-white"
+            style={{ backgroundColor: app.brandColor }}
+            aria-hidden
+          >
+            {app.title.charAt(0).toUpperCase()}
+          </span>
+        ) : (
+          <span
+            className={cn(
+              "flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-gradient-to-br text-white",
+              tileColor(app.key),
+            )}
+            aria-hidden
+          >
+            {Icon ? <Icon className="h-7 w-7" /> : <span className="text-xl font-bold">{app.title.charAt(0)}</span>}
+          </span>
+        )}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex items-start justify-between gap-1">
+            <h3 className="truncate text-sm font-semibold">{app.title}</h3>
+            {hasMenu ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`${app.title} options`}
+                    className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[160px]">
+                  {app.settingsHref ? (
+                    <DropdownMenuItem asChild>
+                      <Link href={app.settingsHref}>Settings</Link>
+                    </DropdownMenuItem>
+                  ) : null}
+                  {app.website ? (
+                    <DropdownMenuItem asChild>
+                      <a href={app.website} target="_blank" rel="noreferrer">
+                        Website
+                      </a>
+                    </DropdownMenuItem>
+                  ) : null}
+                  {app.kind === "module" && !app.locked && canWrite ? (
+                    <DropdownMenuItem onSelect={() => app.toggle?.(!app.installed)}>
+                      {app.installed ? "Disable" : "Enable"}
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
+          <p className="mt-0.5 line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">{app.description}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {app.installed ? (
+              <>
+                {app.openHref ? (
+                  <Button asChild size="sm" className="h-7 rounded-md px-3 text-xs">
+                    <Link href={app.openHref}>
+                      Open <ArrowUpRight className="ml-1 h-3 w-3" />
+                    </Link>
+                  </Button>
+                ) : null}
+                {app.settingsHref ? (
+                  <Button asChild size="sm" variant="outline" className="h-7 rounded-md px-3 text-xs">
+                    <Link href={app.settingsHref}>
+                      <Settings className="mr-1 h-3 w-3" /> Settings
+                    </Link>
+                  </Button>
+                ) : null}
+                {app.lockLabel ? <span className="text-[10px] text-muted-foreground">{app.lockLabel}</span> : null}
+              </>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  className="h-7 rounded-md px-3 text-xs"
+                  disabled={!canWrite}
+                  onClick={() => (app.kind === "plugin" ? app.install?.() : app.toggle?.(true))}
+                >
+                  <Download className="mr-1 h-3 w-3" /> Install
+                </Button>
+                {app.website ? (
+                  <Button asChild size="sm" variant="outline" className="h-7 rounded-md px-3 text-xs">
+                    <a href={app.website} target="_blank" rel="noreferrer">
+                      Learn More <ExternalLink className="ml-1 h-3 w-3" />
+                    </a>
+                  </Button>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      </li>
+    );
+  };
+
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 pb-8">
       <div className="flex flex-wrap items-center gap-3">
@@ -221,115 +329,30 @@ export function AppsGrid() {
           </Button>
         </div>
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          {visible.map((app) => {
-            const Icon = app.icon;
-            const hasMenu = Boolean(app.settingsHref || app.website || (app.kind === "module" && !app.locked && canWrite));
+        <div className="space-y-8">
+          {(
+            [
+              { kind: "module" as const, title: "Modules", blurb: "Built-in areas of the workspace - turn them on or off" },
+              { kind: "plugin" as const, title: "Plugins", blurb: "Integrations - install and configure" },
+            ] as const
+          ).map((group) => {
+            const list = visible.filter((a) => a.kind === group.kind);
+            if (list.length === 0) return null;
             return (
-              <li
-                key={app.key}
-                className="group flex gap-3 rounded-lg border border-border bg-card p-3 shadow-sm transition-shadow hover:shadow-md"
-              >
-                {app.brandColor ? (
-                  <span
-                    className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md text-xl font-bold text-white"
-                    style={{ backgroundColor: app.brandColor }}
-                    aria-hidden
-                  >
-                    {app.title.charAt(0).toUpperCase()}
+              <section key={group.kind} aria-labelledby={`apps-${group.kind}`}>
+                <div className="mb-2 flex flex-wrap items-baseline gap-x-2 border-b border-border pb-1.5">
+                  <h2 id={`apps-${group.kind}`} className="text-base font-semibold">
+                    {group.title}
+                  </h2>
+                  <span className="text-xs text-muted-foreground">
+                    {list.length} · {group.blurb}
                   </span>
-                ) : (
-                  <span
-                    className={cn(
-                      "flex h-14 w-14 shrink-0 items-center justify-center rounded-md bg-gradient-to-br text-white",
-                      tileColor(app.key),
-                    )}
-                    aria-hidden
-                  >
-                    {Icon ? <Icon className="h-7 w-7" /> : <span className="text-xl font-bold">{app.title.charAt(0)}</span>}
-                  </span>
-                )}
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <div className="flex items-start justify-between gap-1">
-                    <h3 className="truncate text-sm font-semibold">{app.title}</h3>
-                    {hasMenu ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={`${app.title} options`}
-                            className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                          >
-                            <MoreVertical className="h-4 w-4" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="min-w-[160px]">
-                          {app.settingsHref ? (
-                            <DropdownMenuItem asChild>
-                              <Link href={app.settingsHref}>Settings</Link>
-                            </DropdownMenuItem>
-                          ) : null}
-                          {app.website ? (
-                            <DropdownMenuItem asChild>
-                              <a href={app.website} target="_blank" rel="noreferrer">
-                                Website
-                              </a>
-                            </DropdownMenuItem>
-                          ) : null}
-                          {app.kind === "module" && !app.locked && canWrite ? (
-                            <DropdownMenuItem onSelect={() => app.toggle?.(!app.installed)}>
-                              {app.installed ? "Disable" : "Enable"}
-                            </DropdownMenuItem>
-                          ) : null}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : null}
-                  </div>
-                  <p className="mt-0.5 line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">{app.description}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    {app.installed ? (
-                      <>
-                        {app.openHref ? (
-                          <Button asChild size="sm" className="h-7 rounded-md px-3 text-xs">
-                            <Link href={app.openHref}>
-                              Open <ArrowUpRight className="ml-1 h-3 w-3" />
-                            </Link>
-                          </Button>
-                        ) : null}
-                        {app.settingsHref ? (
-                          <Button asChild size="sm" variant="outline" className="h-7 rounded-md px-3 text-xs">
-                            <Link href={app.settingsHref}>
-                              <Settings className="mr-1 h-3 w-3" /> Settings
-                            </Link>
-                          </Button>
-                        ) : null}
-                        {app.lockLabel ? <span className="text-[10px] text-muted-foreground">{app.lockLabel}</span> : null}
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          size="sm"
-                          className="h-7 rounded-md px-3 text-xs"
-                          disabled={!canWrite}
-                          onClick={() => (app.kind === "plugin" ? app.install?.() : app.toggle?.(true))}
-                        >
-                          <Download className="mr-1 h-3 w-3" /> Install
-                        </Button>
-                        {app.website ? (
-                          <Button asChild size="sm" variant="outline" className="h-7 rounded-md px-3 text-xs">
-                            <a href={app.website} target="_blank" rel="noreferrer">
-                              Learn More <ExternalLink className="ml-1 h-3 w-3" />
-                            </a>
-                          </Button>
-                        ) : null}
-                      </>
-                    )}
-                  </div>
                 </div>
-              </li>
+                <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{list.map((app) => renderCard(app))}</ul>
+              </section>
             );
           })}
-        </ul>
+        </div>
       )}
     </div>
   );
