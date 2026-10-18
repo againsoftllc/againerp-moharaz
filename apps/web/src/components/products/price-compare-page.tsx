@@ -2,6 +2,8 @@
 
 import { AiProductDrawer } from "@/components/ai/ai-product-drawer";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { BrowserExtensionInstall } from "@/components/products/browser-extension-install";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, Download, Filter, MousePointerClick, RefreshCw, Settings2, Square } from "lucide-react";
@@ -107,8 +109,11 @@ function PriceUpdateContent({
   };
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { products: allProducts, loading, error, refetch } = useCatalogProducts({ channel: "catalog" });
-  const products = useMemo(() => (draftOnly ? allProducts.filter((p) => p.status === "draft") : allProducts), [allProducts, draftOnly]);
+  // only the rows this screen compares: the drafts for Product Draft, the published website products for Price Compare (the 24k imported
+  // drafts are not loaded there - loading every product made the page slow / fail once the catalog passed ~36k)
+  const [extensionSheetOpen, setExtensionSheetOpen] = useState(false);
+  const { products: allProducts, loading, error, refetch } = useCatalogProducts({ channel: "catalog", status: draftOnly ? "draft" : "published" });
+  const products = allProducts;
   const { categories } = useCatalogCategories({ channel: "catalog" });
   const canWrite = useAdminCanWrite();
   const apiHealth = useApiHealth();
@@ -544,8 +549,9 @@ function PriceUpdateContent({
     if (!isPriceExtensionAvailable()) {
       toast.error(`The server couldn't read ${label}`, {
         description:
-          "To read it through your own browser instead, install or reload the “Send to AgainERP” Chrome extension (chrome://extensions → ↻), then reload this page and click ↻ again.",
-        duration: 12000,
+          "To read it through your own browser instead, install the “Send to AgainERP” Chrome extension (or reload it at chrome://extensions → ↻), then reload this page and click ↻ again.",
+        duration: 15000,
+        action: { label: "Install extension", onClick: () => setExtensionSheetOpen(true) },
       });
       return failed;
     }
@@ -850,6 +856,14 @@ function PriceUpdateContent({
 
   return (
     <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
+      <Sheet open={extensionSheetOpen} onOpenChange={setExtensionSheetOpen}>
+        <SheetContent side="right" title="Install the browser extension" className="w-[460px] overflow-y-auto">
+          <div className="space-y-3 p-4">
+            <p className="text-sm font-semibold">Send to AgainERP - Chrome extension</p>
+            <BrowserExtensionInstall />
+          </div>
+        </SheetContent>
+      </Sheet>
       {pluginActive === false ? (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm">
           <span>

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Send to AgainERP",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "Read a competitor's product price in your own browser and save it to AgainERP Price Compare.",
   "action": {
     "default_title": "Send to AgainERP",
@@ -37,7 +37,9 @@
       "matches": [
         "http://localhost/*",
         "http://127.0.0.1/*",
-        "https://*.againerp.com/*"
+        "https://*.againerp.com/*",
+        "https://againerp-moharaz.vercel.app/*",
+        "https://againerp-moharaz-againsoft-llc.vercel.app/*"
       ],
       "js": [
         "bridge.js"

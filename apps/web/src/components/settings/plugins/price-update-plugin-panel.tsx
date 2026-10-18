@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { BrowserExtensionInstall } from "@/components/products/browser-extension-install";
 
 type SectionId = "settings";
 
@@ -220,6 +221,21 @@ export function PriceUpdatePluginPanel({ activeSection: _activeSection }: Props)
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="space-y-3 border border-border p-4" id="browser-extension">
+        <div>
+          <h3 className="flex items-center gap-2 text-sm font-semibold">
+            Browser extension - Send to AgainERP
+            <Badge variant="secondary" className="rounded-none text-[10px]">
+              Free
+            </Badge>
+          </h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Reads a competitor&apos;s page in your own browser - for the shops that block the server.
+          </p>
+        </div>
+        <BrowserExtensionInstall />
       </section>
 
       <section className="space-y-3 border border-border p-4">

@@ -37,6 +37,8 @@ type UseCatalogProductsOptions = {
   /** Split Catalog vs Dropshipping product lists (server-side). */
   channel?: CatalogProductChannel;
   scope?: CatalogProductScope;
+  /** Load only products of this status (server-side), e.g. "draft" or "published". */
+  status?: string;
 };
 
 type UseCatalogProductsState = {
@@ -64,9 +66,10 @@ const PRODUCT_LIST_MAX_PAGES = 500;
 const productListCache = new Map<string, ProductListCacheEntry>();
 const productListRequests = new Map<string, Promise<ProductListCacheEntry>>();
 
-function productListCacheKey(channel?: CatalogProductChannel, scope?: CatalogProductScope) {
+function productListCacheKey(channel?: CatalogProductChannel, scope?: CatalogProductScope, status?: string) {
   const base = channel ?? "all";
-  return scope ? `${base}:${scope}` : base;
+  const keyed = scope ? `${base}:${scope}` : base;
+  return status ? `${keyed}#${status}` : keyed;
 }
 
 async function loadProductList(
@@ -74,8 +77,9 @@ async function loadProductList(
   scope?: CatalogProductScope,
   force = false,
   onPartial?: (entry: ProductListCacheEntry) => void,
+  status?: string,
 ): Promise<ProductListCacheEntry> {
-  const key = productListCacheKey(channel, scope);
+  const key = productListCacheKey(channel, scope, status);
   const cached = productListCache.get(key);
   if (!force && cached && Date.now() - cached.savedAt < PRODUCT_LIST_CACHE_MS) {
     return cached;
@@ -97,6 +101,7 @@ async function loadProductList(
       });
       if (channel) params.set("channel", channel);
       if (scope) params.set("scope", scope);
+      if (status) params.set("status", status); // only the rows the screen needs (36k products incl. 24k drafts is too many to load for nothing)
       return apiFetch<ApiProductListResponse>(
         `/api/v1/catalog/products?${params}`,
         force ? { cache: "no-store" } : undefined,
@@ -165,14 +170,15 @@ export function useCatalogProducts(
 ): UseCatalogProductsState {
   const channel = options.channel;
   const scope = options.scope;
-  const cached = productListCache.get(productListCacheKey(channel, scope));
+  const status = options.status;
+  const cached = productListCache.get(productListCacheKey(channel, scope, status));
   const [products, setProducts] = useState<Product[]>(cached?.products ?? []);
   const [total, setTotal] = useState(cached?.total ?? 0);
   const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (force = false) => {
-    const currentCache = productListCache.get(productListCacheKey(channel, scope));
+    const currentCache = productListCache.get(productListCacheKey(channel, scope, status));
     const hasRows = Boolean(currentCache?.products.length);
     if (
       !force &&
@@ -194,7 +200,7 @@ export function useCatalogProducts(
         setProducts(partial.products);
         setTotal(partial.total);
         setLoading(false);
-      });
+      }, status);
       setProducts(result.products);
       setTotal(result.total);
     } catch (err) {
@@ -207,7 +213,7 @@ export function useCatalogProducts(
     } finally {
       setLoading(false);
     }
-  }, [channel, scope]);
+  }, [channel, scope, status]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(false), 0);
