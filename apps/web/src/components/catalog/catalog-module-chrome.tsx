@@ -66,7 +66,7 @@ const NAV_GROUPS_BASE: NavGroup[] = [
     label: "Catalog",
     children: [
       { id: "product", label: "Product", href: "/website/products" },
-      { id: "product-draft", label: "Product Draft", href: "/website/product-draft" },
+      { id: "product-draft", label: "Unlisted", href: "/website/product-draft" },
       { id: "category", label: "Category", href: "/website/categories" },
       { id: "brand", label: "Brand", href: "/website/brands" },
       { id: "attribute", label: "Attribute", href: "/website/attributes" },
