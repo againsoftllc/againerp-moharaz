@@ -18,11 +18,13 @@ import {
   PanelLeftOpen,
   Pencil,
   Search,
+  ShieldCheck,
   Sparkles,
   Square,
   SquarePen,
   Trash2,
   X,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -34,6 +36,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AiPreviewCard } from "@/components/ai/ai-preview-card";
+import { AiFillReviewCard } from "@/components/ai/ai-fill-review-card";
+import { applyFillFromSource, type FillApproval, type FillReview } from "@/lib/api/catalog-ai-import";
 import { MarkdownLite } from "@/components/ai/markdown-lite";
 import { AiDocumentDrawer, parseDocLink, type AiDocumentRef } from "@/components/ai/ai-document-drawer";
 import {
@@ -69,7 +73,15 @@ type ChatMessage = {
   previewData?: { tool: string; preview: Record<string, unknown> };
   /** Files the user sent with this message (client-side only; history keeps a text note). */
   attachments?: ChatAttachment[];
+  /** Product upload: the structured "fill from source" review (category / brand / profile) with its own Accept / Deny. */
+  review?: FillReview;
+  reviewState?: "open" | "applying" | "done" | "denied" | "superseded";
+  /** Auto approval: the text is replaced by a one-line "filling…" status. */
+  hideText?: boolean;
 };
+
+/** Product upload: Manual = a review card waits for Accept; Auto = the product is filled straight away with the AI's own choices. */
+const APPROVAL_KEY = "againerp.ai_product_approval";
 
 const SUGGESTIONS = [
   "Which customers have overdue invoices right now?",
@@ -180,6 +192,25 @@ export function AiWorkspace({
   // Rendered client-only (dynamic import, ssr: false), so reading the viewport here is safe.
   const [sidebarOpen, setSidebarOpen] = useState(() => (isDrawer ? false : typeof window === "undefined" ? true : window.innerWidth >= 768));
   const [activeId, setActiveId] = useState<string | null>(startId ?? null);
+  // Product upload runs in this same chat (scope "product_fill": few tools, the product upload rules): set by a product task from the
+  // Product Draft AI button, cleared when another chat is opened.
+  const [productScope, setProductScope] = useState<{ id: string; name: string } | null>(null);
+  const productScopeRef = useRef<{ id: string; name: string } | null>(null);
+  const onChangedRef = useRef<(() => void) | undefined>(undefined);
+  const [autoApprove, setAutoApprove] = useState(() => {
+    try {
+      return typeof window !== "undefined" && localStorage.getItem(APPROVAL_KEY) === "auto";
+    } catch {
+      return false;
+    }
+  });
+  const autoRef = useRef(autoApprove);
+  const approveRef = useRef<((id: string, r: FillReview, a: FillApproval) => Promise<void>) | null>(null);
+  const sendAgainRef = useRef<((t: string) => Promise<void>) | null>(null);
+  const setScope = useCallback((v: { id: string; name: string } | null) => {
+    productScopeRef.current = v;
+    setProductScope(v);
+  }, []);
   // Only the conversation the page was opened with is auto-loaded. Later `?c=` updates come
   // from our own history.replaceState after a send and must not re-open (and abort) the chat.
   const initialRef = useRef<string | null>(startId ?? null);
@@ -567,6 +598,7 @@ export function AiWorkspace({
       abortRef.current?.abort();
       setActiveId(id);
       setStatus(null);
+      setScope(null); // a chat opened by hand is a normal chat again
       if (isDrawer) setSidebarOpen(false); // the chat list slides away once a chat is picked
       if (push && !isDrawer) window.history.replaceState(null, "", id ? `/ai?c=${id}` : "/ai");
       if (!id) {
@@ -587,7 +619,7 @@ export function AiWorkspace({
         setMessagesLoading(false);
       }
     },
-    [isDrawer],
+    [isDrawer, setScope],
   );
 
   useEffect(() => {
@@ -632,8 +664,8 @@ export function AiWorkspace({
   }, [conversations, search]);
 
   const send = useCallback(
-    async (raw: string) => {
-      const files = pendingFiles;
+    async (raw: string, opts?: { newChat?: boolean }) => {
+      const files = opts?.newChat ? [] : pendingFiles;
       const text = raw.trim() || (files.length ? "Please look at the attached file(s)." : "");
       if (!text || sending) return;
       setInput("");
@@ -647,21 +679,31 @@ export function AiWorkspace({
       };
       const assistantId = `a_${Date.now()}`;
       setMessages((m) => [...m.map((msg) => (msg.pendingAction || msg.previewData ? { ...msg, pendingAction: undefined, previewData: undefined } : msg)), userMsg, { id: assistantId, role: "assistant", content: "", pending: true }]);
+      const startedChat = opts?.newChat ? null : activeId;
+      let filled = false;
+      let autoConfirm = false; // Auto mode (product upload): a plain preview is confirmed once the reply ends
       setSending(true);
       setStatus("Thinking…");
       const controller = new AbortController();
       abortRef.current = controller;
-      let convoId = activeId;
+      let convoId = startedChat;
       try {
         const attachments = files.length
           ? await Promise.all(files.map(async (f) => ({ name: f.name, mime: f.mime, size: f.size, data: await readAsBase64(f.file) })))
           : undefined;
         await streamAiChat(
-          { message: text, conversation_id: activeId ?? undefined, enable_web_search: webSearch, reply_language: lang, attachments },
+          {
+            message: text,
+            conversation_id: startedChat ?? undefined,
+            enable_web_search: webSearch,
+            reply_language: lang,
+            attachments,
+            scope: productScopeRef.current ? "product_fill" : undefined,
+          },
           {
             onConversation: (id) => {
               convoId = id;
-              if (!activeId) {
+              if (!startedChat) {
                 setActiveId(id);
                 if (!isDrawer) window.history.replaceState(null, "", `/ai?c=${id}`);
               }
@@ -670,7 +712,8 @@ export function AiWorkspace({
               setStatus(null);
               setMessages((m) => m.map((msg) => (msg.id === assistantId ? { ...msg, content: msg.content + delta, pending: false } : msg)));
             },
-            onToolStart: (tool) => setStatus(`Looking things up (${tool.replace(/_/g, " ")})…`),
+            onToolStart: (tool) =>
+              setStatus(tool === "fill_product_from_source" ? "Reading the source page, importing images, writing content…" : `Looking things up (${tool.replace(/_/g, " ")})…`),
             onTextCorrection: (text) => {
               setMessages((m) => m.map((msg) => (msg.id === assistantId ? { ...msg, content: text, pending: false } : msg)));
             },
@@ -680,11 +723,31 @@ export function AiWorkspace({
               // buttons on this reply instead of making the user type it.
               const st = output && typeof output === "object" ? (output as { status?: unknown }).status : undefined;
               const pv = output && typeof output === "object" ? (output as { preview?: unknown }).preview : undefined;
-              const previewData =
-                st === "preview" && pv && typeof pv === "object" && !Array.isArray(pv) ? { tool: toolName, preview: pv as Record<string, unknown> } : undefined;
-              setMessages((m) =>
-                m.map((msg) => (msg.id === assistantId ? { ...msg, pendingAction: st === "preview" ? toolName : undefined, previewData } : msg)),
-              );
+              const review = output && typeof output === "object" ? ((output as { review?: FillReview }).review ?? undefined) : undefined;
+              const auto = autoRef.current && Boolean(productScopeRef.current);
+              if (review && auto) {
+                // Auto: no approval - the product is filled with the AI's own category / brand / profile right away
+                setMessages((m) => m.map((msg) => (msg.id === assistantId ? { ...msg, review, hideText: true, reviewState: "applying" as const } : msg)));
+                void approveRef.current?.(assistantId, review, {
+                  brandId: review.brand.matched_id ?? undefined,
+                  categoryIds: review.categories.matched_ids,
+                  profileId: review.profile.matched_id ?? (review.profile.status === "new" ? "new" : "none"),
+                });
+              } else {
+                const previewData =
+                  st === "preview" && !review && pv && typeof pv === "object" && !Array.isArray(pv) ? { tool: toolName, preview: pv as Record<string, unknown> } : undefined;
+                if (st === "preview" && !review && auto) autoConfirm = true;
+                setMessages((m) =>
+                  m.map((msg) =>
+                    msg.id === assistantId
+                      ? { ...msg, pendingAction: st === "preview" && !review && !auto ? toolName : undefined, previewData: auto ? undefined : previewData, review, reviewState: review ? ("open" as const) : msg.reviewState }
+                      : review && msg.reviewState === "open"
+                        ? { ...msg, reviewState: "superseded" as const } // a newer review replaces the older open card
+                        : msg,
+                  ),
+                );
+              }
+              if (st === "filled") filled = true;
             },
           },
           controller.signal,
@@ -718,10 +781,61 @@ export function AiWorkspace({
         abortRef.current = null;
         void loadHistory();
         if (convoId && !isDrawer) window.history.replaceState(null, "", `/ai?c=${convoId}`);
+        if (filled) window.setTimeout(() => onChangedRef.current?.(), 300);
+        if (autoConfirm) window.setTimeout(() => void sendAgainRef.current?.("Yes, confirm."), 400);
       }
     },
     [activeId, sending, webSearch, lang, pendingFiles, loadHistory, isDrawer],
   );
+
+  // product upload: the review card's Accept fills the draft with the category / brand / profile the admin approved
+  const approveReview = async (msgId: string, review: FillReview, a: FillApproval) => {
+    setMessages((m) => m.map((x) => (x.id === msgId ? { ...x, reviewState: "applying" as const } : x)));
+    try {
+      const res = await applyFillFromSource(review.product.id, a);
+      setMessages((m) => [
+        ...m.map((x) => (x.id === msgId ? { ...x, reviewState: "done" as const } : x)),
+        {
+          id: `a_${Date.now()}`,
+          role: "assistant" as const,
+          content: `✅ **${res.name}** was updated from its source: ${res.images} images, brand ${res.brand ?? "—"}, category ${res.category ?? "—"}. It stays a draft. [Open product](doc://product/${res.id})`,
+        },
+      ]);
+      window.setTimeout(() => onChangedRef.current?.(), 300);
+    } catch (err) {
+      setMessages((m) => m.map((x) => (x.id === msgId ? { ...x, reviewState: "open" as const } : x)));
+      toast.error(err instanceof Error ? err.message : "Could not update the product");
+    }
+  };
+  approveRef.current = approveReview;
+  sendAgainRef.current = (t: string) => send(t);
+  const denyReview = (msgId: string) =>
+    setMessages((m) => [
+      ...m.map((x) => (x.id === msgId ? { ...x, reviewState: "denied" as const } : x)),
+      { id: `a_${Date.now()}`, role: "assistant" as const, content: "Okay - nothing was changed." },
+    ]);
+
+  // a product task from the Product Draft AI button: a new chat, product-upload scope, the fill request sent right away
+  const productTask = useAiChatStore((s) => s.productTask);
+  const clearProductTask = useAiChatStore((s) => s.clearProductTask);
+  const taskStarted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isDrawer || !productTask || taskStarted.current === productTask.id) return;
+    taskStarted.current = productTask.id;
+    const task = productTask;
+    clearProductTask();
+    const t = setTimeout(() => {
+      abortRef.current?.abort();
+      setActiveId(null);
+      setMessages([]);
+      setSidebarOpen(false);
+      onChangedRef.current = task.onChanged;
+      setScope(task.product);
+      void send(`Fill the draft product "${task.product.name}" (product id ${task.product.id}) from its source link, following the product upload rules.`, { newChat: true });
+    }, 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productTask, isDrawer]);
 
   function onComposerKey(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -778,9 +892,38 @@ export function AiWorkspace({
           </button>
           <div className="flex min-w-0 items-center gap-2">
             <span className="text-sm font-semibold">Aladin</span>
-            {activeTitle ? <span className="truncate text-sm text-muted-foreground">· {activeTitle}</span> : null}
+            {productScope ? (
+              <span className="truncate text-sm text-muted-foreground">· {productScope.name}</span>
+            ) : activeTitle ? (
+              <span className="truncate text-sm text-muted-foreground">· {activeTitle}</span>
+            ) : null}
           </div>
           <div className="ml-auto flex items-center gap-1">
+            {productScope ? (
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs outline-none",
+                  autoApprove ? "border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-400" : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+                onClick={() => {
+                  const next = !autoApprove;
+                  setAutoApprove(next);
+                  autoRef.current = next;
+                  try {
+                    localStorage.setItem(APPROVAL_KEY, next ? "auto" : "manual");
+                  } catch {
+                    /* ignore */
+                  }
+                  toast.message(next ? "Auto: the product is filled with the AI's own choices, no approval asked" : "Manual: you approve the category, brand and specification profile first");
+                }}
+                aria-pressed={autoApprove}
+                title={autoApprove ? "Auto approval: the AI fills the product without asking" : "Manual approval: a review card waits for Accept"}
+              >
+                {autoApprove ? <Zap className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                {autoApprove ? "Auto" : "Manual"}
+              </button>
+            ) : null}
             {/* Reply language: one small button, the choices (with a line each) open from it */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1006,7 +1149,24 @@ export function AiWorkspace({
                       <Sparkles className="h-3.5 w-3.5" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      {m.content ? (
+                      {m.hideText ? (
+                        m.reviewState === "applying" ? (
+                          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Sparkles className="h-3.5 w-3.5 animate-pulse" /> Filling the product from its source (auto approval)…
+                          </p>
+                        ) : null
+                      ) : null}
+                      {m.review && !m.hideText && m.reviewState !== "denied" && m.reviewState !== "done" && m.reviewState !== "superseded" ? (
+                        <div className="mb-3">
+                          <AiFillReviewCard
+                            review={m.review}
+                            busy={m.reviewState === "applying"}
+                            onApprove={(a) => void approveReview(m.id, m.review!, a)}
+                            onDeny={() => denyReview(m.id)}
+                          />
+                        </div>
+                      ) : null}
+                      {m.content && !m.hideText ? (
                         <>
                           <MarkdownLite text={m.content} onOpenDocument={openDocLink} />
                           {m.previewData && !m.pending ? (

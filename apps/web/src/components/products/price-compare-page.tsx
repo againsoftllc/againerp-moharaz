@@ -1,6 +1,6 @@
 "use client";
 
-import { AiProductDrawer } from "@/components/ai/ai-product-drawer";
+import { useAiChatStore } from "@/lib/store/ai-chat-store";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { BrowserExtensionInstall } from "@/components/products/browser-extension-install";
@@ -132,8 +132,9 @@ function PriceUpdateContent({
   // Product Draft: ids whose AI import (fill from the source URL) is running
   const aiImporting = useMemo(() => new Set<string>(), []);
   // the AI button opens Aladin's chat drawer for the product; the drawer does the import and asks for approvals
-  const [aiDrawer, setAiDrawer] = useState<{ id: string; name: string } | null>(null);
-  const handleAiImport = (product: Product) => setAiDrawer({ id: product.id, name: product.name });
+  // the AI button runs the product upload in the shared Aladin drawer (the same drawer as the AI icon in the top bar)
+  const handleAiImport = (product: Product) =>
+    useAiChatStore.getState().startProductTask({ id: product.id, name: product.name }, () => void refetch());
 
   const productIds = useMemo(() => products.map((p) => p.id), [products]);
   const [loadingStatus, setLoadingStatus] = useState(false);
@@ -934,7 +935,6 @@ function PriceUpdateContent({
         />
       )}
 
-      <AiProductDrawer product={aiDrawer} onClose={() => setAiDrawer(null)} onChanged={() => void refetch()} />
 
       <Dialog.Root
         open={!!applyPlan}
