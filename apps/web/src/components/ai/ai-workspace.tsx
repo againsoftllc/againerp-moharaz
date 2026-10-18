@@ -5,7 +5,9 @@ import {
   ArrowUp,
   Check,
   Copy,
+  ChevronDown,
   Globe,
+  Languages,
   MessageSquare,
   Mic,
   MoreHorizontal,
@@ -117,11 +119,11 @@ function formatBytes(n: number): string {
 
 type ReplyLanguage = "auto" | "bn" | "en" | "banglish";
 const LANG_KEY = "againai.reply_language";
-const LANG_OPTIONS: { value: ReplyLanguage; label: string }[] = [
-  { value: "auto", label: "Auto (match my language)" },
-  { value: "bn", label: "বাংলা" },
-  { value: "banglish", label: "Banglish" },
-  { value: "en", label: "English" },
+const LANG_OPTIONS: { value: ReplyLanguage; label: string; short: string; hint: string }[] = [
+  { value: "auto", label: "Auto", short: "Auto", hint: "Replies in the language you write in" },
+  { value: "bn", label: "বাংলা", short: "বাংলা", hint: "Always replies in Bangla" },
+  { value: "banglish", label: "Banglish", short: "Banglish", hint: "Bangla written in English letters" },
+  { value: "en", label: "English", short: "English", hint: "Always replies in English" },
 ];
 
 /** Minimal typing for the browser SpeechRecognition API (prefixed in Chrome/Safari). */
@@ -763,7 +765,7 @@ export function AiWorkspace({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-background text-foreground">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-2">
+      <header className={cn("flex h-12 shrink-0 items-center gap-2 border-b border-border px-2", isDrawer && "pr-10")}>
           <button
             type="button"
             className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -778,30 +780,51 @@ export function AiWorkspace({
             {activeTitle ? <span className="truncate text-sm text-muted-foreground">· {activeTitle}</span> : null}
           </div>
           <div className="ml-auto flex items-center gap-1">
-            <select
-              value={lang}
-              onChange={(e) => changeLang(e.target.value as ReplyLanguage)}
-              className="h-8 max-w-[150px] rounded-full border border-border bg-background px-2 text-xs text-muted-foreground outline-none hover:bg-muted focus:border-primary"
-              aria-label="Reply language"
-              title="Language Aladin replies in"
-            >
-              {LANG_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            {/* Reply language: one small button, the choices (with a line each) open from it */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-background px-2.5 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:border-primary"
+                  aria-label={`Reply language: ${LANG_OPTIONS.find((o) => o.value === lang)?.label ?? "Auto"}`}
+                  title="Language Aladin replies in"
+                >
+                  <Languages className="h-3.5 w-3.5" />
+                  <span>{LANG_OPTIONS.find((o) => o.value === lang)?.short ?? "Auto"}</span>
+                  <ChevronDown className="h-3 w-3 opacity-60" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 rounded-md p-1">
+                <p className="px-2 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Aladin replies in</p>
+                {LANG_OPTIONS.map((o) => (
+                  <DropdownMenuItem key={o.value} className="flex items-start gap-2 rounded px-2 py-1.5" onSelect={() => changeLang(o.value)}>
+                    <Check className={cn("mt-0.5 h-3.5 w-3.5 shrink-0 text-primary", lang === o.value ? "opacity-100" : "opacity-0")} />
+                    <span className="min-w-0">
+                      <span className="block text-sm">{o.label}</span>
+                      <span className="block text-[11px] leading-4 text-muted-foreground">{o.hint}</span>
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {/* Web search: an icon with a clear on / off state (the words only where there is room) */}
             <button
               type="button"
               className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs",
-                webSearch ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted",
+                "relative inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs outline-none",
+                webSearch ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
-              onClick={() => setWebSearch((v) => !v)}
+              onClick={() => {
+                setWebSearch((v) => !v);
+                toast.message(webSearch ? "Web search off - Aladin answers from your ERP data only" : "Web search on - Aladin may also look things up online");
+              }}
               aria-pressed={webSearch}
-              title="Allow the assistant to search the web for this chat"
+              aria-label={`Web search ${webSearch ? "on" : "off"}`}
+              title={webSearch ? "Web search is on - click to turn it off" : "Web search is off - click to let Aladin look things up online"}
             >
-              <Globe className="h-3.5 w-3.5" /> Web search {webSearch ? "on" : "off"}
+              <Globe className="h-3.5 w-3.5" />
+              {isDrawer ? null : <span className="hidden sm:inline">Web search</span>}
+              <span className={cn("h-1.5 w-1.5 rounded-full", webSearch ? "bg-emerald-500" : "bg-muted-foreground/40")} aria-hidden />
             </button>
           </div>
       </header>
