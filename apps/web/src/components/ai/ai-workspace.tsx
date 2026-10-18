@@ -16,7 +16,6 @@ import {
   PanelLeftOpen,
   Pencil,
   Search,
-  Settings,
   Sparkles,
   Square,
   SquarePen,
@@ -34,10 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AiPreviewCard } from "@/components/ai/ai-preview-card";
 import { MarkdownLite } from "@/components/ai/markdown-lite";
-import { AiPresetSettingsPanel } from "@/components/ai/ai-preset-settings-panel";
 import { AiDocumentDrawer, parseDocLink, type AiDocumentRef } from "@/components/ai/ai-document-drawer";
-import { AgainSystray } from "@/components/again/again-systray";
-import { WorkspaceNavDrawerToggle } from "@/components/workspace/workspace-nav-drawer-toggle";
 import {
   deleteAiConversation,
   fetchAiConversation,
@@ -45,14 +41,10 @@ import {
   renameAiConversation,
   streamAiChat,
   AiStreamError,
-  fetchAiSettings,
-  saveAiKey,
-  removeAiKey,
   transcribeAudio,
   synthesizeSpeech,
   AiVoiceError,
   type AiConversationSummary,
-  type AiSettings,
 } from "@/lib/api/ai-chat";
 import { useAdminAuth } from "@/lib/store/admin-auth-store";
 import { cn, formatDate } from "@/lib/utils";
@@ -189,12 +181,6 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Aladin engine settings (admins only): the key is stored server-side; we only ever see a hint.
-  const isAdmin =
-    ["admin", "system_manager"].includes((user?.role ?? "").toLowerCase()) ||
-    Boolean(user?.role_ids?.includes("role_system_manager"));
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"engine" | "presets">("engine");
   // Document opened from a doc:// link in a reply — rendered as a drawer over the chat.
   const [docDrawer, setDocDrawer] = useState<AiDocumentRef | null>(null);
   const openDocLink = useCallback((href: string, label: string) => {
@@ -248,34 +234,6 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
     [addFiles],
   );
   const [dragOver, setDragOver] = useState(false);
-  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
-  const [keyDraft, setKeyDraft] = useState("");
-  const [keyBusy, setKeyBusy] = useState(false);
-
-  const openSettings = useCallback(async () => {
-    setSettingsOpen(true);
-    setKeyDraft("");
-    try {
-      setAiSettings(await fetchAiSettings());
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not load Aladin settings");
-    }
-  }, []);
-
-  const submitKey = useCallback(async () => {
-    const key = keyDraft.trim();
-    if (!key) return;
-    setKeyBusy(true);
-    try {
-      setAiSettings(await saveAiKey(key));
-      setKeyDraft("");
-      toast.success("Aladin is connected");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save the key");
-    } finally {
-      setKeyBusy(false);
-    }
-  }, [keyDraft]);
 
   // ---- Language & voice -------------------------------------------------------------
   // Reply language is a per-browser preference; "auto" mirrors whatever the user types
@@ -574,18 +532,6 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
     };
   }, []);
 
-  const clearKey = useCallback(async () => {
-    setKeyBusy(true);
-    try {
-      setAiSettings(await removeAiKey());
-      toast.success("Aladin key removed");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not remove the key");
-    } finally {
-      setKeyBusy(false);
-    }
-  }, []);
-
   const loadHistory = useCallback(async () => {
     try {
       setConversations(await fetchAiConversations());
@@ -793,8 +739,6 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-background text-foreground">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-2">
-          {/* Workspace module drawer — every module chrome mounts this; the AI page has no navbar of its own. */}
-          <WorkspaceNavDrawerToggle tone="light" className="h-9 w-9 rounded-md" />
           <button
             type="button"
             className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -834,21 +778,6 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
             >
               <Globe className="h-3.5 w-3.5" /> Web search {webSearch ? "on" : "off"}
             </button>
-            {isAdmin ? (
-              <button
-                type="button"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => void openSettings()}
-                aria-label="Aladin settings"
-                title="Aladin settings"
-              >
-                <Settings className="h-4 w-4" />
-              </button>
-            ) : null}
-            {/* Notifications / theme / user menu, same systray as the module navbars (styled for a dark strip). */}
-            <div className="ml-1 rounded-md bg-[#2b3a32] px-1">
-              <AgainSystray />
-            </div>
           </div>
       </header>
       <div className="flex min-h-0 flex-1">
@@ -1312,120 +1241,6 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
         </Dialog.Portal>
       </Dialog.Root>
 
-      {/* Aladin settings (admins) */}
-      <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-          <Dialog.Content
-            className={`fixed left-1/2 top-1/2 z-50 max-h-[90vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-background p-5 shadow-xl ${
-              settingsTab === "presets" ? "w-[min(980px,94vw)]" : "w-[min(460px,92vw)]"
-            }`}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <Dialog.Title className="flex items-center gap-2 text-base font-semibold">
-                <Sparkles className="h-4 w-4 text-primary" /> Aladin settings
-              </Dialog.Title>
-              <Dialog.Close asChild>
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Close settings">
-                  <X className="h-4 w-4" />
-                </Button>
-              </Dialog.Close>
-            </div>
-            <div className="mt-3 flex gap-1 border-b border-border" role="tablist" aria-label="Aladin settings">
-              {(
-                [
-                  ["engine", "Engine"],
-                  ["presets", "Presets"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  role="tab"
-                  aria-selected={settingsTab === id}
-                  onClick={() => setSettingsTab(id)}
-                  className={`-mb-px border-b-2 px-3 py-2 text-sm ${
-                    settingsTab === id ? "border-primary font-medium text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {settingsTab === "presets" ? (
-              <div className="mt-4" role="tabpanel">
-                <Dialog.Description className="mb-4 text-sm text-muted-foreground">
-                  Company rules Aladin follows when it writes each field. Only administrators can see this tab.
-                </Dialog.Description>
-                <AiPresetSettingsPanel />
-              </div>
-            ) : (
-            <div role="tabpanel">
-            <Dialog.Description className="mt-4 text-sm text-muted-foreground">
-              Aladin needs an engine key to answer from your ERP data. The key is stored securely on the
-              server and is never shown again.
-            </Dialog.Description>
-            <div className="mt-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm">
-              {aiSettings === null ? (
-                <span className="text-muted-foreground">Checking status…</span>
-              ) : aiSettings.configured ? (
-                <span className="flex items-center gap-2">
-                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
-                  Connected{aiSettings.key_hint ? ` · key ending in ${aiSettings.key_hint}` : ""}
-                  <span className="text-muted-foreground">
-                    · {aiSettings.source === "workspace" ? "set from this screen" : "set on the server"}
-                  </span>
-                </span>
-              ) : (
-                <span className="flex items-center gap-2">
-                  <span className="inline-block h-2 w-2 rounded-full bg-amber-500" /> Not connected — Aladin can&rsquo;t reply yet.
-                </span>
-              )}
-            </div>
-            <label className="mt-4 block text-xs font-medium text-muted-foreground" htmlFor="againai-key">
-              Aladin API key
-            </label>
-            <input
-              id="againai-key"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              value={keyDraft}
-              onChange={(e) => setKeyDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void submitKey();
-                }
-              }}
-              placeholder={aiSettings?.configured ? "Paste a new key to replace the current one" : "Paste the key here"}
-              className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:border-primary"
-            />
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              The key is verified before it is saved. Only administrators can see this screen.
-            </p>
-            <div className="mt-4 flex items-center justify-between gap-2">
-              {aiSettings?.configured && aiSettings.source === "workspace" ? (
-                <Button variant="ghost" size="sm" className="text-destructive" disabled={keyBusy} onClick={() => void clearKey()}>
-                  Remove key
-                </Button>
-              ) : (
-                <span />
-              )}
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setSettingsOpen(false)}>
-                  Close
-                </Button>
-                <Button size="sm" disabled={keyBusy || keyDraft.trim().length < 8} onClick={() => void submitKey()}>
-                  {keyBusy ? "Verifying…" : "Save & verify"}
-                </Button>
-              </div>
-            </div>
-            </div>
-            )}
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
     </div>
   );
 }
