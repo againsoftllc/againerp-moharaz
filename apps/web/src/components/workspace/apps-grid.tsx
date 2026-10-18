@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
-import { ArrowUpRight, Download, ExternalLink, MoreVertical, Search, Settings, X } from "lucide-react";
+import { ArrowUpRight, Download, ExternalLink, Info, MoreVertical, Search, Settings, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -38,6 +38,35 @@ function tileColor(key: string): string {
   let h = 0;
   for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   return TILE_COLORS[h % TILE_COLORS.length];
+}
+
+/** The (i) button: the description is not printed on the card; it opens on click (and shows as a tooltip on hover). */
+function InfoButton({ title, text }: { title: string; text: string }) {
+  const [open, setOpen] = useState(false);
+  if (!text) return null;
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        aria-label={`About ${title}`}
+        aria-expanded={open}
+        title={text}
+        onClick={() => setOpen((v) => !v)}
+        onBlur={() => setOpen(false)}
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          className="absolute left-0 top-6 z-20 w-60 rounded-md border border-border bg-popover p-2 text-xs leading-4 text-popover-foreground shadow-lg"
+        >
+          {text}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 type AppItem = {
@@ -185,7 +214,10 @@ export function AppsGrid() {
         )}
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-start justify-between gap-1">
-            <h3 className="truncate text-sm font-semibold">{app.title}</h3>
+            <div className="flex min-w-0 items-center gap-1">
+              <h3 className="truncate text-sm font-semibold">{app.title}</h3>
+              <InfoButton title={app.title} text={app.description} />
+            </div>
             {hasMenu ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -219,8 +251,7 @@ export function AppsGrid() {
               </DropdownMenu>
             ) : null}
           </div>
-          <p className="mt-0.5 line-clamp-2 min-h-8 text-xs leading-4 text-muted-foreground">{app.description}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
             {app.installed ? (
               <>
                 {app.openHref ? (
