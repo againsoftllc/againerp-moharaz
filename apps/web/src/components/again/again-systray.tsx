@@ -1,10 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { Bell, Moon, Sun } from "lucide-react";
+import { Bell, Moon, Sparkles, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminAuth } from "@/lib/store/admin-auth-store";
+import { useAiChatStore } from "@/lib/store/ai-chat-store";
 import { logoutAdmin } from "@/lib/api/auth";
 import { userCompanyLabel, userInitials } from "@/lib/auth/user-display";
 import { useThemeOptional } from "@/components/theme/theme-provider";
@@ -49,6 +50,8 @@ function SystrayIconButton({
 
 export function AgainSystray() {
   const router = useRouter();
+  const pathname = usePathname();
+  const toggleAiDrawer = useAiChatStore((s) => s.toggleDrawer);
   const { user, clearSession } = useAdminAuth();
   const theme = useThemeOptional();
   const ThemeIcon = theme?.isDark ? Moon : Sun;
@@ -71,6 +74,13 @@ export function AgainSystray() {
       data-component="again_menu_systray"
       aria-label="Systray"
     >
+      {/* Aladin from any page - the same chat as the AI module (not on /ai itself, where the chat already is). */}
+      {!pathname.startsWith("/ai") ? (
+        <SystrayIconButton label="Aladin AI" onClick={toggleAiDrawer}>
+          <Sparkles className="h-3.5 w-3.5 text-violet-400" strokeWidth={1.75} />
+        </SystrayIconButton>
+      ) : null}
+
       <SystrayIconButton label="Notifications" onClick={() => router.push("/notifications")}>
         <Bell
           className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"

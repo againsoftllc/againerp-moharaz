@@ -47,6 +47,7 @@ import {
   type AiConversationSummary,
 } from "@/lib/api/ai-chat";
 import { useAdminAuth } from "@/lib/store/admin-auth-store";
+import { useAiChatStore } from "@/lib/store/ai-chat-store";
 import { cn, formatDate } from "@/lib/utils";
 
 /**
@@ -157,17 +158,29 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
-export function AiWorkspace({ initialConversationId }: { initialConversationId?: string | null }) {
+export function AiWorkspace({
+  initialConversationId,
+  variant = "page",
+}: {
+  initialConversationId?: string | null;
+  /** "page" = the /ai screen (chat list open, URL follows the chat); "drawer" = the AI drawer (compact, URL untouched). */
+  variant?: "page" | "drawer";
+}) {
+  const isDrawer = variant === "drawer";
+  // one chat everywhere: with no conversation asked for, continue the shared active one
+  const startId = initialConversationId ?? useAiChatStore.getState().activeConversationId;
+  const sharedId = useAiChatStore((s) => s.activeConversationId);
+  const setSharedId = useAiChatStore((s) => s.setActiveConversationId);
   const user = useAdminAuth((s) => s.user);
   const [conversations, setConversations] = useState<AiConversationSummary[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [search, setSearch] = useState("");
   // Rendered client-only (dynamic import, ssr: false), so reading the viewport here is safe.
-  const [sidebarOpen, setSidebarOpen] = useState(() => (typeof window === "undefined" ? true : window.innerWidth >= 768));
-  const [activeId, setActiveId] = useState<string | null>(initialConversationId ?? null);
+  const [sidebarOpen, setSidebarOpen] = useState(() => (isDrawer ? false : typeof window === "undefined" ? true : window.innerWidth >= 768));
+  const [activeId, setActiveId] = useState<string | null>(startId ?? null);
   // Only the conversation the page was opened with is auto-loaded. Later `?c=` updates come
   // from our own history.replaceState after a send and must not re-open (and abort) the chat.
-  const initialRef = useRef<string | null>(initialConversationId ?? null);
+  const initialRef = useRef<string | null>(startId ?? null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [input, setInput] = useState("");
@@ -552,7 +565,7 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
       abortRef.current?.abort();
       setActiveId(id);
       setStatus(null);
-      if (push) window.history.replaceState(null, "", id ? `/ai?c=${id}` : "/ai");
+      if (push && !isDrawer) window.history.replaceState(null, "", id ? `/ai?c=${id}` : "/ai");
       if (!id) {
         setMessages([]);
         return;
@@ -566,12 +579,12 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
         setActiveId(null);
         setMessages([]);
         // Drop a dead `?c=` so a reload doesn't re-open the same missing chat.
-        window.history.replaceState(null, "", "/ai");
+        if (!isDrawer) window.history.replaceState(null, "", "/ai");
       } finally {
         setMessagesLoading(false);
       }
     },
-    [],
+    [isDrawer],
   );
 
   useEffect(() => {
@@ -580,6 +593,18 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
     const t = setTimeout(() => void openConversation(id, { push: false }), 0);
     return () => clearTimeout(t);
   }, [openConversation]);
+
+  // One chat everywhere (AI page, AI drawer, product-upload drawer): this chat's id is published, and when another place switches the
+  // shared chat (a product opened for upload starts its own conversation) this one follows - unless a reply is being written right now.
+  useEffect(() => {
+    setSharedId(activeId);
+  }, [activeId, setSharedId]);
+  useEffect(() => {
+    if (sharedId === activeId || sending) return;
+    const t = setTimeout(() => void openConversation(sharedId, { push: false }), 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sharedId]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -635,7 +660,7 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
               convoId = id;
               if (!activeId) {
                 setActiveId(id);
-                window.history.replaceState(null, "", `/ai?c=${id}`);
+                if (!isDrawer) window.history.replaceState(null, "", `/ai?c=${id}`);
               }
             },
             onText: (delta) => {
@@ -671,7 +696,7 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
         if (discarded) {
           convoId = null;
           setActiveId(null);
-          window.history.replaceState(null, "", "/ai");
+          if (!isDrawer) window.history.replaceState(null, "", "/ai");
         }
         const failure = stale
           ? "This chat no longer exists. A new chat has been started — please send your message again."
@@ -689,10 +714,10 @@ export function AiWorkspace({ initialConversationId }: { initialConversationId?:
         setStatus(null);
         abortRef.current = null;
         void loadHistory();
-        if (convoId) window.history.replaceState(null, "", `/ai?c=${convoId}`);
+        if (convoId && !isDrawer) window.history.replaceState(null, "", `/ai?c=${convoId}`);
       }
     },
-    [activeId, sending, webSearch, lang, pendingFiles, loadHistory],
+    [activeId, sending, webSearch, lang, pendingFiles, loadHistory, isDrawer],
   );
 
   function onComposerKey(e: KeyboardEvent<HTMLTextAreaElement>) {

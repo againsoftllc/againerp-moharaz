@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { AiFillReviewCard } from "@/components/ai/ai-fill-review-card";
 import { AiPreviewCard } from "@/components/ai/ai-preview-card";
 import { AiVoiceError, streamAiChat, transcribeAudio } from "@/lib/api/ai-chat";
+import { useAiChatStore } from "@/lib/store/ai-chat-store";
 import { applyFillFromSource, type FillApproval, type FillReview } from "@/lib/api/catalog-ai-import";
 import { useAdminAuth } from "@/lib/store/admin-auth-store";
 import { cn } from "@/lib/utils";
@@ -197,6 +198,7 @@ export function AiProductDrawer({
           {
             onConversation: (id) => {
               convoRef.current = id;
+              useAiChatStore.getState().setActiveConversationId(id); // the AI drawer / page show and continue this same chat
             },
             onText: (d) => {
               setStatus(null);
