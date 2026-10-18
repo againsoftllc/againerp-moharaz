@@ -56,7 +56,28 @@ async function registerBridge() {
   ]);
 }
 
-function onBoot() {
+// config.json is written into the zip by the admin it was downloaded from (the API + admin address of THAT AgainERP). When it
+// carries addresses the extension is pre-connected to them: nobody types them, nobody can point it somewhere else. It holds
+// addresses only - never a password or a token; every person signs in with their own account.
+async function applyConfig() {
+  try {
+    const config = await (await fetch(chrome.runtime.getURL("config.json"))).json();
+    const apiBase = String(config.apiBase || "").replace(/\/+$/, "");
+    const webBase = String(config.webBase || apiBase).replace(/\/+$/, "");
+    if (!apiBase) return;
+    const saved = await chrome.storage.local.get(["apiBase", "webBase"]);
+    if (saved.apiBase !== apiBase || saved.webBase !== webBase) {
+      // a different AgainERP than the one a saved session belongs to: that session is no use here
+      await chrome.storage.local.set({ apiBase, webBase });
+      if (saved.apiBase && saved.apiBase !== apiBase) await chrome.storage.local.remove(["token", "userName"]);
+    }
+  } catch (_) {
+    /* no config.json - the popup asks for the addresses */
+  }
+}
+
+async function onBoot() {
+  await applyConfig();
   schedule();
   registerBridge();
 }

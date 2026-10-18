@@ -14,11 +14,12 @@
 
     <!-- Connect -->
     <section id="view-login" hidden>
-      <p class="muted">Sign in once with your AgainERP admin account.</p>
-      <label>API address
+      <p class="muted">Sign in once with your own AgainERP account.</p>
+      <p id="locked-note" class="muted small" hidden></p>
+      <label id="api-label">API address
         <input id="api-base" type="url" placeholder="https://api.yourstore.com" />
       </label>
-      <label>Admin panel address <span class="muted">(for the “Open” link)</span>
+      <label id="web-label">Admin panel address <span class="muted">(for the “Open” link)</span>
         <input id="web-base" type="url" placeholder="https://admin.yourstore.com" />
       </label>
       <label>Email or username

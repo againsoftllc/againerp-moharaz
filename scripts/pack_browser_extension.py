@@ -21,7 +21,8 @@ def main() -> None:
     version = json.loads((SRC / "manifest.json").read_text(encoding="utf-8"))["version"]
     with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as z:
         for path in sorted(SRC.rglob("*")):
-            if path.is_file():
+            # config.json (the admin's own addresses) is added to the zip at download time by the admin page - never packed
+            if path.is_file() and path.name != "config.json":
                 z.write(path, Path("send-to-againerp-extension") / path.relative_to(SRC))
     print(f"{OUT.relative_to(ROOT)}  v{version}  {OUT.stat().st_size:,} bytes")
 

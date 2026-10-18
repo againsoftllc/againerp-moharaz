@@ -19,11 +19,24 @@ function normalizeBase(value) {
   return (value || "").trim().replace(/\/+$/, "").replace(/\/api\/v1$/, "");
 }
 
+// The addresses the admin put into this zip (config.json). When set, the extension is locked to them.
+async function loadConfig() {
+  try {
+    const config = await (await fetch(chrome.runtime.getURL("config.json"))).json();
+    const apiBase = normalizeBase(config.apiBase);
+    return apiBase ? { apiBase, webBase: normalizeBase(config.webBase) || apiBase } : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function loadSettings() {
   const saved = await chrome.storage.local.get(["apiBase", "webBase", "token", "userName"]);
+  const config = await loadConfig();
+  state.locked = !!config;
   Object.assign(state, {
-    apiBase: saved.apiBase || "",
-    webBase: saved.webBase || "",
+    apiBase: config ? config.apiBase : saved.apiBase || "",
+    webBase: config ? config.webBase : saved.webBase || "",
     token: saved.token || "",
     userName: saved.userName || "",
   });
@@ -76,6 +89,11 @@ function openLogin(message) {
   show($("view-login"));
   $("api-base").value = state.apiBase || "http://127.0.0.1:8050";
   $("web-base").value = state.webBase || "http://localhost:3250";
+  // pre-connected by the zip: the addresses are not asked, shown or editable
+  show($("api-label"), !state.locked);
+  show($("web-label"), !state.locked);
+  show($("locked-note"), state.locked);
+  if (state.locked) $("locked-note").textContent = `Connected to ${new URL(state.apiBase).host}.`;
   const signedIn = !!state.token;
   show($("signed-in"), signedIn);
   show($("logout"), signedIn);
@@ -85,8 +103,8 @@ function openLogin(message) {
 }
 
 async function login() {
-  const apiBase = normalizeBase($("api-base").value);
-  const webBase = normalizeBase($("web-base").value);
+  const apiBase = state.locked ? state.apiBase : normalizeBase($("api-base").value);
+  const webBase = state.locked ? state.webBase : normalizeBase($("web-base").value);
   const email = $("login-email").value.trim();
   const password = $("login-password").value;
   const fail = (msg) => {
