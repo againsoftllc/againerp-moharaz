@@ -55,6 +55,7 @@ import { AgainListGrid } from "@/components/shared/again-list-grid";
 import { useGridSourceCompare } from "@/components/products/use-grid-source-compare";
 import { FilterTriggerContent } from "@/components/shared/filter-trigger";
 import { useProfileNames } from "@/components/products/use-profile-names";
+import { LinkedRecordEditors, type LinkedTarget } from "@/components/products/linked-record-editors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FilterSelect } from "@/components/shared/filter-select";
@@ -908,7 +909,16 @@ function productCategoryNames(product: Product, categories: Category[]): string[
   return product.category ? [product.category] : [];
 }
 
-function ProductCategoryCell({ product, categories }: { product: Product; categories: Category[] }) {
+function ProductCategoryCell({
+  product,
+  categories,
+  onOpen,
+}: {
+  product: Product;
+  categories: Category[];
+  /** a chip is clicked: open that category's edit drawer (off while the cell is live-edited) */
+  onOpen?: (categoryName: string) => void;
+}) {
   const names = productCategoryNames(product, categories);
   if (names.length === 0) {
     return (
@@ -919,15 +929,30 @@ function ProductCategoryCell({ product, categories }: { product: Product; catego
     <div className="flex h-full flex-nowrap items-center gap-0.5 overflow-hidden">
       {names.map((name) => {
         const { label } = getProductCategoryDisplay(name, categories);
-        return (
+        const chip = (
           <Badge
             key={name}
             variant="muted"
-            className="max-w-[7rem] shrink-0 truncate"
-            title={getCategoryBreadcrumbTitle(name, categories)}
+            className={cn("max-w-[7rem] shrink-0 truncate", onOpen && "cursor-pointer hover:bg-muted/70")}
+            title={onOpen ? `${getCategoryBreadcrumbTitle(name, categories)} - click to edit this category` : getCategoryBreadcrumbTitle(name, categories)}
           >
             {label}
           </Badge>
+        );
+        return onOpen ? (
+          <button
+            key={name}
+            type="button"
+            className="shrink-0 border-0 bg-transparent p-0"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(name);
+            }}
+          >
+            {chip}
+          </button>
+        ) : (
+          chip
         );
       })}
     </div>
@@ -1414,6 +1439,8 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   const [aiSourceTarget, setAiSourceTarget] = useState<Product | null>(null);
   const [aiSourceUrl, setAiSourceUrl] = useState("");
   const [aiSourceSaving, setAiSourceSaving] = useState(false);
+  // a category chip / the brand / the specification profile of a row was clicked: that record's own edit drawer opens
+  const [linkedTarget, setLinkedTarget] = useState<LinkedTarget | null>(null);
   // The plain Products list shows the same Source column as Price Compare (company | price, stock dot, re-check, link) for the page on
   // screen; the Price Compare screens pass their own competitor columns and keep them.
   const srcCompare = useGridSourceCompare(!isInventory && !competitorsProp);
@@ -2132,7 +2159,13 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         cellEditor: resolvedLiveEdit.category ? "agSelectCellEditor" : undefined,
         cellEditorParams: resolvedLiveEdit.category ? { values: categoryNames } : undefined,
         cellRenderer: (p: ICellRendererParams<Product>) =>
-          p.data ? <ProductCategoryCell product={p.data} categories={categories} /> : null,
+          p.data ? (
+            <ProductCategoryCell
+              product={p.data}
+              categories={categories}
+              onOpen={canWrite && !resolvedLiveEdit.category ? (name) => setLinkedTarget({ kind: "category", key: name }) : undefined}
+            />
+          ) : null,
         valueGetter: (p) =>
           p.data ? productCategoryNames(p.data, categories).join(", ") : "",
         cellClass:
@@ -2149,8 +2182,24 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         hide: visibleCols.profile === false || isInventory,
         editable: false,
         valueGetter: (p) => (p.data?.attributeProfileId ? (profileNames[p.data.attributeProfileId] ?? "") : ""),
-        cellRenderer: (p: ICellRendererParams<Product>) =>
-          p.value ? <span className="truncate">{String(p.value)}</span> : <span className="text-muted-foreground">—</span>,
+        cellRenderer: (p: ICellRendererParams<Product>) => {
+          if (!p.value) return <span className="text-muted-foreground">—</span>;
+          const profileId = p.data?.attributeProfileId;
+          if (!canWrite || !profileId) return <span className="truncate">{String(p.value)}</span>;
+          return (
+            <button
+              type="button"
+              className="max-w-full truncate text-left hover:underline"
+              title="Click to edit this specification profile"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLinkedTarget({ kind: "profile", key: profileId });
+              }}
+            >
+              {String(p.value)}
+            </button>
+          );
+        },
       },
       {
         field: "brand",
@@ -2161,6 +2210,24 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         cellClass: canWrite && resolvedLiveEdit.brand ? "live-edit-cell" : undefined,
         cellEditor: resolvedLiveEdit.brand ? "agSelectCellEditor" : undefined,
         cellEditorParams: resolvedLiveEdit.brand ? { values: brands } : undefined,
+        cellRenderer: (p: ICellRendererParams<Product>) => {
+          const brand = p.data?.brand;
+          if (!brand || brand === "Unknown") return <span className="text-muted-foreground">{brand || "—"}</span>;
+          if (!canWrite || resolvedLiveEdit.brand) return <span className="truncate">{brand}</span>;
+          return (
+            <button
+              type="button"
+              className="max-w-full truncate text-left hover:underline"
+              title="Click to edit this brand"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLinkedTarget({ kind: "brand", key: brand });
+              }}
+            >
+              {brand}
+            </button>
+          );
+        },
       },
       {
         field: "warranty",
@@ -2912,6 +2979,13 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         )
       }
     >
+      <LinkedRecordEditors
+        target={linkedTarget}
+        categories={categories}
+        onClose={() => setLinkedTarget(null)}
+        onChanged={() => onProductsChanged?.()}
+      />
+
       {/* AI column on a product with no Source link: ask for the page, save it, then let the AI fill the product from it */}
       <Dialog.Root
         open={!!aiSourceTarget}
