@@ -1800,7 +1800,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         hide: !visibleCols.productId,
         pinned: "left",
         width: 100,
-        minWidth: 88,
+        minWidth: 48,
         resizable: true,
         suppressMovable: true,
         suppressSizeToFit: true,
@@ -1851,7 +1851,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         ...(savedColumnNameWidth != null
           ? { width: savedColumnNameWidth }
           : { flex: 2 }),
-        minWidth: 160,
+        minWidth: 48,
         resizable: true,
         suppressMovable: false,
         editable: false,
@@ -1880,7 +1880,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         cellClass: canWrite && resolvedLiveEdit.sku ? "live-edit-cell" : undefined,
         valueParser: textParser("SKU", { required: true }),
         width: 130,
-        minWidth: 110,
+        minWidth: 48,
       },
       {
         field: "model",
@@ -1889,7 +1889,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         editable: canWrite && resolvedLiveEdit.model,
         cellClass: canWrite && resolvedLiveEdit.model ? "live-edit-cell" : undefined,
         width: 120,
-        minWidth: 80,
+        minWidth: 48,
         valueGetter: (p) => p.data?.model ?? "",
         valueSetter: (p) => {
           if (!p.data) return false;
@@ -1903,7 +1903,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         hide: !visibleCols.slug,
         editable: canWrite && resolvedLiveEdit.slug,
         width: 180,
-        minWidth: 120,
+        minWidth: 48,
         cellEditor: resolvedLiveEdit.slug ? SlugCellEditor : undefined,
         cellClassRules: slugCellClassRules,
       },
@@ -1915,7 +1915,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         cellClass: canWrite && resolvedLiveEdit.price ? "live-edit-cell" : undefined,
         valueParser: numberParser({ label: "Price" }),
         width: 120,
-        minWidth: 110,
+        minWidth: 48,
         valueFormatter: (p) => formatCurrency(p.value ?? 0),
       },
       {
@@ -1934,7 +1934,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
               : "Compare-at price is the old, struck-through price: it must be higher than the selling price",
         }),
         width: 130,
-        minWidth: 110,
+        minWidth: 48,
         valueGetter: (p) =>
           p.data?.offerPrice ?? p.data?.compareAtPrice ?? null,
         valueSetter: (p) => {
@@ -1959,7 +1959,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
           Boolean(canWrite && resolvedLiveEdit.stock && p.data?.trackQuantity !== false),
         valueParser: numberParser({ label: "Stock", integer: true }),
         width: 100,
-        minWidth: 88,
+        minWidth: 48,
         cellRenderer: (p: ICellRendererParams<Product>) =>
           p.data ? (
             <ProductStockCell
@@ -2015,7 +2015,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         editable: canWrite && resolvedLiveEdit.seoTitle,
         cellClass: canWrite && resolvedLiveEdit.seoTitle ? "live-edit-cell" : undefined,
         width: 220,
-        minWidth: 140,
+        minWidth: 48,
         tooltipField: "seoTitle",
       },
       {
@@ -2040,7 +2040,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         colId: "profile",
         headerName: "Specification profile",
         width: 160,
-        minWidth: 110,
+        minWidth: 48,
         hide: visibleCols.profile === false || isInventory,
         editable: false,
         valueGetter: (p) => (p.data?.attributeProfileId ? (profileNames[p.data.attributeProfileId] ?? "") : ""),
@@ -2065,7 +2065,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         cellClass: canWrite && resolvedLiveEdit.warranty ? "live-edit-cell" : undefined,
         valueParser: textParser("Warranty"),
         width: 110,
-        minWidth: 80,
+        minWidth: 48,
         valueGetter: (p) => p.data?.warranty?.trim() || "",
         valueFormatter: (p) => (p.value ? String(p.value) : "—"),
       },
@@ -2073,7 +2073,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         field: "origin",
         headerName: "Origin",
         width: 110,
-        minWidth: 80,
+        minWidth: 48,
         hide: visibleCols.origin === false || isInventory,
         editable: false,
         valueGetter: (p) => p.data?.origin?.trim() || "",
@@ -2087,7 +2087,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         cellClass: canWrite && resolvedLiveEdit.alertQuantity ? "live-edit-cell" : undefined,
         valueParser: numberParser({ label: "Alert quantity", integer: true }),
         width: 110,
-        minWidth: 80,
+        minWidth: 48,
         valueGetter: (p) => p.data?.alertQuantity ?? 0,
         valueFormatter: (p) => formatQuantity(p.value, "0"),
       },
@@ -2096,7 +2096,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         headerName: "Unit type",
         hide: !isInventory || !visibleCols.unitType,
         width: 100,
-        minWidth: 80,
+        minWidth: 48,
         valueGetter: (p) => p.data?.unitType ?? "",
         valueFormatter: (p) => (p.value ? unitTypeLabel(String(p.value)) : "—"),
       },
@@ -2108,7 +2108,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         cellClass: canWrite && resolvedLiveEdit.purchasePrice ? "live-edit-cell" : undefined,
         valueParser: numberParser({ label: "Cost price", allowEmpty: true }),
         width: 110,
-        minWidth: 88,
+        minWidth: 48,
         valueGetter: (p) => p.data?.purchasePrice ?? null,
         valueFormatter: (p) =>
           p.value != null && p.value !== "" ? formatCurrency(Number(p.value)) : "—",
@@ -2118,7 +2118,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         headerName: "Last selling price",
         hide: !visibleCols.lastSellingPrice,
         width: 130,
-        minWidth: 100,
+        minWidth: 48,
         valueGetter: (p) => p.data?.lastSellingPrice ?? null,
         valueFormatter: (p) =>
           p.value != null && p.value !== "" ? formatCurrency(Number(p.value)) : "—",
@@ -2128,7 +2128,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         headerName: "Product type",
         hide: !visibleCols.productType,
         width: 110,
-        minWidth: 88,
+        minWidth: 48,
         valueGetter: (p) => p.data?.productType ?? "simple",
         valueFormatter: (p) => {
           const v = String(p.value ?? "simple");
@@ -2147,7 +2147,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         headerName: "Updated By",
         hide: isInventory,
         flex: 1,
-        minWidth: 120,
+        minWidth: 48,
         valueGetter: (p) => p.data?.updatedBy || "—",
       },
       ...(competitorMatches && competitors
@@ -2174,7 +2174,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
                   : undefined,
             },
             width: key === "source" ? 230 : 170,
-            minWidth: key === "source" ? 190 : 140,
+            minWidth: 48,
             sortable: false,
             editable: false,
             cellRenderer: (p: ICellRendererParams<Product>) => {
@@ -2228,8 +2228,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
               headerClass: "product-grid-center-col",
               headerTooltip: "Fill this product from its source URL with AI",
               width: 64,
-              minWidth: 56,
-              maxWidth: 80,
+              minWidth: 40,
               sortable: false,
               editable: false,
               cellStyle: { display: "flex", alignItems: "center", justifyContent: "center" },
