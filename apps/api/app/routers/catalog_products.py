@@ -870,6 +870,11 @@ def list_products(
         pattern="^(list|full)$",
         description="list = grid columns only (no description / short description / meta description / tags)",
     ),
+    exclude_status: Optional[str] = Query(
+        None,
+        pattern="^(draft|published|unlisted|archived)$",
+        description="Leave out products of this status (the Products list hides the Unlisted ones)",
+    ),
     scope: Optional[str] = Query(
         None,
         pattern="^(inventory|website)$",
@@ -879,6 +884,8 @@ def list_products(
     query = db.query(CatalogProduct).filter(CatalogProduct.company_id == company_id)
     if status:
         query = query.filter(CatalogProduct.status == status)
+    if exclude_status:
+        query = query.filter(CatalogProduct.status != exclude_status)
     # every word must appear in the name, SKU, brand or model ("msi b650m wifi")
     for word in (q or "").split()[:6]:
         like = f"%{word}%"
@@ -1154,7 +1161,7 @@ def duplicate_product(
         stock_status=source.stock_status,
         status="draft",
         product_type=source.product_type,
-        visibility="private",
+        visibility="public",
         brand=source.brand,
         category=source.category,
         brand_id=source.brand_id,

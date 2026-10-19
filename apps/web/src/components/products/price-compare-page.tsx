@@ -83,7 +83,7 @@ export type PriceComparePageProps = {
   /** the page this grid lives on (deep links and the ?view= dialog stay on it) */
   basePath?: string;
   title?: string;
-  /** only products whose status is draft (and the publish / remove / archive buttons stay in the bulk bar) */
+  /** only products whose status is unlisted (and the publish / remove / archive buttons stay in the bulk bar) */
   draftOnly?: boolean;
   /** localStorage key of the grid's column layout */
   columnStateKey?: string;
@@ -101,10 +101,10 @@ function PriceUpdateContent({
   };
   const router = useRouter();
   const searchParams = useSearchParams();
-  // only the rows this screen compares: the drafts for Product Draft, the published website products for Price Compare (the 24k imported
+  // only the rows this screen compares: the unlisted products for the Unlisted page, the published website products for Price Compare (the 24k imported
   // drafts are not loaded there - loading every product made the page slow / fail once the catalog passed ~36k)
   const [extensionSheetOpen, setExtensionSheetOpen] = useState(false);
-  const { products: allProducts, loading, error, refetch } = useCatalogProducts({ channel: "catalog", status: draftOnly ? "draft" : "published" });
+  const { products: allProducts, loading, error, refetch } = useCatalogProducts({ channel: "catalog", status: draftOnly ? "unlisted" : "published" });
   const products = allProducts;
   const { categories } = useCatalogCategories({ channel: "catalog" });
   const canWrite = useAdminCanWrite();

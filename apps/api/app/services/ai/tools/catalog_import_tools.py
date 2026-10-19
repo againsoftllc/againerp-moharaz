@@ -343,7 +343,7 @@ def apply_fill(
         # the admin left the AI's category pick alone -> a missing deeper level of the source's breadcrumb is created under it
         create_category_if_missing=(not cat_ids) or cat_ids == list(extracted.matched_category_ids),
         import_images=True,
-        status=row.status if row.status in ("draft", "published") else "draft",
+        status=row.status if row.status in ("draft", "published", "unlisted") else "draft",
     )
     row = create_product_from_draft(
         db, payload, user, existing=row, create_spec_profile=needs_profile or profile_id == "new",

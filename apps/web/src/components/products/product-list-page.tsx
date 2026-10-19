@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Filter, MousePointerClick, Plus, RefreshCw, Settings2, Download, Upload } from "lucide-react";
+import { Filter, Globe, MousePointerClick, Plus, RefreshCw, Settings2, Download, Upload } from "lucide-react";
 import { ProductGridOpenFallback } from "@/components/products/product-grid-open-fallback";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ProductImportDialog } from "@/components/products/product-import-dialog";
+import { SitemapImportDialog } from "@/components/products/sitemap-import-dialog";
 import { downloadPdf, downloadXlsx, fileStamp } from "@/lib/list-io/spreadsheet";
 import type { Product } from "@/lib/mock-data/products";
 import type { ProductGridHandle } from "@/components/products/product-grid";
@@ -53,16 +54,20 @@ export type ProductListProps = {
   title?: string;
   /** list only products whose status is draft */
   draftOnly?: boolean;
+  /** the Unlisted page: only unlisted products - everything else (columns, filters, live edit, Import / Export, AI column) is the Products list */
+  unlistedOnly?: boolean;
 };
 
-function ProductListContent({ basePath = "/website/products", title = "Products", draftOnly = false }: ProductListProps) {
+function ProductListContent({ basePath = "/website/products", title = "Products", draftOnly = false, unlistedOnly = false }: ProductListProps) {
   const buildProductsUrl = (params: URLSearchParams) => {
     const query = params.toString();
     return query ? `${basePath}?${query}` : basePath;
   };
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { products: allProducts, loading, error, refetch } = useCatalogProducts({ channel: "catalog", scope: "website" });
+  const { products: allProducts, loading, error, refetch } = useCatalogProducts(
+    unlistedOnly ? { channel: "catalog", status: "unlisted" } : { channel: "catalog", scope: "website", status: "!unlisted" },
+  );
   const products = useMemo(() => (draftOnly ? allProducts.filter((p) => p.status === "draft") : allProducts), [allProducts, draftOnly]);
   const { categories } = useCatalogCategories({ channel: "catalog" });
   const canWrite = useAdminCanWrite();
@@ -70,6 +75,7 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
   const productGridRef = useRef<ProductGridHandle>(null);
   const [advancedFilterCount, setAdvancedFilterCount] = useState(0);
   const [importOpen, setImportOpen] = useState(false);
+  const [sitemapOpen, setSitemapOpen] = useState(false);
 
   const [formSheetOpen, setFormSheetOpen] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
@@ -297,6 +303,12 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
               Import
             </DropdownMenuItem>
           ) : null}
+          {canWrite && unlistedOnly ? (
+            <DropdownMenuItem onClick={() => setSitemapOpen(true)}>
+              <Globe className="mr-1.5 h-3 w-3" />
+              Import from sitemap
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <Download className="mr-1.5 h-3 w-3" />
@@ -336,6 +348,7 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
           disableView
           onEdit={handleEdit}
           onProductsChanged={() => void refetch()}
+          duplicateCheck={unlistedOnly}
           // the AI column (like Unlisted): fill the product from its source link in the Aladin drawer
           onAiImport={(product) => useAiChatStore.getState().startProductTask({ id: product.id, name: product.name }, () => void refetch())}
           onAddToInventory={async (rows) => {
@@ -366,6 +379,8 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
           <Plus className="h-5 w-5" />
         </Button>
       )}
+
+      {canWrite && unlistedOnly ? <SitemapImportDialog open={sitemapOpen} onOpenChange={setSitemapOpen} onDone={() => void refetch()} /> : null}
 
       {canWrite ? (
         <ProductImportDialog

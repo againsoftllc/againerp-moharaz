@@ -43,6 +43,7 @@ const NAV_CHIP_ACTIVE = "text-white";
 const DIRECT_LINKS: NavLink[] = [{ id: "media", label: "Media", href: "/workspace/media" }];
 
 const APPS_HREF = "/workspace/apps";
+const BILLING_HREF = "/workspace/billing";
 
 const SITES_HREF = "/workspace/sites";
 
@@ -65,6 +66,8 @@ const CONFIG_LINKS: NavLink[] = [
 const NAV_MENUS: NavMenu[] = [
   // Apps is one page (modules + plugins in one grid) - a plain link, no sub menu
   { id: "apps", label: "Apps", direct: true, href: APPS_HREF, children: [] as NavEntry[] },
+  // the ERP's own bills (subscription / module / plugin) and their pay links — System Manager only
+  { id: "billing", label: "Billing", direct: true, href: BILLING_HREF, children: [] as NavEntry[] },
   ...DIRECT_LINKS.map((item) => ({
     id: item.id,
     label: item.label,
@@ -111,6 +114,9 @@ function resolveWorkspaceNav(
       activeNav: "apps",
       activeSub: searchParams?.get("tab") === "plugins" ? "plugins" : "modules",
     };
+  }
+  if (isActiveHref(pathname, BILLING_HREF)) {
+    return { activeNav: "billing", activeSub: "billing" };
   }
   // Sites (includes legacy /workspace/website and /workspace/stores)
   if (
@@ -374,7 +380,7 @@ export function WorkspaceModuleNavbar() {
 
   const menus = useMemo(
     () =>
-      NAV_MENUS.map((menu) => {
+      NAV_MENUS.filter((menu) => menu.id !== "billing" || isSystemManager).map((menu) => {
         if (menu.id === "sites") {
           const children: NavEntry[] = [
             { kind: "item", id: "sites-all", label: "All stores", href: SITES_HREF },

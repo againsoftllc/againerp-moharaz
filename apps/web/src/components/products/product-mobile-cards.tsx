@@ -5,7 +5,6 @@ import type { Product } from "@/lib/mock-data/products";
 import { formatCurrency } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { WebsiteBadge } from "@/components/products/website-badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +15,13 @@ import { MobileCardActions } from "@/components/activity/mobile-card-actions";
 
 function StatusBadge({ status }: { status: Product["status"] }) {
   const variant =
-    status === "published" ? "success" : status === "draft" ? "warning" : "muted";
+    status === "published"
+      ? "success"
+      : status === "draft"
+        ? "warning"
+        : status === "unlisted"
+          ? "outline"
+          : "muted";
   return <Badge variant={variant} className="capitalize">{status}</Badge>;
 }
 
@@ -68,7 +73,6 @@ export function ProductMobileCards({ products, onView, onEdit, onArchive }: Prop
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="text-sm font-semibold">{formatCurrency(p.price)}</span>
               <span className="text-xs text-muted-foreground">Stock {p.stock}</span>
-              <WebsiteBadge product={p} size="sm" />
               <StatusBadge status={p.status} />
             </div>
           </div>

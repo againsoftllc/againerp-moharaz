@@ -137,7 +137,7 @@ class EcommerceItemService:
 
         ec.catalog_product_id = product.id
         ec.slug = product.slug
-        ec.visibility = product.visibility
+        ec.visibility = "public"  # live-ness follows the product status only
         ec.short_description = product.short_description
         ec.full_description = product.description
         ec.specifications_json = product.custom_specs_json
@@ -154,8 +154,6 @@ class EcommerceItemService:
 
         if mirror_publish:
             ec.publish_status = CATALOG_STATUS_TO_PUBLISH.get(product.status, "draft")
-            if product.visibility == "private" and ec.publish_status == "published":
-                ec.publish_status = "hidden"
 
         ec.is_active = ec.publish_status == "published"
         self._sync_categories(product, item_id)
@@ -178,7 +176,9 @@ class EcommerceItemService:
         product.compare_at_price = ec.compare_at_price
         product.thumbnail = ec.thumbnail_url
         product.visibility = ec.visibility
-        product.status = PUBLISH_TO_CATALOG_STATUS.get(ec.publish_status, "draft")
+        # "unlisted" is a catalog-only status that is a draft on the ecommerce side: keep it
+        if not (product.status == "unlisted" and ec.publish_status == "draft"):
+            product.status = PUBLISH_TO_CATALOG_STATUS.get(ec.publish_status, "draft")
         self._db.flush()
 
     def publish(self, item_id: str) -> EcommerceItem:

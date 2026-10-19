@@ -37,7 +37,7 @@ type UseCatalogProductsOptions = {
   /** Split Catalog vs Dropshipping product lists (server-side). */
   channel?: CatalogProductChannel;
   scope?: CatalogProductScope;
-  /** Load only products of this status (server-side), e.g. "draft" or "published". */
+  /** Load only products of this status (server-side), e.g. "unlisted" or "published"; "!unlisted" leaves that status out. */
   status?: string;
 };
 
@@ -101,7 +101,9 @@ async function loadProductList(
       });
       if (channel) params.set("channel", channel);
       if (scope) params.set("scope", scope);
-      if (status) params.set("status", status); // only the rows the screen needs (36k products incl. 24k drafts is too many to load for nothing)
+      // "!unlisted" = everything except that status (the Products list hides the Unlisted ones)
+      if (status?.startsWith("!")) params.set("exclude_status", status.slice(1));
+      else if (status) params.set("status", status); // only the rows the screen needs (36k products incl. 24k drafts is too many to load for nothing)
       return apiFetch<ApiProductListResponse>(
         `/api/v1/catalog/products?${params}`,
         force ? { cache: "no-store" } : undefined,
@@ -307,11 +309,11 @@ export async function deleteCatalogProduct(id: string): Promise<void> {
 }
 
 export async function publishProductToApi(id: string): Promise<ProductDetail> {
-  return updateCatalogProduct(id, { status: "published", visibility: "public" });
+  return updateCatalogProduct(id, { status: "published" });
 }
 
 export async function unpublishProductFromApi(id: string): Promise<ProductDetail> {
-  return updateCatalogProduct(id, { status: "draft", visibility: "private" });
+  return updateCatalogProduct(id, { status: "unlisted" });
 }
 
 /** Runs `worker` over `items` a few at a time (a bulk action over hundreds of rows must not open hundreds of API

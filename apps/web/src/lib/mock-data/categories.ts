@@ -19,6 +19,8 @@ export type Category = {
   /** Storefront: show live price comparison / price list under PLP */
   showPriceComparison?: boolean;
   updatedAt: string;
+  /** who last changed it (shown in the Updated By column) */
+  updatedBy?: string;
   description?: string;
   metaTitle?: string;
   metaDescription?: string;

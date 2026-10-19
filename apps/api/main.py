@@ -225,6 +225,7 @@ from app.routers import (
     sales_invoices,
     pos,
     public_invoices,
+    erp_billing,
 )
 
 settings = get_settings()
@@ -965,6 +966,8 @@ app.include_router(ecommerce_items.router, prefix="/api/v1/ecommerce", dependenc
 app.include_router(sales.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(sales_invoices.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(public_invoices.router, prefix="/api/v1")
+app.include_router(erp_billing.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(erp_billing.public_router, prefix="/api/v1")
 app.include_router(pos.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(platform_settings.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(marketing_coupons.router, prefix="/api/v1", dependencies=require_admin)

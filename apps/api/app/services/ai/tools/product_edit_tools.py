@@ -174,7 +174,7 @@ def build_product_edit_tools(
                     return {"error": f"{f} must be a number."}
                 update[f] = amount
         for f, allowed in (
-            ("status", ("draft", "published", "archived")),
+            ("status", ("draft", "published", "unlisted", "archived")),
             ("stock_status", ("in_stock", "out_of_stock", "pre_order", "coming_soon")),
             ("visibility", ("public", "private")),
         ):
@@ -326,7 +326,7 @@ def build_product_edit_tools(
                                 "tags": {"type": "array", "items": {"type": "string"}},
                                 "warranty": {"type": "string"},
                                 "origin": {"type": "string"},
-                                "status": {"type": "string", "enum": ["draft", "published", "archived"]},
+                                "status": {"type": "string", "enum": ["draft", "published", "unlisted", "archived"]},
                                 "stock_status": {"type": "string", "enum": ["in_stock", "out_of_stock", "pre_order", "coming_soon"]},
                                 "visibility": {"type": "string", "enum": ["public", "private"]},
                                 "brand": {"type": "string"},

@@ -49,6 +49,9 @@ class CatalogCategory(Base):
     china_search_keyword: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     # Split admin Catalog vs Dropshipping (frontstore) category trees — mirrors product channel.
     channel: Mapped[str] = mapped_column(String(20), nullable=False, default="catalog", index=True)
+    # stamped by services/audit_actor.py on every save
+    updated_by_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    updated_by_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,

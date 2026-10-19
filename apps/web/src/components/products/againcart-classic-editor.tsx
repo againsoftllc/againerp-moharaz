@@ -32,6 +32,7 @@ import { getEditorPrePrompt } from "@/lib/store/ai-prompts-store";
 import {
   applyBlockFormat,
   BLOCK_FORMATS,
+  ensureSelectionInside,
   getCurrentBlockFormat,
   type BlockFormat,
 } from "@/lib/editor/editor-format";
@@ -147,6 +148,7 @@ export function AgaincartClassicEditor({
         sel?.removeAllRanges();
         sel?.addRange(savedRangeRef.current);
       }
+      ensureSelectionInside(visualRef.current);
       document.execCommand(command, false, arg);
       if (visualRef.current) {
         skipVisualSync.current = true;
@@ -167,6 +169,7 @@ export function AgaincartClassicEditor({
         sel?.removeAllRanges();
         sel?.addRange(savedRangeRef.current);
       }
+      ensureSelectionInside(visualRef.current);
       applyBlockFormat(tag, visualRef.current);
       if (visualRef.current) {
         skipVisualSync.current = true;
@@ -282,7 +285,7 @@ export function AgaincartClassicEditor({
 
   const captureLinkSelection = useCallback(() => {
     if (mode === "visual") {
-      savedRangeRef.current = cloneVisualSelectionRange(visualRef.current);
+      savedRangeRef.current = cloneVisualSelectionRange(visualRef.current) ?? savedRangeRef.current;
       setLinkDefaultText(getVisualSelectedText(visualRef.current));
       return;
     }
@@ -380,9 +383,13 @@ export function AgaincartClassicEditor({
     if (!container) return;
 
     const syncBlockFormat = () => {
+      // selectionchange fires for the whole page: a caret in another editor says nothing about this one,
+      // so keep this editor's own last caret and block format until the selection is back inside it
+      const range = cloneVisualSelectionRange(container);
+      if (!range) return;
       setBlockFormat(getCurrentBlockFormat(container));
       // Keep savedRangeRef updated so block format dropdown can restore selection
-      savedRangeRef.current = cloneVisualSelectionRange(container);
+      savedRangeRef.current = range;
     };
 
     document.addEventListener("selectionchange", syncBlockFormat);
@@ -585,8 +592,9 @@ export function AgaincartClassicEditor({
             <Select
               value={blockFormat}
               onMouseDown={() => {
-                // Save selection before dropdown steals focus
-                savedRangeRef.current = cloneVisualSelectionRange(visualRef.current);
+                // Save selection before dropdown steals focus (only when it is in this editor)
+                savedRangeRef.current =
+                  cloneVisualSelectionRange(visualRef.current) ?? savedRangeRef.current;
               }}
               onChange={(e) => handleBlockFormatChange(e.target.value as BlockFormat)}
               className="mr-0.5 h-5 min-w-[100px] items-center border-0 bg-transparent px-1 py-0 text-[10px] leading-none shadow-none focus-visible:ring-1"

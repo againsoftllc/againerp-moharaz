@@ -969,7 +969,7 @@ function LocalAttrRow({ id, name, value, onChange, isDragActive, saving, onRemov
       </div>
       {/* value — takes the rest */}
       <div className="flex min-w-0 flex-1 items-center gap-1">
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <ExpandableTextInput value={value} onChange={onChange} placeholder="Enter value…" />
         </div>
         <button type="button" onClick={onRemove} className="shrink-0 text-muted-foreground/30 hover:text-destructive" title="Remove attribute">
@@ -1362,13 +1362,13 @@ function ExpandableTextInput({
         onClick={() => setExpanded(true)}
         onFocus={() => setExpanded(true)}
         className={cn(
-          "flex h-6 w-full cursor-text items-center truncate rounded-none border border-input bg-background px-2 text-xs",
+          "flex min-h-6 w-full min-w-0 cursor-text items-center rounded-none border border-input bg-background px-2 text-xs",
           "hover:border-ring focus:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           expanded && "opacity-0 pointer-events-none",
           !value && "text-muted-foreground",
         )}
       >
-        {preview || placeholder}
+        <span className="line-clamp-2 min-w-0 flex-1 break-words py-0.5">{preview || placeholder}</span>
         {multiline && <span className="ml-1 shrink-0 text-[9px] text-muted-foreground">(+lines)</span>}
       </div>
 

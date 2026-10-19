@@ -2,7 +2,8 @@ import { categoriesFlat } from "./categories";
 import { computerStoreProducts } from "./storefront-computer-store";
 import { productPath } from "@/lib/url-slug/paths";
 
-export type ProductStatus = "draft" | "published" | "archived";
+/** published = live on the website · unlisted = parked off the Products list (Website → Unlisted) · draft = work left · archived = disabled */
+export type ProductStatus = "draft" | "published" | "unlisted" | "archived";
 
 export type ProductVisibility = "public" | "private" | "password";
 

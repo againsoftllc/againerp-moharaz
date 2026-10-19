@@ -7,7 +7,7 @@ and store it like any other Price Compare match.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional
 from urllib.parse import urlparse
@@ -172,35 +172,43 @@ def sync_queue(
     sites = {s.id: s for s in svc.enabled_competitors(db, company_id)}
     if not sites:
         return []
-    cutoff = datetime.utcnow().timestamp() - stale_hours * 3600
+    cutoff = datetime.utcnow() - timedelta(hours=stale_hours)
+    base = db.query(PriceUpdateMatch, CatalogProduct).join(CatalogProduct, CatalogProduct.id == PriceUpdateMatch.product_id).filter(
+        PriceUpdateMatch.company_id == company_id,
+        PriceUpdateMatch.competitor.in_(list(sites)),
+        PriceUpdateMatch.matched_url.isnot(None),
+        PriceUpdateMatch.matched_url != "",
+    )
+    stale = or_(PriceUpdateMatch.last_checked_at.is_(None), PriceUpdateMatch.last_checked_at <= cutoff)
+    if only_failed:
+        # Browser only for what the server can't read: links that failed, and every link on a site that
+        # blocks the server (a Cloudflare browser check) - including links that were never read yet, e.g.
+        # thousands imported from that site's sitemap, which the server can't check to find that out itself.
+        from app.services.plugins.sitemap_matcher import blocked_for
+
+        blocked = {
+            row[0]
+            for row in db.query(PriceUpdateMatch.competitor)
+            .filter(
+                PriceUpdateMatch.company_id == company_id,
+                PriceUpdateMatch.status == "error",
+                or_(PriceUpdateMatch.status_message.ilike("%protection%"), PriceUpdateMatch.status_message.ilike("%browser check%")),
+            )
+            .distinct()
+        }
+        blocked |= {sid for sid, site in sites.items() if blocked_for(site.domain) > 0}
+        due = PriceUpdateMatch.status == "error"
+        if blocked:
+            due = or_(due, (PriceUpdateMatch.competitor.in_(list(blocked))) & stale)
+    else:
+        due = or_(PriceUpdateMatch.status == "error", stale)
     rows = (
-        db.query(PriceUpdateMatch, CatalogProduct)
-        .join(CatalogProduct, CatalogProduct.id == PriceUpdateMatch.product_id)
-        .filter(
-            PriceUpdateMatch.company_id == company_id,
-            PriceUpdateMatch.competitor.in_(list(sites)),
-            PriceUpdateMatch.matched_url.isnot(None),
-            PriceUpdateMatch.matched_url != "",
-        )
+        base.filter(due)
+        .order_by((PriceUpdateMatch.status != "error"), PriceUpdateMatch.last_checked_at.asc().nullsfirst())
+        .limit(limit)
         .all()
     )
-
-    from app.services.plugins.sitemap_matcher import blocked_for
-
-    def stale(m: PriceUpdateMatch) -> bool:
-        return m.last_checked_at is None or m.last_checked_at.timestamp() <= cutoff
-
-    def due(m: PriceUpdateMatch) -> bool:
-        if only_failed:
-            # Browser only for what the server can't read: links that failed, and links on a site
-            # that is blocking the server right now (the server's own sync skips those, so after
-            # the browser updates them they'd otherwise never come due again).
-            return m.status == "error" or (blocked_for(sites[m.competitor].domain) > 0 and stale(m))
-        return m.status == "error" or stale(m)
-
-    picked = [(m, p) for m, p in rows if due(m)]
-    picked.sort(key=lambda mp: (mp[0].status != "error", mp[0].last_checked_at or datetime.min))
-    return [(m, p, sites[m.competitor]) for m, p in picked[:limit]]
+    return [(m, p, sites[m.competitor]) for m, p in rows]
 
 
 def _different_product(product: CatalogProduct, page_title: str) -> Optional[str]:

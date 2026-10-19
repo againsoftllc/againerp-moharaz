@@ -10,9 +10,29 @@ export type BlockFormat = (typeof BLOCK_FORMATS)[number]["value"];
 
 const BLOCK_TAGS = new Set(BLOCK_FORMATS.map((item) => item.value));
 
+/** True when the caret / selection sits inside `container` (several editors can be on one page). */
+export function selectionInside(container: HTMLElement | null | undefined): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || !container) return false;
+  return container.contains(selection.getRangeAt(0).commonAncestorContainer);
+}
+
+/** Puts the caret at the end of `container` unless the selection is already inside it. */
+export function ensureSelectionInside(container: HTMLElement | null | undefined): void {
+  if (!container || selectionInside(container)) return;
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(container);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
 export function getCurrentBlockFormat(container: HTMLElement | null): BlockFormat {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || !container) return "p";
+  if (!container.contains(selection.getRangeAt(0).commonAncestorContainer)) return "p";
 
   let node: Node | null = selection.getRangeAt(0).commonAncestorContainer;
   if (node.nodeType === Node.TEXT_NODE) {
@@ -35,8 +55,8 @@ export function getCurrentBlockFormat(container: HTMLElement | null): BlockForma
 export function applyBlockFormat(tag: BlockFormat, container?: HTMLElement | null) {
   const selection = window.getSelection();
 
-  // If we have a container and no selection, apply to first block in container
-  if (container && (!selection || selection.rangeCount === 0)) {
+  // If we have a container and no selection (or the selection is in another editor), apply to first block in container
+  if (container && (!selection || selection.rangeCount === 0 || !selectionInside(container))) {
     const firstBlock = container.querySelector([...BLOCK_TAGS].join(",")) as HTMLElement | null;
     if (firstBlock) {
       const replacement = document.createElement(tag);

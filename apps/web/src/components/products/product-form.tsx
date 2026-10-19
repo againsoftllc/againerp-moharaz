@@ -341,7 +341,7 @@ function buildProductPayload(
     stock: parseInt(values.stock, 10) || 0,
     status: (publish ? "published" : values.status) as ProductStatus,
     product_type: values.productType,
-    visibility: values.visibility,
+    visibility: "public" as ProductVisibility, // live-ness follows the status only
     description: values.description.trim() || undefined,
     short_description: values.shortDescription.trim() || undefined,
     seo_title: values.metaTitle.trim()
@@ -422,6 +422,8 @@ export function ProductForm({
   const [slugChecking, setSlugChecking] = useState(false);
   /* true once the user manually edits the slug field */
   const slugManuallyEdited = useRef(!!initialProduct?.slug);
+  /** the stock status picked by hand before Manage Stock was switched on (restored when it is switched off) */
+  const lastManualStockStatus = useRef<ProductFormValues["stockStatus"]>("");
   const [values, setValues] = useState<ProductFormValues>(() => ({
     ...PRODUCT_FORM_DEFAULT_VALUES,
     ...(initialProduct
@@ -666,10 +668,13 @@ export function ProductForm({
       warranty: productDetail.warranty?.trim() || "",
       origin: productDetail.origin?.trim() || "",
       trackQuantity: productDetail.trackQuantity ?? true,
+      // managing stock → Auto (the status follows the quantity); otherwise the status set by hand
       stockStatus: (productDetail.trackQuantity === false
         ? productDetail.stockStatus || "in_stock"
-        : productDetail.stockStatus ?? "") as "" | "in_stock" | "out_of_stock" | "pre_order" | "coming_soon",
+        : "") as ProductFormValues["stockStatus"],
     });
+    // switching Manage Stock off again brings back the hand-set status the product had
+    lastManualStockStatus.current = (productDetail.stockStatus ?? "") as ProductFormValues["stockStatus"];
     setOriginOptions(buildOriginOptions(productDetail.origin?.trim() || ""));
     setVariantRows(variantsToRows(productDetail.variants));
     setVariantAttributes(() => {
@@ -955,16 +960,6 @@ export function ProductForm({
                   {saving ? "Saving…" : "Save draft"}
                 </Button>
               </div>
-              <div className="min-w-0 flex-1">
-                <h2 className="truncate text-[12px] font-semibold leading-none text-foreground">
-                  {mode === "create" ? "Add Product" : values.name || "Edit Product"}
-                </h2>
-                {values.model.trim() ? (
-                  <p className="mt-0.5 truncate text-[10px] leading-none text-muted-foreground">
-                    Model: {values.model.trim()}
-                  </p>
-                ) : null}
-              </div>
             </div>
           </div>
         ) : (
@@ -1219,16 +1214,8 @@ export function ProductForm({
                     >
                       <option value="draft">Draft</option>
                       <option value="published">Published</option>
+                      <option value="unlisted">Unlisted</option>
                       <option value="archived">Archived</option>
-                    </Select>
-                  </Field>
-                  <Field label="Storefront visibility">
-                    <Select
-                      value={values.visibility}
-                      onChange={(e) => set("visibility", e.target.value as ProductVisibility)}
-                    >
-                      <option value="public">Public</option>
-                      <option value="private">Private</option>
                     </Select>
                   </Field>
                 </div>
@@ -1284,18 +1271,22 @@ export function ProductForm({
                 </div>
                 <div className="mt-4 flex flex-wrap items-end gap-1.5">
                   <Field label="Stock Status" className="w-[180px] shrink-0">
-                    <Select
-                      value={values.trackQuantity ? values.stockStatus : values.stockStatus || "in_stock"}
-                      onChange={(e) => set("stockStatus", e.target.value as typeof values.stockStatus)}
-                    >
-                      {values.trackQuantity ? (
-                        <option value="">Auto (based on quantity)</option>
-                      ) : null}
-                      <option value="in_stock">In Stock</option>
-                      <option value="out_of_stock">Out of Stock</option>
-                      <option value="pre_order">Pre-order</option>
-                      <option value="coming_soon">Coming Soon</option>
-                    </Select>
+                    {values.trackQuantity ? (
+                      // managing stock: the status follows the quantity, nothing to pick
+                      <Select value="" disabled title="Follows the stock quantity while Manage Stock is on">
+                        <option value="">Auto</option>
+                      </Select>
+                    ) : (
+                      <Select
+                        value={values.stockStatus || "in_stock"}
+                        onChange={(e) => set("stockStatus", e.target.value as typeof values.stockStatus)}
+                      >
+                        <option value="in_stock">In Stock</option>
+                        <option value="out_of_stock">Out of Stock</option>
+                        <option value="pre_order">Pre-order</option>
+                        <option value="coming_soon">Coming Soon</option>
+                      </Select>
+                    )}
                   </Field>
                   <Field label="Manage Stock" className="shrink-0">
                     <div className="flex h-7 w-[100px] items-center gap-1.5 rounded-none border border-input bg-background px-1.5 shadow-sm focus-within:ring-2 focus-within:ring-ring">
@@ -1305,11 +1296,13 @@ export function ProductForm({
                         onChange={(e) => {
                           const next = e.target.checked;
                           set("trackQuantity", next);
-                          if (!next && !values.stockStatus) {
-                            set("stockStatus", "in_stock");
-                          }
-                          if (next && values.stockStatus === "in_stock") {
+                          if (next) {
+                            // Manage Stock on → Auto; remember the hand-set status so switching it off brings it back
+                            if (values.stockStatus) lastManualStockStatus.current = values.stockStatus;
                             set("stockStatus", "");
+                          } else {
+                            // Manage Stock off → the status that was set before, or In Stock if there was none
+                            set("stockStatus", lastManualStockStatus.current || "in_stock");
                           }
                         }}
                         title={
@@ -1347,7 +1340,7 @@ export function ProductForm({
                   value={values.shortDescription}
                   onChange={(v) => set("shortDescription", v)}
                   placeholder="Brief summary for listings and SEO…"
-                  minRows={3}
+                  minRows={6}
                   fieldLabel="Short description"
                   aiVariables={{
                     product_name: values.name,

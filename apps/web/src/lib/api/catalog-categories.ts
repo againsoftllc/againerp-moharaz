@@ -25,6 +25,7 @@ export type ApiCatalogCategory = {
   banner_media_id: string | null;
   china_search_keyword?: string | null;
   channel?: "catalog" | "dropshipping";
+  updated_by_name?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -53,6 +54,7 @@ export function apiCategoryToCategory(row: ApiCatalogCategory): Category {
     showInTopMenu: row.show_in_top_menu,
     showPriceComparison: row.show_price_comparison !== false,
     updatedAt: row.updated_at.slice(0, 10),
+    updatedBy: row.updated_by_name ?? undefined,
     description: row.description ?? undefined,
     metaTitle: row.meta_title ?? undefined,
     metaDescription: row.meta_description ?? undefined,

@@ -20,6 +20,7 @@ PUBLISH_TRANSITIONS: dict[str, frozenset[str]] = {
 
 CATALOG_STATUS_TO_PUBLISH = {
     "draft": "draft",
+    "unlisted": "draft",  # not live on the storefront
     "published": "published",
     "archived": "archived",
 }

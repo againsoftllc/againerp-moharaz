@@ -112,7 +112,7 @@ def catalog_ai_fill_from_source(
         create_brand_if_missing=True,
         create_category_if_missing=True,
         import_images=True,
-        status=row.status if row.status in ("draft", "published") else "draft",
+        status=row.status if row.status in ("draft", "published", "unlisted") else "draft",
     )
     row = create_product_from_draft(db, payload, user, existing=row)
     # the Source column of Price Compare shows this page's price / stock: refresh it now that the page was read

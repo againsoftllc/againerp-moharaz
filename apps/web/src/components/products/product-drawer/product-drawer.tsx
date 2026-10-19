@@ -41,12 +41,14 @@ export type ProductDrawerTab =
 const STATUS_LABEL: Record<ProductStatus, string> = {
   draft: "Draft",
   published: "Published",
+  unlisted: "Unlisted",
   archived: "Archived",
 };
 
 const STATUS_TONE: Record<ProductStatus, string> = {
   draft: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
   published: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  unlisted: "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
   archived: "border-muted-foreground/30 bg-muted text-muted-foreground",
 };
 

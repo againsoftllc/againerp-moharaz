@@ -58,6 +58,8 @@ import { FilterTriggerContent } from "@/components/shared/filter-trigger";
 import { useProfileNames } from "@/components/products/use-profile-names";
 import { LinkedRecordEditors, type LinkedTarget } from "@/components/products/linked-record-editors";
 import { gridToTable } from "@/lib/list-io/grid-table";
+import { useDuplicateCheck, type DuplicateInfo } from "@/components/products/use-duplicate-check";
+import { DuplicateMatchesDialog, duplicateDotClass, duplicateHeadline } from "@/components/products/duplicate-matches-dialog";
 import type { TableData } from "@/lib/list-io/spreadsheet";
 import { CategoryLivePopover } from "@/components/products/category-live-popover";
 import { Button } from "@/components/ui/button";
@@ -76,12 +78,10 @@ import {
 import { ProductMobileCards } from "@/components/products/product-mobile-cards";
 import { PrintLabelDrawer } from "@/components/products/print-label-drawer";
 import { PriceRangeFilter, DEFAULT_PRICE_CEILING } from "@/components/products/price-range-filter";
-import { WebsiteBadge } from "@/components/products/website-badge";
 import { useActivityStore } from "@/lib/store/activity-store";
 import type { ActivityActionType, ActivityEntry } from "@/lib/activity/types";
 import { fetchCollabActivity, type CollabActivity } from "@/lib/api/collaboration";
 import {
-  isProductOnWebsite,
   publishProductToWebsite,
   removeProductFromWebsite,
 } from "@/lib/catalog/website-visibility";
@@ -597,7 +597,6 @@ const COLUMN_KEYS = [
   "stock",
   "stockStatus",
   "status",
-  "onWeb",
   "seoTitle",
   "brand",
   "category",
@@ -628,7 +627,6 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
   stock: "Stock",
   stockStatus: "Stock Status",
   status: "Status",
-  onWeb: "Web",
   seoTitle: "SEO Title",
   brand: "Brand",
   category: "Category",
@@ -656,7 +654,6 @@ const DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
   stock: true,
   stockStatus: false,
   status: true,
-  onWeb: true,
   seoTitle: false,
   brand: true,
   category: true,
@@ -700,7 +697,6 @@ const INVENTORY_DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
   stock: true,
   stockStatus: false,
   status: false,
-  onWeb: false,
   seoTitle: false,
   brand: true,
   category: true,
@@ -717,7 +713,6 @@ const INVENTORY_DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
 
 const INVENTORY_DEFAULT_VISIBLE_FILTERS: Record<FilterVisibilityKey, boolean> = {
   search: true,
-  website: false,
   status: false,
   category: true,
   brand: true,
@@ -731,7 +726,6 @@ const INVENTORY_DEFAULT_VISIBLE_FILTERS: Record<FilterVisibilityKey, boolean> = 
 
 const FILTER_VISIBILITY_KEYS = [
   "search",
-  "website",
   "status",
   "category",
   "brand",
@@ -746,7 +740,6 @@ type FilterVisibilityKey = (typeof FILTER_VISIBILITY_KEYS)[number];
 
 const FILTER_LABELS: Record<FilterVisibilityKey, string> = {
   search: "Search",
-  website: "Website",
   status: "Status",
   category: "Category",
   brand: "Brand",
@@ -760,7 +753,6 @@ const FILTER_LABELS: Record<FilterVisibilityKey, string> = {
 
 const DEFAULT_VISIBLE_FILTERS: Record<FilterVisibilityKey, boolean> = {
   search: true,
-  website: true,
   status: true,
   category: true,
   brand: true,
@@ -833,6 +825,7 @@ function textParser(label: string, opts: { required?: boolean } = {}) {
 }
 
 const LIVE_EDIT_TOGGLES = [
+  "name",
   "sku",
   "model",
   "slug",
@@ -841,16 +834,17 @@ const LIVE_EDIT_TOGGLES = [
   "manageStock",
   "stock",
   "status",
+  "stockStatus",
   "category",
   "brand",
   "seoTitle",
   "purchasePrice",
   "warranty",
-  "alertQuantity",
 ] as const;
 type LiveEditKey = (typeof LIVE_EDIT_TOGGLES)[number];
 
 const LIVE_EDIT_LABELS: Record<LiveEditKey, string> = {
+  name: "Name",
   sku: "SKU",
   model: "Model",
   slug: "Slug",
@@ -859,16 +853,17 @@ const LIVE_EDIT_LABELS: Record<LiveEditKey, string> = {
   manageStock: "Manage stock",
   stock: "Stock",
   status: "Status",
+  stockStatus: "Stock status",
   category: "Category",
   brand: "Brand",
   seoTitle: "SEO Title",
   purchasePrice: "Cost price",
   warranty: "Warranty",
-  alertQuantity: "Alert quantity",
 };
 
-/** the table column each live-edit switch works on (switching one on shows that column) */
-const LIVE_EDIT_COLUMN: Record<LiveEditKey, ColumnKey> = {
+/** the table column each live-edit switch works on (switching one on shows that column); the name is always shown */
+const LIVE_EDIT_COLUMN: Record<LiveEditKey, ColumnKey | null> = {
+  name: null,
   sku: "sku",
   model: "model",
   slug: "slug",
@@ -877,15 +872,24 @@ const LIVE_EDIT_COLUMN: Record<LiveEditKey, ColumnKey> = {
   manageStock: "stock",
   stock: "stock",
   status: "status",
+  stockStatus: "stockStatus",
   category: "category",
   brand: "brand",
   seoTitle: "seoTitle",
   purchasePrice: "purchasePrice",
   warranty: "warranty",
-  alertQuantity: "alertQuantity",
+};
+
+/** stock status shown in the table → the value the API stores ("Low Stock" is worked out from the quantity, never stored) */
+const STOCK_STATUS_CODE: Record<string, string> = {
+  "In Stock": "in_stock",
+  "Out of Stock": "out_of_stock",
+  "Pre-order": "pre_order",
+  "Coming Soon": "coming_soon",
 };
 
 const DEFAULT_LIVE_EDIT: Record<LiveEditKey, boolean> = {
+  name: false,
   sku: true,
   model: false,
   slug: false,
@@ -894,12 +898,12 @@ const DEFAULT_LIVE_EDIT: Record<LiveEditKey, boolean> = {
   manageStock: true,
   stock: true,
   status: true,
+  stockStatus: false,
   category: false,
   brand: false,
   seoTitle: false,
   purchasePrice: false,
   warranty: false,
-  alertQuantity: false,
 };
 
 function productCategoryNames(product: Product, categories: Category[]): string[] {
@@ -1104,7 +1108,13 @@ function BrandFilterDropdown({
 
 function StatusBadge({ status }: { status: ProductStatus }) {
   const variant =
-    status === "published" ? "success" : status === "draft" ? "warning" : "muted";
+    status === "published"
+      ? "success"
+      : status === "draft"
+        ? "warning"
+        : status === "unlisted"
+          ? "outline"
+          : "muted";
   return (
     <div className="flex h-full items-center overflow-hidden">
       <Badge variant={variant} className="max-w-[7rem] shrink-0 truncate capitalize leading-4">
@@ -1173,7 +1183,6 @@ function ProductStockCell({
 
 type FilterState = {
   search: string;
-  website: string;
   status: string;
   /** the picked categories (ids, several allowed); empty = all */
   category: string[];
@@ -1191,7 +1200,6 @@ type FilterState = {
 
 const DEFAULT_FILTERS: FilterState = {
   search: "",
-  website: "all",
   status: "all",
   category: [],
   brand: "all",
@@ -1255,8 +1263,6 @@ function applyFilters(rows: Product[], f: FilterState, categories: Category[]) {
 
   return rows.filter((p) => {
     if (q && !p.name.toLowerCase().includes(q) && !p.sku.toLowerCase().includes(q)) return false;
-    if (f.website === "on" && !isProductOnWebsite(p, categories)) return false;
-    if (f.website === "off" && isProductOnWebsite(p, categories)) return false;
     if (f.status !== "all" && p.status !== f.status) return false;
     if (wantedCategoryNames && categoryNameById) {
       // a parent category also lists the products filed under its sub-categories; any of the picked categories matches
@@ -1350,6 +1356,8 @@ type Props = {
   /** Product Draft: when set, adds an AI column — its icon fills that draft product from its source URL (the AI chat's
    * import logic). Disabled for a row without a source URL. */
   onAiImport?: (product: Product) => void | Promise<void>;
+  /** Unlisted list: add the Duplicate column (is another product the same? red / yellow / green); a click opens the matching product's editor */
+  duplicateCheck?: boolean;
   /** ids whose AI import is running right now (spins the icon) */
   aiImportingIds?: Set<string>;
   /** Price Compare plugin: save a manually-pasted product-page URL for one product/competitor
@@ -1393,6 +1401,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   preset = "catalog",
   competitors: competitorsProp,
   onAiImport,
+  duplicateCheck,
   aiImportingIds,
   columnStateKey,
   hideCatalogBulkActions,
@@ -1452,6 +1461,8 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   // The plain Products list shows the same Source column as Price Compare (company | price, stock dot, re-check, link) for the page on
   // screen; the Price Compare screens pass their own competitor columns and keep them.
   const srcCompare = useGridSourceCompare(!isInventory && !competitorsProp);
+  const dupCheck = useDuplicateCheck(Boolean(duplicateCheck));
+  const [dupDialogProduct, setDupDialogProduct] = useState<{ id: string; name: string } | null>(null);
   const profileNames = useProfileNames(!isInventory); // Specification profile column (read-only)
   const competitors = competitorsProp ?? srcCompare.competitors;
   const competitorMatches = competitorMatchesProp ?? (competitorsProp ? undefined : srcCompare.matches);
@@ -1483,6 +1494,21 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
     () => ({ ...DEFAULT_LIVE_EDIT, ...liveEdit }),
     [liveEdit],
   );
+  // the order of the Live edit list (drag a row in the Live edit drawer to move it, like a column in the Columns drawer; saved per user)
+  const [liveEditOrder, setLiveEditOrder] = useUserScopedState<string[]>("product-grid:live-edit-order", []);
+  const liveEditOrderKeys = useMemo<LiveEditKey[]>(() => {
+    const known = new Set<string>(LIVE_EDIT_TOGGLES);
+    const saved = (liveEditOrder ?? []).filter((k): k is LiveEditKey => known.has(k));
+    return [...saved, ...LIVE_EDIT_TOGGLES.filter((k) => !saved.includes(k))];
+  }, [liveEditOrder]);
+  const dragLiveEditKeyRef = useRef<LiveEditKey | null>(null);
+  const reorderLiveEditPanel = (from: LiveEditKey, to: LiveEditKey) => {
+    if (from === to) return;
+    const next = liveEditOrderKeys.filter((k) => k !== from);
+    const idx = next.indexOf(to);
+    next.splice(idx === -1 ? next.length : idx, 0, from);
+    setLiveEditOrder(next);
+  };
   // Column drag-reorder and resize — persisted per admin user (like visibleCols/liveEdit
   // above) so a layout someone drags into place survives a reload instead of resetting to
   // the colDef defaults every time. Only colId + width are saved/restored, never hide —
@@ -1998,7 +2024,9 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         minWidth: 48,
         resizable: true,
         suppressMovable: false,
-        editable: false,
+        editable: canWrite && resolvedLiveEdit.name,
+        cellClass: canWrite && resolvedLiveEdit.name ? "live-edit-cell" : undefined,
+        valueParser: textParser("Name", { required: true }),
         tooltipField: "name",
         cellRenderer: (p: ICellRendererParams<Product>) =>
           p.data ? (
@@ -2016,6 +2044,52 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
             </button>
           ) : null,
       },
+      ...(duplicateCheck
+        ? [
+            {
+              // Is this the same product as one we already have (published or unlisted)? red = duplicate, yellow = maybe, green = unique,
+              // blue = a person verified the scan. The scan is saved on the server. Hover: which products it matches and why;
+              // click: the popup (matches, open any of them, verify, scan again).
+              colId: "duplicate",
+              headerName: "Duplicate",
+              headerTooltip: "Is another product the same?  Red = duplicate, yellow = maybe, green = unique, blue = verified. Click the dot for the matches.",
+              width: 92,
+              minWidth: 48,
+              cellStyle: { display: "flex", alignItems: "center", justifyContent: "center" },
+              valueGetter: (p: { data?: Product }) => {
+                const d = p.data ? dupCheck.info[p.data.id] : undefined;
+                if (!d) return "";
+                if (d.verified) return "Verified";
+                return d.level === "confirmed" ? "Duplicate" : d.level === "possible" ? "Possible duplicate" : "Unique";
+              },
+              comparator: (a: string, b: string) => {
+                const rank = (v: string) => (v === "Duplicate" ? 4 : v === "Possible duplicate" ? 3 : v === "Unique" ? 2 : v === "Verified" ? 1 : 0);
+                return rank(a) - rank(b);
+              },
+              cellRenderer: (p: ICellRendererParams<Product>) => {
+                if (!p.data) return null;
+                const d: DuplicateInfo | undefined = dupCheck.info[p.data.id];
+                if (!d) return <span className="h-3 w-3 animate-pulse rounded-full bg-muted-foreground/30" title="Checking…" aria-label="Checking for duplicates" />;
+                const head = duplicateHeadline(d);
+                const lines = d.matches.map((m) => `${m.name} (${m.sku}, ${m.status}) - ${m.reason}`);
+                const title = [head, ...lines.map((l) => `• ${l}`), "Click for details"].join("\n");
+                const product = p.data;
+                return (
+                  <button
+                    type="button"
+                    title={title}
+                    aria-label={head}
+                    className={cn("h-3 w-3 shrink-0 cursor-pointer rounded-full ring-offset-1 hover:ring-2 hover:ring-foreground/30", duplicateDotClass(d))}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDupDialogProduct({ id: product.id, name: product.name });
+                    }}
+                  />
+                );
+              },
+            },
+          ]
+        : []),
       {
         field: "sku",
         headerName: "SKU",
@@ -2121,7 +2195,13 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         field: "stockStatus",
         headerName: "Stock Status",
         hide: !visibleCols.stockStatus,
-        editable: false,
+        // a product that manages its stock has an Auto status (from the quantity) - nothing to edit by hand
+        editable: (p) => canWrite && resolvedLiveEdit.stockStatus && !p.data?.trackQuantity,
+        cellClass: (p) => (canWrite && resolvedLiveEdit.stockStatus && !p.data?.trackQuantity ? "live-edit-cell" : undefined),
+        cellEditor: resolvedLiveEdit.stockStatus ? "agSelectCellEditor" : undefined,
+        cellEditorParams: resolvedLiveEdit.stockStatus
+          ? { values: Object.keys(STOCK_STATUS_CODE) }
+          : undefined,
         cellRenderer: (p: ICellRendererParams<Product>) =>
           p.data ? <StockStatusBadge status={p.data.stockStatus} auto={p.data.trackQuantity} /> : null,
         width: 120,
@@ -2134,23 +2214,11 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         cellClass: canWrite && resolvedLiveEdit.status ? "live-edit-cell" : undefined,
         cellEditor: resolvedLiveEdit.status ? "agSelectCellEditor" : undefined,
         cellEditorParams: resolvedLiveEdit.status
-          ? { values: ["draft", "published", "archived"] }
+          ? { values: ["draft", "published", "unlisted", "archived"] }
           : undefined,
         cellRenderer: (p: ICellRendererParams<Product>) =>
           p.data ? <StatusBadge status={p.data.status} /> : null,
         width: 110,
-      },
-      {
-        colId: "onWeb",
-        headerName: "Web",
-        hide: !visibleCols.onWeb,
-        width: 64,
-        maxWidth: 72,
-        sortable: true,
-        valueGetter: (p) => (p.data && isProductOnWebsite(p.data, categories) ? 1 : 0),
-        cellRenderer: (p: ICellRendererParams<Product>) =>
-          p.data ? <WebsiteBadge product={p.data} /> : null,
-        cellClass: "product-grid-icon-col",
       },
       {
         field: "seoTitle",
@@ -2266,9 +2334,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         field: "alertQuantity",
         headerName: "Alert quantity",
         hide: !isInventory || !visibleCols.alertQuantity,
-        editable: canWrite && resolvedLiveEdit.alertQuantity,
-        cellClass: canWrite && resolvedLiveEdit.alertQuantity ? "live-edit-cell" : undefined,
-        valueParser: numberParser({ label: "Alert quantity", integer: true }),
+        editable: false,
         width: 110,
         minWidth: 48,
         valueGetter: (p) => p.data?.alertQuantity ?? 0,
@@ -2278,6 +2344,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         field: "unitType",
         headerName: "Unit type",
         hide: !isInventory || !visibleCols.unitType,
+        editable: false,
         width: 100,
         minWidth: 48,
         valueGetter: (p) => p.data?.unitType ?? "",
@@ -2447,7 +2514,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
           ]
         : []),
     ],
-    [onView, onEdit, nameClickAction, disableView, visibleCols, resolvedLiveEdit, ProductControlsCell, ProductRowMenu, brands, canWrite, categories, categoryNames, toggleManageStock, isInventory, companyFormat, competitors, competitorMatches, onSyncCompetitor, competitorSyncingKeys, onSetManualUrl, savedColumnNameWidth, pickedCells, onToggleCellPick, onSetCellPicks, onAiImport, aiImportingIds, profileNames],
+    [onView, onEdit, nameClickAction, disableView, visibleCols, resolvedLiveEdit, ProductControlsCell, ProductRowMenu, brands, canWrite, categories, categoryNames, toggleManageStock, isInventory, companyFormat, competitors, competitorMatches, onSyncCompetitor, competitorSyncingKeys, onSetManualUrl, savedColumnNameWidth, pickedCells, onToggleCellPick, onSetCellPicks, onAiImport, aiImportingIds, profileNames, duplicateCheck, dupCheck.info],
   );
 
   const onCellValueChanged = useCallback(
@@ -2457,7 +2524,11 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       if (e.oldValue === e.newValue) return;
       const id = e.data.id;
       const label =
-        (field === "offerPrice" ? "Compare-at price" : (COLUMN_LABELS as Record<string, string>)[field]) ?? field;
+        (field === "offerPrice"
+          ? "Compare-at price"
+          : field === "name"
+            ? "Name"
+            : (COLUMN_LABELS as Record<string, string>)[field]) ?? field;
 
       // the row as it was, to put back when the save is refused
       const revert = () =>
@@ -2482,7 +2553,9 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
 
       const patch: Record<string, unknown> = {};
       if (field === "slug") patch.slug = e.data.slug;
+      if (field === "name") patch.name = e.data.name;
       if (field === "sku") patch.sku = e.data.sku;
+      if (field === "stockStatus") patch.stock_status = STOCK_STATUS_CODE[e.data.stockStatus] ?? null;
       if (field === "model") patch.model = e.data.model?.trim() || null;
       if (field === "price") patch.price = Number(e.data.price);
       if (field === "offerPrice") {
@@ -2499,7 +2572,6 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         patch.purchase_price = cost == null || Number.isNaN(Number(cost)) ? null : Number(cost);
       }
       if (field === "warranty") patch.warranty = e.data.warranty?.trim() || null;
-      if (field === "alertQuantity") patch.alert_quantity = Number(e.data.alertQuantity ?? 0);
       if (Object.keys(patch).length === 0) return;
 
       void (async () => {
@@ -2540,7 +2612,6 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       setFilters((f) => ({
         ...f,
         ...(key === "search" ? { search: "" } : {}),
-        ...(key === "website" ? { website: "all" } : {}),
         ...(key === "status" ? { status: "all" } : {}),
         ...(key === "category" ? { category: [] } : {}),
         ...(key === "brand" ? { brand: "all" } : {}),
@@ -2680,21 +2751,6 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   }, [rowData]);
   const renderFilter = (key: FilterVisibilityKey): ReactNode => {
     switch (key) {
-      case "website":
-        return (
-          <FilterSelect
-            value={filters.website}
-            onChange={(website) => setFilters((f) => ({ ...f, website }))}
-            width="w-[152px]"
-            className="shrink-0"
-            ariaLabel="Website visibility"
-            options={[
-              { value: "all", label: "All products" },
-              { value: "on", label: "On website" },
-              { value: "off", label: "Not on website" },
-            ]}
-          />
-        );
       case "search":
         return (
           <Input
@@ -2716,6 +2772,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
               { value: "all", label: "All statuses" },
               { value: "published", label: "Published" },
               { value: "draft", label: "Draft" },
+              { value: "unlisted", label: "Unlisted" },
               { value: "archived", label: "Archived" },
             ]}
           />
@@ -3002,8 +3059,12 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         onPaginationChanged: (e) => {
           e.api.refreshHeader();
           void srcCompare.loadIds(shownIdsRef.current()); // the Source column's saved status for the page now on screen
+          void dupCheck.loadIds(shownIdsRef.current()); // the Duplicate column for the page now on screen
         },
-        onFirstDataRendered: () => void srcCompare.loadIds(shownIdsRef.current()),
+        onFirstDataRendered: () => {
+          void srcCompare.loadIds(shownIdsRef.current());
+          void dupCheck.loadIds(shownIdsRef.current());
+        },
         onColumnMoved: (e) => {
           // Only the admin's own drags — not the saved order being applied on load.
           if (e.finished && (e.source === "uiColumnMoved" || e.source === "uiColumnDragged")) {
@@ -3178,12 +3239,28 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
           <p className="text-[11px] leading-snug text-muted-foreground">
             Tick a field to edit it in the table: double-click its cell, Enter saves, Esc cancels.
           </p>
+          <p className="text-[11px] text-muted-foreground">Drag to reorder</p>
           <div className="mt-1 flex-1 space-y-1.5 overflow-y-auto">
-            {LIVE_EDIT_TOGGLES.map((key) => (
+            {liveEditOrderKeys.map((key) => (
               <label
                 key={key}
-                className="flex cursor-pointer items-center gap-2 text-xs text-foreground"
+                draggable
+                onDragStart={() => {
+                  dragLiveEditKeyRef.current = key;
+                }}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const from = dragLiveEditKeyRef.current;
+                  dragLiveEditKeyRef.current = null;
+                  if (from) reorderLiveEditPanel(from, key);
+                }}
+                onDragEnd={() => {
+                  dragLiveEditKeyRef.current = null;
+                }}
+                className="flex cursor-grab items-center gap-2 text-xs text-foreground active:cursor-grabbing"
               >
+                <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
                 <input
                   type="checkbox"
                   checked={resolvedLiveEdit[key]}
@@ -3196,7 +3273,8 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
                       ) as Record<LiveEditKey, boolean>;
                     });
                     // a field can only be edited where it is shown
-                    if (on) setVisibleCols((cols) => ({ ...cols, [LIVE_EDIT_COLUMN[key]]: true }));
+                    const column = LIVE_EDIT_COLUMN[key];
+                    if (on && column) setVisibleCols((cols) => ({ ...cols, [column]: true }));
                   }}
                   className="h-3.5 w-3.5 shrink-0 cursor-pointer appearance-none rounded-none border border-input bg-background checked:border-primary checked:bg-primary"
                 />
@@ -3208,7 +3286,10 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
             variant="outline"
             size="sm"
             className="mt-3 h-7 rounded-none text-xs"
-            onClick={() => setLiveEdit(DEFAULT_LIVE_EDIT)}
+            onClick={() => {
+              setLiveEdit(DEFAULT_LIVE_EDIT);
+              setLiveEditOrder([]);
+            }}
           >
             Reset live edit
           </Button>
@@ -3284,6 +3365,20 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         initialProduct={printLabelProduct}
         products={products}
       />
+
+      {duplicateCheck ? (
+        <DuplicateMatchesDialog
+          open={dupDialogProduct !== null}
+          onOpenChange={(o) => {
+            if (!o) setDupDialogProduct(null);
+          }}
+          productName={dupDialogProduct?.name ?? ""}
+          info={dupDialogProduct ? dupCheck.info[dupDialogProduct.id] : undefined}
+          onOpenProduct={(id) => onEdit({ id } as Product)}
+          onVerify={(v) => dupCheck.verify(dupDialogProduct!.id, v)}
+          onRescan={() => dupCheck.rescan(dupDialogProduct!.id)}
+        />
+      ) : null}
 
       {/* Archive confirm */}
       <Dialog.Root open={archiveOpen} onOpenChange={setArchiveOpen}>

@@ -62,6 +62,7 @@ class CategoryRead(CategoryBase):
     path: str
     depth: int
     product_count: int = 0
+    updated_by_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

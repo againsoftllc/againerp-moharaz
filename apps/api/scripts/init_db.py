@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Create tables and seed catalog data for AgainERP."""
 
+import logging
 from decimal import Decimal
 from datetime import date, datetime
 from pathlib import Path
@@ -117,6 +118,7 @@ from app.models.ai_audit_log import AiAuditLog
 from app.models.again_drop_api_plugin import AgainDropApiPlugin
 from app.models.bkash_plugin import BkashPayment, BkashPlugin  # noqa: F401 — register metadata
 from app.models.sslcommerz_plugin import SslcommerzPayment, SslcommerzPlugin  # noqa: F401
+from app.models.erp_billing import ErpBill, ErpBillPayment  # noqa: F401 — register metadata
 from app.models.paypal_plugin import PaypalPayment, PaypalPlugin  # noqa: F401
 from app.models.stripe_plugin import StripePayment, StripePlugin  # noqa: F401
 from app.models.zkteco_plugin import ZktecoAttendanceLog, ZktecoPlugin  # noqa: F401
@@ -3452,6 +3454,41 @@ def ensure_catalog_product_pos_fields_columns() -> None:
     with engine.begin() as conn:
         for stmt in statements:
             conn.execute(text(stmt))
+    _migrate_drafts_to_unlisted()
+
+
+UNLISTED_MIGRATION_KEY = "migration.catalog_status_unlisted_v1"
+
+
+def _migrate_drafts_to_unlisted() -> None:
+    """Once: every draft product becomes `unlisted` (the new Website → Unlisted page) and storefront visibility is
+    forced to public everywhere — live-ness now follows the product status only. Guarded by a platform setting so
+    drafts created later stay drafts."""
+    try:
+        with engine.begin() as conn:
+            done = conn.execute(
+                text("SELECT 1 FROM platform_settings WHERE key = :k"), {"k": UNLISTED_MIGRATION_KEY}
+            ).first()
+            if done:
+                return
+            conn.execute(
+                text(
+                    "UPDATE items SET status = 'unlisted' WHERE status = 'draft' AND id IN "
+                    "(SELECT item_id FROM catalog_products WHERE status = 'draft' AND item_id IS NOT NULL)"
+                )
+            )
+            conn.execute(text("UPDATE catalog_products SET status = 'unlisted' WHERE status = 'draft'"))
+            conn.execute(text("UPDATE catalog_products SET visibility = 'public' WHERE visibility <> 'public'"))
+            conn.execute(text("UPDATE ecommerce_items SET visibility = 'public' WHERE visibility <> 'public'"))
+            conn.execute(
+                text(
+                    "INSERT INTO platform_settings (key, value, description, is_secret) "
+                    "VALUES (:k, 'done', 'Drafts moved to the Unlisted status', false)"
+                ),
+                {"k": UNLISTED_MIGRATION_KEY},
+            )
+    except Exception:  # platform_settings / items not created yet on a brand-new database: the next start runs it
+        logging.getLogger(__name__).warning("Unlisted status migration skipped", exc_info=True)
 
 
 def ensure_catalog_product_variant_purchase_price_column() -> None:
@@ -4844,6 +4881,8 @@ def ensure_catalog_category_columns() -> None:
                 "ALTER TABLE catalog_categories ADD COLUMN IF NOT EXISTS show_price_comparison BOOLEAN NOT NULL DEFAULT TRUE"
             )
         )
+        conn.execute(text("ALTER TABLE catalog_categories ADD COLUMN IF NOT EXISTS updated_by_id VARCHAR(36)"))
+        conn.execute(text("ALTER TABLE catalog_categories ADD COLUMN IF NOT EXISTS updated_by_name VARCHAR(255)"))
         # One-time legacy backfill: only when no row is tagged with either channel yet.
         # A tree that is entirely `catalog` (own-stock store) must not be flipped on boot.
         tagged_count = conn.execute(
