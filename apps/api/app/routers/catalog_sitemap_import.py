@@ -17,6 +17,7 @@ router = APIRouter(prefix="/catalog/sitemap-import", tags=["catalog-sitemap-impo
 class SitemapPreviewRequest(BaseModel):
     url: Optional[str] = None  # the sitemap's address ...
     xml: Optional[str] = None  # ... or its XML text (when the shop blocks our server)
+    urls: Optional[List[str]] = Field(default=None, max_length=200_000)  # ... or a ready list of page addresses (from an Excel / text file)
 
 
 class SitemapRunRequest(BaseModel):
@@ -31,7 +32,7 @@ def preview_sitemap(
     company_id: str = Depends(get_current_company_id),
 ) -> dict:
     """Read the sitemap: how many pages are new products (with their made-up titles) and the list of their addresses."""
-    return {"data": preview(db, company_id, payload.url, payload.xml)}
+    return {"data": preview(db, company_id, payload.url, payload.xml, payload.urls)}
 
 
 @router.post("/run")

@@ -93,10 +93,12 @@ def _locs(body: str) -> list[str]:
     return [html.unescape(u) for u in re.findall(r"<loc>\s*(.*?)\s*</loc>", body, re.S)]
 
 
-def read_sitemap(url: str | None, xml: str | None) -> list[str]:
-    """Every page address of a sitemap (from its address, or from XML text); a sitemap index is followed."""
+def read_sitemap(url: str | None, xml: str | None, url_list: list[str] | None = None) -> list[str]:
+    """Every page address of a sitemap (from its address, from XML text, or a ready list from an Excel / text file); a sitemap index is followed."""
     urls: list[str] = []
-    if xml and xml.strip():
+    if url_list:
+        urls = [u.strip() for u in url_list if isinstance(u, str) and re.match(r"^https?://", u.strip())]
+    elif xml and xml.strip():
         if "<sitemapindex" in xml:
             raise HTTPException(status_code=422, detail="This is a sitemap index (a list of other sitemaps). Use its address instead, or paste one of the sitemaps it lists.")
         urls = _locs(xml)
@@ -126,7 +128,7 @@ def read_sitemap(url: str | None, xml: str | None) -> list[str]:
                 if len(urls) > MAX_URLS:
                     break
     else:
-        raise HTTPException(status_code=422, detail="Give a sitemap address or its XML")
+        raise HTTPException(status_code=422, detail="Give a sitemap address, its XML or a file of addresses")
     return list(dict.fromkeys(urls))[:MAX_URLS]
 
 
@@ -156,9 +158,9 @@ def _existing(db: Session, company_id: str, urls: list[str]) -> set[str]:
     return have
 
 
-def preview(db: Session, company_id: str, url: str | None, xml: str | None) -> dict[str, Any]:
+def preview(db: Session, company_id: str, url: str | None, xml: str | None, url_list: list[str] | None = None) -> dict[str, Any]:
     """What a sitemap holds: the addresses that would become new products, and how many were left out and why."""
-    all_urls = read_sitemap(url, xml)
+    all_urls = read_sitemap(url, xml, url_list)
     candidates = [u for u in all_urls if _is_product_url(u)]
     have = _existing(db, company_id, candidates)
     new = [u for u in candidates if u not in have]
