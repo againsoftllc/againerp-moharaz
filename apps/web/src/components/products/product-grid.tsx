@@ -25,6 +25,7 @@ import {
   Sparkles,
   Loader2,
   Warehouse,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { categoryNamesWithDescendants } from "@/components/categories/category-tree-filter";
@@ -1066,7 +1067,7 @@ function StatusBadge({ status }: { status: ProductStatus }) {
   );
 }
 
-function StockStatusBadge({ status }: { status: StockStatusLabel }) {
+function StockStatusBadge({ status, auto = false }: { status: StockStatusLabel; auto?: boolean }) {
   const variant =
     status === "In Stock"
       ? "success"
@@ -1080,6 +1081,12 @@ function StockStatusBadge({ status }: { status: StockStatusLabel }) {
       <Badge variant={variant} className="max-w-[7rem] shrink-0 truncate leading-4">
         {status}
       </Badge>
+      {auto ? (
+        // Manage Stock is on: the status is Auto - it follows the quantity (0 = Out of Stock, above 0 = In Stock)
+        <span className="ml-1 inline-flex shrink-0 text-amber-500" title="Auto - follows the stock quantity (0 = Out of Stock)">
+          <Zap className="h-3 w-3" aria-label="Automatic" />
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -2032,7 +2039,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         hide: !visibleCols.stockStatus,
         editable: false,
         cellRenderer: (p: ICellRendererParams<Product>) =>
-          p.data ? <StockStatusBadge status={p.data.stockStatus} /> : null,
+          p.data ? <StockStatusBadge status={p.data.stockStatus} auto={p.data.trackQuantity} /> : null,
         width: 120,
       },
       {

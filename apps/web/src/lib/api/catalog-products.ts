@@ -207,6 +207,12 @@ function resolveStockStatus(stock: number, stockStatus?: string | null): StockSt
   return stock > 0 ? "In Stock" : "Out of Stock";
 }
 
+/** With Manage Stock on the status is Auto - it follows the quantity (0 = Out of Stock, above 0 = In Stock); otherwise the status set by hand. */
+function listStockStatus(stock: number, stockStatus: string | null | undefined, trackQuantity: boolean): StockStatusLabel {
+  if (trackQuantity) return stock > 0 ? "In Stock" : "Out of Stock";
+  return resolveStockStatus(stock, stockStatus);
+}
+
 /** The fields a table row shows, taken from a freshly saved product (the full detail is heavier than a list row). */
 export function productListFields(d: ProductDetail): Partial<Product> {
   return {
@@ -221,7 +227,7 @@ export function productListFields(d: ProductDetail): Partial<Product> {
     lastSellingPrice: d.lastSellingPrice,
     stock: d.stock,
     trackQuantity: d.trackQuantity,
-    stockStatus: d.stockStatus,
+    stockStatus: listStockStatus(d.stock, d.stockStatus, d.trackQuantity),
     status: d.status,
     visibility: d.visibility,
     category: d.category,
@@ -256,7 +262,7 @@ export function apiProductToProduct(row: ApiCatalogProduct): Product {
     offerPrice: compareAt,
     stock: row.stock,
     trackQuantity: row.track_quantity ?? true,
-    stockStatus: resolveStockStatus(row.stock, row.stock_status),
+    stockStatus: listStockStatus(row.stock, row.stock_status, row.track_quantity ?? true),
     status: row.status,
     visibility: row.visibility ?? "public",
     category: row.category ?? "Uncategorized",
