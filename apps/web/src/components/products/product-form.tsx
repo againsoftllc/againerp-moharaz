@@ -1148,7 +1148,7 @@ export function ProductForm({
                     urlPrefix={<span className="shrink-0 text-sm text-muted-foreground">/</span>}
                   />
                 </Field>
-                <Field label="SKU" hint="Leave blank to get the next number (SKU-000001, SKU-000002 ...).">
+                <Field label="SKU">
                   <Input
                     value={values.sku}
                     onChange={(e) => set("sku", e.target.value)}
