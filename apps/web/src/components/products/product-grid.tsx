@@ -1,7 +1,7 @@
 "use client";
 
 import "@/components/providers/ag-grid-provider";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { forwardRef, useCallback, useDeferredValue, useEffect, useImperativeHandle, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { CellValueChangedEvent, ColDef, ColumnState, GridApi, ICellRendererParams, ValueParserParams } from "ag-grid-community";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
@@ -1155,20 +1155,54 @@ function applyFilters(rows: Product[], f: FilterState, categories: Category[]) {
   const min = f.priceMin ? Number(f.priceMin) : null;
   const max = f.priceMax ? Number(f.priceMax) : null;
 
+  // Category filter, prepared ONCE (it used to be rebuilt for every row - with 36k products and several categories picked that froze the
+  // page): the picked categories + all their sub-categories as a name set, and an id -> name map for the rows.
+  let wantedCategoryNames: Set<string> | null = null;
+  let categoryNameById: Map<string, string> | null = null;
+  if (f.category.length > 0) {
+    wantedCategoryNames = new Set<string>();
+    categoryNameById = new Map(categories.map((c) => [c.id, c.name]));
+    const childrenOf = new Map<string, Category[]>();
+    for (const c of categories) {
+      if (c.parentId) {
+        const list = childrenOf.get(c.parentId);
+        if (list) list.push(c);
+        else childrenOf.set(c.parentId, [c]);
+      }
+    }
+    const queue = [...f.category];
+    const seen = new Set(queue);
+    while (queue.length) {
+      const id = queue.pop()!;
+      const name = categoryNameById.get(id);
+      if (name) wantedCategoryNames.add(name);
+      for (const child of childrenOf.get(id) ?? []) {
+        if (!seen.has(child.id)) {
+          seen.add(child.id);
+          queue.push(child.id);
+        }
+      }
+    }
+  }
+
   return rows.filter((p) => {
     if (q && !p.name.toLowerCase().includes(q) && !p.sku.toLowerCase().includes(q)) return false;
     if (f.website === "on" && !isProductOnWebsite(p, categories)) return false;
     if (f.website === "off" && isProductOnWebsite(p, categories)) return false;
     if (f.status !== "all" && p.status !== f.status) return false;
-    if (f.category.length > 0) {
+    if (wantedCategoryNames && categoryNameById) {
       // a parent category also lists the products filed under its sub-categories; any of the picked categories matches
-      const wanted = new Set<string>();
-      for (const id of f.category) {
-        const name = categories.find((c) => c.id === id)?.name;
-        if (name) categoryNamesWithDescendants(name, categories).forEach((n) => wanted.add(n));
+      let hit = wantedCategoryNames.has(p.category);
+      if (!hit) {
+        for (const id of p.categoryIds ?? []) {
+          const name = id ? categoryNameById.get(id) : undefined;
+          if (name && wantedCategoryNames.has(name)) {
+            hit = true;
+            break;
+          }
+        }
       }
-      const names = productCategoryNames(p, categories);
-      if (!names.some((n) => wanted.has(n)) && !wanted.has(p.category)) return false;
+      if (!hit) return false;
     }
     if (f.brand !== "all" && p.brand !== f.brand) return false;
     if (f.stockStatus !== "all" && p.stockStatus !== f.stockStatus) return false;
@@ -1515,7 +1549,9 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   const [manualUrlVerified, setManualUrlVerified] = useState(false);
   const [manualUrlSaving, setManualUrlSaving] = useState(false);
 
-  const filtered = useMemo(() => applyFilters(rowData, filters, categories), [rowData, filters, categories]);
+  // the filter runs a step behind the controls, so ticking categories in the picker never waits for the list to be re-filtered
+  const deferredFilters = useDeferredValue(filters);
+  const filtered = useMemo(() => applyFilters(rowData, deferredFilters, categories), [rowData, deferredFilters, categories]);
   shownIdsRef.current = () => {
     const api = gridApiRef.current;
     if (!api) return filtered.map((p) => p.id);
