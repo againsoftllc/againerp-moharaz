@@ -79,14 +79,6 @@ const ProductFormDialog = dynamic(
   { ssr: false },
 );
 
-const ProductViewDialog = dynamic(
-  () =>
-    import("@/components/products/product-view-dialog").then(
-      (module) => module.ProductViewDialog,
-    ),
-  { ssr: false },
-);
-
 export type PriceComparePageProps = {
   /** the page this grid lives on (deep links and the ?view= dialog stay on it) */
   basePath?: string;
@@ -638,7 +630,6 @@ function PriceUpdateContent({
     }
   };
 
-  const viewId = searchParams.get("view");
   const [formSheetOpen, setFormSheetOpen] = useState(false);
   const [editProductId, setEditProductId] = useState<string | null>(null);
   const [fetchedEditProduct, setFetchedEditProduct] = useState<Product | null>(null);
@@ -686,24 +677,12 @@ function PriceUpdateContent({
     pushParams((params) => params.delete("view"));
   };
 
-  const handleView = (product: Product) => {
-    setFormSheetOpen(false);
-    setEditProductId(null);
-    pushParams((params) => params.set("view", product.id));
-  };
-
   const closeForm = () => {
     setFormSheetOpen(false);
     setEditProductId(null);
   };
 
   useViewerWriteUrlGuard(formSheetOpen, closeForm);
-
-  const closeView = () => {
-    pushParams((params) => params.delete("view"));
-  };
-
-  const viewOpen = !!viewId && !formSheetOpen;
 
   const healthTitle =
     apiHealth.status === "connected"
@@ -893,7 +872,8 @@ function PriceUpdateContent({
           categories={categories}
           loading={loading && products.length === 0}
           preset="catalog"
-          onView={handleView}
+          onView={() => undefined}
+          disableView
           onEdit={handleEdit}
           // Only the product title opens the view drawer here — the rest of the row is
           // competitor links, prices and sync buttons that must not trigger it.
@@ -1001,17 +981,6 @@ function PriceUpdateContent({
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-
-      {viewOpen && (
-        <ProductViewDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) closeView();
-          }}
-          productId={viewId}
-          onEdit={canWrite ? handleEdit : undefined}
-        />
-      )}
 
       {canWrite && formSheetOpen && editProductId && (
         <ProductFormDialog

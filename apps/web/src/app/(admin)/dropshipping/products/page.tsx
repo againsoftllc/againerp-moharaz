@@ -40,14 +40,6 @@ const ProductFormDialog = dynamic(
   { ssr: false },
 );
 
-const ProductViewDialog = dynamic(
-  () =>
-    import("@/components/products/product-view-dialog").then(
-      (module) => module.ProductViewDialog,
-    ),
-  { ssr: false },
-);
-
 function buildProductsUrl(params: URLSearchParams) {
   const query = params.toString();
   return query ? `/dropshipping/products?${query}` : "/dropshipping/products";
@@ -63,7 +55,6 @@ function ProductListContent() {
   const productGridRef = useRef<ProductGridHandle>(null);
   const [advancedFilterCount, setAdvancedFilterCount] = useState(0);
 
-  const viewId = searchParams.get("view");
   const [formSheetOpen, setFormSheetOpen] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [editProductId, setEditProductId] = useState<string | null>(null);
@@ -145,21 +136,6 @@ function ProductListContent() {
     }
   };
 
-  const handleView = (product: Product) => {
-    setFormSheetOpen(false);
-    setFormMode(null);
-    setEditProductId(null);
-    pushParams((params) => {
-      params.delete("create");
-      params.delete("edit");
-      params.set("view", product.id);
-    });
-  };
-
-  const handleEditFromView = (product: Product) => {
-    handleEdit(product);
-  };
-
   const closeForm = () => {
     setFormSheetOpen(false);
     setFormMode(null);
@@ -168,12 +144,6 @@ function ProductListContent() {
   };
 
   useViewerWriteUrlGuard(formSheetOpen && (formMode === "create" || formMode === "edit"), closeForm);
-
-  const closeView = () => {
-    pushParams((params) => {
-      params.delete("view");
-    });
-  };
 
   const handleSaved = () => {
     void refetch();
@@ -186,8 +156,6 @@ function ProductListContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- closeForm is stable enough for this guard
   }, [formMode, editProductId, editProduct, loading]);
-
-  const viewOpen = !!viewId && !formSheetOpen;
 
   const healthTitle =
     apiHealth.status === "connected"
@@ -290,9 +258,9 @@ function ProductListContent() {
           products={products}
           categories={categories}
           loading={loading && products.length === 0}
-          onView={handleView}
+          onView={() => undefined}
+          disableView
           onEdit={handleEdit}
-          nameClickAction="view"
           onProductsChanged={() => void refetch()}
           onAdvancedFilterCountChange={setAdvancedFilterCount}
           headerLeftActions={headerLeftActions}
@@ -309,17 +277,6 @@ function ProductListContent() {
         >
           <Plus className="h-5 w-5" />
         </Button>
-      )}
-
-      {viewOpen && (
-        <ProductViewDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) closeView();
-          }}
-          productId={viewId}
-          onEdit={canWrite ? handleEditFromView : undefined}
-        />
       )}
 
       {canWrite &&

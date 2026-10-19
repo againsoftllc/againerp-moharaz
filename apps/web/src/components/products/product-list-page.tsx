@@ -42,14 +42,6 @@ const ProductFormDialog = dynamic(
   { ssr: false },
 );
 
-const ProductViewDialog = dynamic(
-  () =>
-    import("@/components/products/product-view-dialog").then(
-      (module) => module.ProductViewDialog,
-    ),
-  { ssr: false },
-);
-
 export type ProductListProps = {
   /** the page this list lives on (links, deep links and the ?view= dialog stay on it) */
   basePath?: string;
@@ -73,7 +65,6 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
   const productGridRef = useRef<ProductGridHandle>(null);
   const [advancedFilterCount, setAdvancedFilterCount] = useState(0);
 
-  const viewId = searchParams.get("view");
   const [formSheetOpen, setFormSheetOpen] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [editProductId, setEditProductId] = useState<string | null>(null);
@@ -193,21 +184,6 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
     }
   };
 
-  const handleView = (product: Product) => {
-    setFormSheetOpen(false);
-    setFormMode(null);
-    setEditProductId(null);
-    pushParams((params) => {
-      params.delete("create");
-      params.delete("edit");
-      params.set("view", product.id);
-    });
-  };
-
-  const handleEditFromView = (product: Product) => {
-    handleEdit(product);
-  };
-
   const closeForm = () => {
     setFormSheetOpen(false);
     setFormMode(null);
@@ -217,20 +193,12 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
 
   useViewerWriteUrlGuard(formSheetOpen && (formMode === "create" || formMode === "edit"), closeForm);
 
-  const closeView = () => {
-    pushParams((params) => {
-      params.delete("view");
-    });
-  };
-
   const handleSaved = () => {
     void refetch();
   };
 
   // Do not toast/close when editProduct is briefly null — Aladin deep-links open the
   // drawer with only an id while list/detail preload; ProductForm loads via useCatalogProduct.
-
-  const viewOpen = !!viewId && !formSheetOpen;
 
   const healthTitle =
     apiHealth.status === "connected"
@@ -333,7 +301,8 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
           products={products}
           categories={categories}
           loading={loading && products.length === 0}
-          onView={handleView}
+          onView={() => undefined}
+          disableView
           onEdit={handleEdit}
           onProductsChanged={() => void refetch()}
           // the AI column (like Unlisted): fill the product from its source link in the Aladin drawer
@@ -365,17 +334,6 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
         >
           <Plus className="h-5 w-5" />
         </Button>
-      )}
-
-      {viewOpen && (
-        <ProductViewDialog
-          open
-          onOpenChange={(open) => {
-            if (!open) closeView();
-          }}
-          productId={viewId}
-          onEdit={canWrite ? handleEditFromView : undefined}
-        />
       )}
 
       {canWrite &&

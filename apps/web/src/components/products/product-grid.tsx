@@ -1152,6 +1152,9 @@ type Props = {
   /** Clicking anywhere else on a row opens the view drawer (default). Off where rows hold
    *  their own controls (Price Compare: links, sync buttons) — then only the name opens it. */
   rowClickOpensView?: boolean;
+  /** No view drawer from this list: a row click does nothing, the name opens the editor, the row menu has no "View" (a new view drawer is
+   *  being designed). Lists with their own drawer (Inventory) keep it. */
+  disableView?: boolean;
   products: Product[];
   categories?: Category[];
   loading?: boolean;
@@ -1231,6 +1234,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   onView,
   nameClickAction = "edit",
   rowClickOpensView = true,
+  disableView = false,
   products,
   categories = defaultCategoriesFlat,
   loading = false,
@@ -1611,9 +1615,11 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
           <RowActionsTrigger />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          <DropdownMenuItem onClick={() => onView(data)}>
-            <Eye className="mr-1.5 h-3 w-3" /> View
-          </DropdownMenuItem>
+          {!disableView ? (
+            <DropdownMenuItem onClick={() => onView(data)}>
+              <Eye className="mr-1.5 h-3 w-3" /> View
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem
             onClick={() => {
               const itemId = data.itemId ?? data.id;
@@ -1651,7 +1657,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       </DropdownMenu>
       );
     },
-    [onView, onEdit, openDeleteConfirm, duplicateProduct, canWrite],
+    [onView, onEdit, openDeleteConfirm, duplicateProduct, canWrite, disableView],
   );
 
   const ProductControlsCell = useCallback(
@@ -1838,8 +1844,8 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
               title={p.data.name}
               onClick={(e) => {
                 e.stopPropagation();
-                if (canWrite && nameClickAction === "edit") onEdit(p.data!);
-                else onView(p.data!);
+                if (canWrite && (nameClickAction === "edit" || disableView)) onEdit(p.data!);
+                else if (!disableView) onView(p.data!);
               }}
             >
               {p.data.name}
@@ -2213,7 +2219,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
           ]
         : []),
     ],
-    [onView, onEdit, nameClickAction, visibleCols, resolvedLiveEdit, ProductControlsCell, ProductRowMenu, brands, canWrite, categories, categoryNames, toggleManageStock, isInventory, companyFormat, competitors, competitorMatches, onSyncCompetitor, competitorSyncingKeys, onSetManualUrl, savedColumnNameWidth, pickedCells, onToggleCellPick, onSetCellPicks, onAiImport, aiImportingIds],
+    [onView, onEdit, nameClickAction, disableView, visibleCols, resolvedLiveEdit, ProductControlsCell, ProductRowMenu, brands, canWrite, categories, categoryNames, toggleManageStock, isInventory, companyFormat, competitors, competitorMatches, onSyncCompetitor, competitorSyncingKeys, onSetManualUrl, savedColumnNameWidth, pickedCells, onToggleCellPick, onSetCellPicks, onAiImport, aiImportingIds],
   );
 
   const onCellValueChanged = useCallback(
@@ -2596,11 +2602,11 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       gridProps={{
         rowSelection: "multiple",
         suppressRowClickSelection: true,
-        rowClass: rowClickOpensView ? "cursor-pointer" : undefined,
+        rowClass: rowClickOpensView && !disableView ? "cursor-pointer" : undefined,
         // Row click opens the product drawer; skip the checkbox/star column, the
         // name button (has its own handler), live-edit cells and any inline control.
         onCellClicked: (e) => {
-          if (!e.data || !rowClickOpensView) return;
+          if (!e.data || !rowClickOpensView || disableView) return;
           const colId = e.column.getColId();
           if (colId === "controls" || colId === "actions" || colId === "name") return;
           if (e.colDef.editable) return;
@@ -2640,7 +2646,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
           <>
             <ProductMobileCards
               products={filtered.slice(0, 50)}
-              onView={onView}
+              onView={disableView ? onEdit : onView}
               onEdit={onEdit}
               onArchive={(p) => openArchiveConfirm([p])}
             />
