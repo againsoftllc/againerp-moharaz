@@ -598,6 +598,7 @@ const COLUMN_KEYS = [
   "unitType",
   "productType",
   "updatedAt",
+  "source",
 ] as const;
 type ColumnKey = (typeof COLUMN_KEYS)[number];
 
@@ -623,6 +624,7 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
   unitType: "Unit type",
   productType: "Product type",
   updatedAt: "Updated",
+  source: "Source",
 };
 
 const DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
@@ -647,6 +649,7 @@ const DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
   unitType: false,
   productType: false,
   updatedAt: true,
+  source: true,
 };
 
 const INVENTORY_COLUMN_KEYS: ColumnKey[] = [
@@ -687,6 +690,7 @@ const INVENTORY_DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
   unitType: true,
   productType: true,
   updatedAt: false,
+  source: false,
 };
 
 const INVENTORY_DEFAULT_VISIBLE_FILTERS: Record<FilterVisibilityKey, boolean> = {
@@ -1466,6 +1470,17 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
     const api = gridApiRef.current;
     if (!api) return filtered.map((p) => p.id);
     const ids: string[] = [];
+    // the header tick box of a competitor column (Source, Startech ...) works page by page: only the rows on the page being looked at
+    if (api.getGridOption("pagination")) {
+      const size = api.paginationGetPageSize();
+      const start = api.paginationGetCurrentPage() * size;
+      const end = Math.min(start + size, api.getDisplayedRowCount());
+      for (let i = start; i < end; i += 1) {
+        const node = api.getDisplayedRowAtIndex(i);
+        if (node?.data) ids.push(node.data.id);
+      }
+      return ids;
+    }
     api.forEachNodeAfterFilterAndSort((node) => {
       if (node.data) ids.push(node.data.id);
     });
@@ -1957,6 +1972,33 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         cellRenderer: (p: ICellRendererParams<Product>) =>
           p.data ? <WebsiteBadge product={p.data} /> : null,
         cellClass: "product-grid-icon-col",
+      },
+      {
+        // Where the product was taken from: the source company (Startech, Ryans ...) linking to the page. The Price Compare screens have their
+        // own Source column (company | price), so this one is for the plain Products list.
+        colId: "source",
+        headerName: "Source",
+        width: 130,
+        minWidth: 90,
+        hide: visibleCols.source === false || isInventory || Boolean(competitorMatches), // saved column choices made before this column existed show it
+        sortable: true,
+        valueGetter: (p) => (p.data ? sourceCompanyName(p.data.sourceUrl, competitors) : ""),
+        cellRenderer: (p: ICellRendererParams<Product>) =>
+          p.data?.sourceUrl ? (
+            <a
+              href={p.data.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              title={`Open the source page: ${p.data.sourceUrl}`}
+              className="inline-flex max-w-full items-center gap-1 text-xs hover:underline"
+            >
+              <span className="truncate">{sourceCompanyName(p.data.sourceUrl, competitors) || "Source"}</span>
+              <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+            </a>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
       },
       {
         field: "seoTitle",
@@ -2586,6 +2628,8 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         },
         onCellValueChanged,
         onSelectionChanged: (e) => setSelected(e.api.getSelectedRows()),
+        // the competitor headers' tick boxes follow the page being shown
+        onPaginationChanged: (e) => e.api.refreshHeader(),
         onColumnMoved: (e) => {
           // Only the admin's own drags — not the saved order being applied on load.
           if (e.finished && (e.source === "uiColumnMoved" || e.source === "uiColumnDragged")) {
