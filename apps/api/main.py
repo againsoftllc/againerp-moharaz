@@ -67,6 +67,7 @@ from app.routers import (
     service_categories,
     seo,
     finance,
+    catalog_duplicates,
     finance_cheques,
     finance_allocation,
     finance_periods,
@@ -821,6 +822,7 @@ app.include_router(service_categories.router, prefix="/api/v1", dependencies=req
 app.include_router(seo.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_cheques.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(catalog_duplicates.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_allocation.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_periods.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(core_sequences.router, prefix="/api/v1", dependencies=require_admin)
