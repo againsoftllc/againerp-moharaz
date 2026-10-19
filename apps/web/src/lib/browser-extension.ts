@@ -51,6 +51,39 @@ function askExtension(
   });
 }
 
+/** The raw HTML of a shop page, read in this browser — for the AI fill on shops that block the server (Ryans …). */
+export function readPageHtmlViaExtension(
+  url: string,
+): Promise<{ ok: boolean; html: string; pageUrl: string; error: string }> {
+  return new Promise((resolve) => {
+    if (!isPriceExtensionAvailable()) {
+      resolve({ ok: false, html: "", pageUrl: url, error: "The Send to AgainERP extension isn't installed in this browser" });
+      return;
+    }
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const timer = window.setTimeout(() => {
+      window.removeEventListener("message", onMessage);
+      resolve({ ok: false, html: "", pageUrl: url, error: "The extension took too long" });
+    }, 180_000);
+    function onMessage(event: MessageEvent<Record<string, unknown>>) {
+      if (event.source !== window || event.origin !== window.location.origin) return;
+      const data = event.data;
+      if (!data || data.source !== "againerp-extension" || data.type !== "read-html-result") return;
+      if (data.requestId !== requestId) return;
+      window.clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      resolve({
+        ok: Boolean(data.ok),
+        html: typeof data.html === "string" ? data.html : "",
+        pageUrl: typeof data.page_url === "string" ? data.page_url : url,
+        error: typeof data.error === "string" ? data.error : "",
+      });
+    }
+    window.addEventListener("message", onMessage);
+    window.postMessage({ source: "againerp-page", type: "read-html", requestId, item: { url } }, window.location.origin);
+  });
+}
+
 /** Ask the extension to read one saved link now. Resolves (never rejects). */
 export function syncLinkViaExtension(item: {
   matchId: string;

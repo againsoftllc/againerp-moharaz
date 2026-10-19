@@ -14,6 +14,7 @@ OUT="${TMPDIR:-/tmp}/drafts_to_live.sql"
 U=$(docker exec againerp-moharaz-postgres printenv POSTGRES_USER)
 D=$(docker exec againerp-moharaz-postgres printenv POSTGRES_DB)
 ICOLS="id,company_id,sku,barcode,barcode_type,name,item_type,status,created_at,updated_at"
+MCOLS="id,company_id,product_id,competitor,matched_url,matched_title,manual_url,price,regular_price,currency,in_stock,stock_label,status,status_message,last_checked_at,verified,verified_at,verified_by,created_at,updated_at"
 PCOLS="id,item_id,company_id,name,slug,sku,model,description,price,compare_at_price,purchase_price,last_selling_price,stock,track_quantity,not_for_selling,weight,tax_rate,tax_type,stock_status,status,product_type,visibility,brand,category,brand_id,category_id,attribute_profile_id,short_description,tags_json,seo_title,seo_description,focus_keyphrase,warranty,origin,thumbnail,custom_specs_json,variant_attributes_json,combo_components_json,source_url,seller_info_json,dropship_meta_json,gallery_json,video_urls_json,created_at,updated_at,remarks,in_inventory,on_website,updated_by_id,updated_by_name"
 {
   echo "BEGIN;"
@@ -25,6 +26,10 @@ PCOLS="id,item_id,company_id,name,slug,sku,model,description,price,compare_at_pr
   echo "COPY s_prod ($PCOLS) FROM STDIN;"
   docker exec againerp-moharaz-postgres psql -U "$U" -d "$D" -c "COPY (SELECT $PCOLS FROM catalog_products WHERE id LIKE 'src-%') TO STDOUT"
   echo '\.'
+  echo "CREATE TEMP TABLE s_match AS SELECT $MCOLS FROM plugin_price_update_matches WITH NO DATA;"
+  echo "COPY s_match ($MCOLS) FROM STDIN;"
+  docker exec againerp-moharaz-postgres psql -U "$U" -d "$D" -c "COPY (SELECT $MCOLS FROM plugin_price_update_matches WHERE product_id LIKE 'src-%') TO STDOUT"
+  echo '\.'
   cat <<EOF
 UPDATE s_prod SET brand_id=NULL, category_id=NULL, attribute_profile_id=NULL, thumbnail=NULL, gallery_json=NULL, custom_specs_json=NULL,
   description=NULL, short_description=NULL, tags_json='[]', seo_title=NULL, seo_description=NULL, focus_keyphrase=NULL, warranty=NULL,
@@ -33,6 +38,8 @@ UPDATE s_prod SET brand_id=NULL, category_id=NULL, attribute_profile_id=NULL, th
      OR remarks IS NOT NULL OR brand_id IS NOT NULL OR category_id IS NOT NULL;
 INSERT INTO items ($ICOLS) SELECT $ICOLS FROM s_items ON CONFLICT DO NOTHING;
 INSERT INTO catalog_products ($PCOLS) SELECT $PCOLS FROM s_prod WHERE item_id IN (SELECT id FROM items) ON CONFLICT DO NOTHING;
+INSERT INTO plugin_price_update_matches ($MCOLS) SELECT $MCOLS FROM s_match WHERE product_id IN (SELECT id FROM catalog_products) ON CONFLICT DO NOTHING;
+SELECT 'price matches now', competitor, count(*) FROM plugin_price_update_matches GROUP BY competitor;
 SELECT 'items now', count(*) FROM items;
 SELECT 'catalog_products now', count(*) FROM catalog_products;
 SELECT 'src- drafts now', count(*) FROM catalog_products WHERE id LIKE 'src-%';

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Product } from "@/lib/mock-data/products";
-import { apiFetch } from "@/lib/api/client";
+import { apiFetch, getApiBaseUrl } from "@/lib/api/client";
+import { useAdminAuth } from "@/lib/store/admin-auth-store";
 import {
   apiProductToProduct,
   productListFields,
@@ -53,6 +54,8 @@ type ProductListCacheEntry = {
   products: Product[];
   total: number;
   savedAt: number;
+  /** When the whole list was last loaded in full (a refresh with only the changes keeps this). */
+  fullAt?: number;
 };
 
 const PRODUCT_LIST_CACHE_MS = 30_000;
@@ -71,6 +74,66 @@ function productListCacheKey(channel?: CatalogProductChannel, scope?: CatalogPro
   const keyed = scope ? `${base}:${scope}` : base;
   return status ? `${keyed}#${status}` : keyed;
 }
+
+/**
+ * The list is also kept in this browser (IndexedDB), so opening the page again shows it at once and only the products that
+ * changed since are fetched - not the whole catalog again. Bump CACHE_VERSION when the shape of a list row changes.
+ * A full reload still happens on the Refresh button and when the saved copy is older than FULL_RELOAD_MS (stock, brand
+ * names ... change outside the product's own row, so a copy must not live forever).
+ */
+const CACHE_VERSION = 1;
+const FULL_RELOAD_MS = 6 * 60 * 60 * 1000;
+
+function persistKey(key: string): string | null {
+  const user = useAdminAuth.getState().user;
+  if (!user) return null;
+  return `v${CACHE_VERSION}|${getApiBaseUrl()}|${user.id}|${user.company_id ?? ""}|${key}`;
+}
+
+function openListDb(): Promise<IDBDatabase | null> {
+  if (typeof indexedDB === "undefined") return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open("againerp-lists", 1);
+      req.onupgradeneeded = () => req.result.createObjectStore("lists");
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function readStoredList(key: string): Promise<ProductListCacheEntry | null> {
+  const id = persistKey(key);
+  const db = id ? await openListDb() : null;
+  if (!id || !db) return null;
+  return new Promise((resolve) => {
+    try {
+      const req = db.transaction("lists").objectStore("lists").get(id);
+      req.onsuccess = () => resolve((req.result as ProductListCacheEntry | undefined) ?? null);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function writeStoredList(key: string, entry: ProductListCacheEntry): Promise<void> {
+  const id = persistKey(key);
+  const db = id ? await openListDb() : null;
+  if (!id || !db) return;
+  try {
+    db.transaction("lists", "readwrite").objectStore("lists").put(entry, id);
+  } catch {
+    /* storage full / blocked: the list just loads in full next time */
+  }
+}
+
+const byNewest = (a: Product, b: Product) => {
+  const diff = Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+  return diff || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+};
 
 async function loadProductList(
   channel?: CatalogProductChannel,
@@ -93,68 +156,90 @@ async function loadProductList(
     // hides matches — load the whole catalog. `fields=list` drops the long
     // text the grid never shows; pages after the first load in parallel, and
     // the first page is shown while the rest arrive.
-    const fetchPage = (page: number) => {
-      const params = new URLSearchParams({
-        per_page: String(PRODUCT_LIST_PAGE_SIZE),
-        page: String(page),
-        fields: "list",
-      });
+    const listParams = () => {
+      const params = new URLSearchParams();
       if (channel) params.set("channel", channel);
       if (scope) params.set("scope", scope);
       // "!unlisted" = everything except that status (the Products list hides the Unlisted ones)
       if (status?.startsWith("!")) params.set("exclude_status", status.slice(1));
       else if (status) params.set("status", status); // only the rows the screen needs (36k products incl. 24k drafts is too many to load for nothing)
+      return params;
+    };
+    const fetchPage = (page: number, since?: string) => {
+      const params = listParams();
+      params.set("per_page", String(PRODUCT_LIST_PAGE_SIZE));
+      params.set("page", String(page));
+      params.set("fields", "list");
+      if (since) params.set("updated_since", since);
       return apiFetch<ApiProductListResponse>(
         `/api/v1/catalog/products?${params}`,
-        force ? { cache: "no-store" } : undefined,
+        force || since ? { cache: "no-store" } : undefined,
       );
     };
 
-    const pages: ApiCatalogProduct[][] = [];
-    const buildEntry = () => {
-      const seen = new Set<string>();
-      return {
-        products: pages
-          .flat()
-          .filter((row) => !seen.has(row.id) && seen.add(row.id))
-          .map(apiProductToProduct),
-        total,
-        savedAt: Date.now(),
+    // Every page of a list request (page 1 first, the rest in parallel); `onProgress` gets the rows so far.
+    const fetchAll = async (since: string | undefined, onProgress?: (rows: ApiCatalogProduct[], total: number) => void) => {
+      const pages: ApiCatalogProduct[][] = [];
+      const first = await fetchPage(1, since);
+      pages[0] = first.data;
+      const pageCount = Math.min(Math.ceil(first.meta.count / PRODUCT_LIST_PAGE_SIZE), PRODUCT_LIST_MAX_PAGES);
+      let lastPartialAt = 0;
+      const emitPartial = () => {
+        if (!onProgress || Date.now() - lastPartialAt < PRODUCT_LIST_PARTIAL_MS) return;
+        lastPartialAt = Date.now();
+        onProgress(pages.flat(), first.meta.count);
       };
+      if (pageCount > 1) emitPartial();
+      let nextPage = 2;
+      const worker = async () => {
+        while (nextPage <= pageCount) {
+          const page = nextPage;
+          nextPage += 1;
+          pages[page - 1] = (await fetchPage(page, since)).data;
+          emitPartial();
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(PRODUCT_LIST_CONCURRENCY, pageCount - 1) }, worker));
+      return { rows: pages.flat(), total: first.meta.count };
     };
 
-    const first = await fetchPage(1);
-    const total = first.meta.count;
-    pages[0] = first.data;
-    const pageCount = Math.min(
-      Math.ceil(total / PRODUCT_LIST_PAGE_SIZE),
-      PRODUCT_LIST_MAX_PAGES,
-    );
-    let lastPartialAt = 0;
-    const emitPartial = () => {
-      if (!onPartial || Date.now() - lastPartialAt < PRODUCT_LIST_PARTIAL_MS) return;
-      lastPartialAt = Date.now();
-      onPartial(buildEntry());
+    const toProducts = (rows: ApiCatalogProduct[]) => {
+      const seen = new Set<string>();
+      return rows.filter((row) => !seen.has(row.id) && seen.add(row.id)).map(apiProductToProduct);
     };
-    if (pageCount > 1) emitPartial();
+    const finish = (entry: ProductListCacheEntry) => {
+      productListCache.set(key, entry);
+      void writeStoredList(key, entry);
+      return entry;
+    };
 
-    let nextPage = 2;
-    const worker = async () => {
-      while (nextPage <= pageCount) {
-        const page = nextPage;
-        nextPage += 1;
-        const res = await fetchPage(page);
-        pages[page - 1] = res.data;
-        emitPartial();
+    // 1. A copy from earlier (this tab, or this browser's storage): show it now and fetch only what changed.
+    const stored = !force ? (cached ?? (await readStoredList(key))) : null;
+    if (stored && stored.products.length && Date.now() - (stored.fullAt ?? stored.savedAt) < FULL_RELOAD_MS) {
+      onPartial?.(stored);
+      try {
+        const newest = stored.products.reduce((max, p) => (p.updatedAt > max ? p.updatedAt : max), "");
+        const [changed, idRes] = await Promise.all([
+          fetchAll(newest || undefined),
+          apiFetch<{ data: string[] }>(`/api/v1/catalog/products/list-ids?${listParams()}`, { cache: "no-store" }),
+        ]);
+        const serverIds = new Set(idRes.data);
+        const merged = new Map(stored.products.filter((p) => serverIds.has(p.id)).map((p) => [p.id, p]));
+        for (const product of toProducts(changed.rows)) merged.set(product.id, product);
+        // every id the server lists must now be here; if not (rows we never saw), do the full load below
+        if ([...serverIds].every((id) => merged.has(id))) {
+          const products = [...merged.values()].sort(byNewest);
+          return finish({ products, total: products.length, savedAt: Date.now(), fullAt: stored.fullAt ?? stored.savedAt });
+        }
+      } catch {
+        /* fall back to the full load */
       }
-    };
-    await Promise.all(
-      Array.from({ length: Math.min(PRODUCT_LIST_CONCURRENCY, pageCount - 1) }, worker),
-    );
+    }
 
-    const entry = buildEntry();
-    productListCache.set(key, entry);
-    return entry;
+    // 2. Nothing saved (or it is old / out of step): load everything.
+    const all = await fetchAll(undefined, (rows, total) => onPartial?.({ products: toProducts(rows), total, savedAt: Date.now() }));
+    const now = Date.now();
+    return finish({ products: toProducts(all.rows), total: all.total, savedAt: now, fullAt: now });
   })();
 
   productListRequests.set(key, request);

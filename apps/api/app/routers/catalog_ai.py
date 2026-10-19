@@ -19,7 +19,7 @@ from app.schemas.catalog_ai_import import (
 )
 from app.services.catalog_ai import spec_profile_service
 from app.services.catalog_ai.importer_service import create_product_from_draft, extract_from_url
-from app.services.catalog_ai.scraper import fetch_page
+from app.services.catalog_ai.scraper import fetch_page, remember_browser_html
 from app.models.catalog_product import CatalogProduct
 from app.services.catalog_media_import import (
     CatalogImportImagesRequest,
@@ -195,6 +195,22 @@ class SpecFillResponse(BaseModel):
     # Fields with allowed values that don't include the source's value — the editor offers
     # to add each as a new option (a profile change) instead of adding it silently.
     off_options: Dict[str, str]
+
+
+class SourcePageRequest(BaseModel):
+    url: HttpUrl
+    html: str = Field(min_length=200, max_length=6_000_000)
+
+
+@router.post("/source-page")
+def catalog_ai_source_page(
+    payload: SourcePageRequest,
+    _: AuthUser = Depends(require_permission("catalog", "write")),
+) -> dict:
+    """The admin's browser (Send to AgainERP extension) read a shop page that blocks the server and sends its HTML.
+    The next AI / spec fill of that link reads this copy instead of fetching the shop (kept for 30 minutes)."""
+    remember_browser_html(str(payload.url), payload.html)
+    return {"data": {"url": str(payload.url), "bytes": len(payload.html)}}
 
 
 @router.post("/spec-fill", response_model=SpecFillResponse)

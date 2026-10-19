@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 
@@ -851,6 +852,41 @@ def _replace_product_specs(db: Session, product: CatalogProduct, payload: Produc
     connect_product_values(db, saved)
 
 
+def _list_scope_query(db: Session, company_id: str, status: Optional[str], exclude_status: Optional[str], channel: Optional[str], scope: Optional[str]):
+    """The products a list screen covers: company + status + Catalog/Dropshipping channel + Inventory/Website module."""
+    query = db.query(CatalogProduct).filter(CatalogProduct.company_id == company_id)
+    if status:
+        query = query.filter(CatalogProduct.status == status)
+    if exclude_status:
+        query = query.filter(CatalogProduct.status != exclude_status)
+    # Module split: dropship_meta_json marks Dropshipping channel products.
+    if channel == "dropshipping":
+        query = query.filter(CatalogProduct.dropship_meta_json.isnot(None))
+    elif channel == "catalog":
+        query = query.filter(CatalogProduct.dropship_meta_json.is_(None))
+    # Inventory and Website keep separate product lists over the same table.
+    if scope == "inventory":
+        query = query.filter(CatalogProduct.in_inventory.is_(True))
+    elif scope == "website":
+        query = query.filter(CatalogProduct.on_website.is_(True))
+    return query
+
+
+@router.get("/list-ids")
+def list_product_ids(
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("catalog", "read")),
+    company_id: str = Depends(get_current_company_id),
+    status: Optional[str] = Query(None),
+    channel: Optional[str] = Query(None, pattern="^(catalog|dropshipping)$"),
+    exclude_status: Optional[str] = Query(None, pattern="^(draft|published|unlisted|archived)$"),
+    scope: Optional[str] = Query(None, pattern="^(inventory|website)$"),
+) -> dict:
+    """Just the ids a list covers - the admin compares them with its cached copy to drop deleted / moved products."""
+    rows = _list_scope_query(db, company_id, status, exclude_status, channel, scope).with_entities(CatalogProduct.id).all()
+    return {"data": [r[0] for r in rows]}
+
+
 @router.get("", response_model=ProductListResponse)
 def list_products(
     db: Session = Depends(get_db),
@@ -880,12 +916,14 @@ def list_products(
         pattern="^(inventory|website)$",
         description="inventory = Inventory module catalog; website = Website module product list",
     ),
+    updated_since: Optional[datetime] = Query(
+        None,
+        description="Only products saved at or after this time (the admin list refreshes a cached copy with just the changes)",
+    ),
 ) -> ProductListResponse:
-    query = db.query(CatalogProduct).filter(CatalogProduct.company_id == company_id)
-    if status:
-        query = query.filter(CatalogProduct.status == status)
-    if exclude_status:
-        query = query.filter(CatalogProduct.status != exclude_status)
+    query = _list_scope_query(db, company_id, status, exclude_status, channel, scope)
+    if updated_since:
+        query = query.filter(CatalogProduct.updated_at >= updated_since)
     # every word must appear in the name, SKU, brand or model ("msi b650m wifi")
     for word in (q or "").split()[:6]:
         like = f"%{word}%"
@@ -895,17 +933,6 @@ def list_products(
             | CatalogProduct.brand.ilike(like)
             | CatalogProduct.model.ilike(like)
         )
-    # Module split: dropship_meta_json marks Dropshipping channel products.
-    if channel == "dropshipping":
-        query = query.filter(CatalogProduct.dropship_meta_json.isnot(None))
-    elif channel == "catalog":
-        query = query.filter(CatalogProduct.dropship_meta_json.is_(None))
-    # Inventory and Website keep separate product lists over the same table.
-    if scope == "inventory":
-        query = query.filter(CatalogProduct.in_inventory.is_(True))
-    elif scope == "website":
-        query = query.filter(CatalogProduct.on_website.is_(True))
-
     total = query.count()
     rows = (
         # Bulk-seeded rows share updated_at, so id breaks the tie — without it

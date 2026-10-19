@@ -714,7 +714,45 @@ def is_bot_challenge(response: httpx.Response) -> bool:
     return "just a moment" in head or "challenge-platform" in head or "cf-chl" in head
 
 
+
+# ── pages the admin's own browser read ─────────────────────────────────────────────────────────────────────────
+# Some shops (Ryans, Cloudflare-protected ones) refuse the server but open fine in a browser. The "Send to AgainERP"
+# extension reads such a page and hands its HTML to /catalog/ai/source-page; for a short while fetch_page() then
+# parses that HTML instead of asking the shop again — so the AI fill (and the spec fill) work on those shops too.
+import time as _time
+
+_BROWSER_HTML_TTL = 30 * 60
+_BROWSER_HTML_MAX = 40
+_browser_html: dict[str, tuple[float, str]] = {}
+
+
+def _page_key(url: str) -> str:
+    return url.strip().split("#", 1)[0].rstrip("/")
+
+
+def remember_browser_html(url: str, html: str) -> None:
+    now = _time.time()
+    for key in [k for k, (exp, _h) in _browser_html.items() if exp < now]:
+        _browser_html.pop(key, None)
+    while len(_browser_html) >= _BROWSER_HTML_MAX:
+        _browser_html.pop(next(iter(_browser_html)), None)
+    _browser_html[_page_key(url)] = (now + _BROWSER_HTML_TTL, html)
+
+
+def recall_browser_html(url: str) -> str | None:
+    entry = _browser_html.get(_page_key(url))
+    if not entry:
+        return None
+    if entry[0] < _time.time():
+        _browser_html.pop(_page_key(url), None)
+        return None
+    return entry[1]
+
+
 def fetch_page(url: str, *, timeout: float = FETCH_TIMEOUT) -> ScrapedPage:
+    browser_html = recall_browser_html(url)
+    if browser_html is not None:
+        return parse_page(browser_html[:MAX_BODY_BYTES], url)
     try:
         with httpx.Client(
             timeout=timeout,
@@ -740,7 +778,12 @@ def fetch_page(url: str, *, timeout: float = FETCH_TIMEOUT) -> ScrapedPage:
     if "text/html" not in content_type:
         raise HTTPException(status_code=422, detail=f"URL did not return HTML (content-type: {content_type})")
 
-    body = response.content[:MAX_BODY_BYTES]
+    return parse_page(response.content[:MAX_BODY_BYTES], str(response.url))
+
+
+def parse_page(body: bytes | str, final_url: str) -> ScrapedPage:
+    """The raw signal out of a product page's HTML — shared by the server's own fetch and by HTML the admin's
+    browser extension read (sites that block the server)."""
     soup = BeautifulSoup(body, "html.parser")
 
     title_tag = soup.find("title")
@@ -753,14 +796,14 @@ def fetch_page(url: str, *, timeout: float = FETCH_TIMEOUT) -> ScrapedPage:
     site_name = (site_name_tag.get("content", "").strip() if site_name_tag else "")
 
     json_ld = _extract_json_ld(soup)
-    structured = structured_product(soup, json_ld, title, str(response.url))
+    structured = structured_product(soup, json_ld, title, final_url)
     structured["breadcrumb"] = _extract_breadcrumb(soup, json_ld)
-    structured["breadcrumb_links"] = _extract_breadcrumb_links(soup, str(response.url))
+    structured["breadcrumb_links"] = _extract_breadcrumb_links(soup, final_url)
     # The product's own gallery block (found from its main photo), then its declared photos,
     # then whatever else the page shows.
-    page_images = _extract_images(soup, str(response.url))
+    page_images = _extract_images(soup, final_url)
     anchor = (structured.get("images") or page_images or [None])[0]
-    gallery = _extract_gallery(soup, anchor, str(response.url))
+    gallery = _extract_gallery(soup, anchor, final_url)
     if gallery:
         structured["gallery"] = gallery
     image_urls = _dedupe_image_candidates(
@@ -773,7 +816,7 @@ def fetch_page(url: str, *, timeout: float = FETCH_TIMEOUT) -> ScrapedPage:
     text = _extract_text(soup)
 
     return ScrapedPage(
-        url=str(response.url),
+        url=final_url,
         title=title,
         meta_description=meta_description,
         json_ld=json_ld,

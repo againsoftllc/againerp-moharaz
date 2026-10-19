@@ -114,21 +114,30 @@ chrome.storage.onChanged.addListener((changes) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM) runSync("scheduled");
 });
+// A request that comes from an admin page's bridge carries that tab; the popup and the schedule have none.
+function pageContext(sender) {
+  return sender && sender.tab && sender.tab.id != null ? { tabId: sender.tab.id } : null;
+}
+
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (message && message.type === "sync-now") {
     runSync("manual");
     reply({ started: true });
   }
   if (message && message.type === "sync-one") {
-    syncOne(message.item).then(reply, (err) => reply({ ok: false, error: err.message }));
+    syncOne(message.item, pageContext(sender)).then(reply, (err) => reply({ ok: false, error: err.message }));
     return true; // answer asynchronously
   }
   if (message && message.type === "connect") {
     connectFromAdmin(message.item, sender).then(reply, (err) => reply({ ok: false, error: err.message }));
     return true;
   }
+  if (message && message.type === "read-html") {
+    readHtml(message.item && message.item.url).then(reply, (err) => reply({ ok: false, error: err.message }));
+    return true;
+  }
   if (message && message.type === "discover-one") {
-    discoverOne(message.item).then(reply, (err) => reply({ ok: false, error: err.message }));
+    discoverOne(message.item, pageContext(sender)).then(reply, (err) => reply({ ok: false, error: err.message }));
     return true;
   }
 });
@@ -142,7 +151,21 @@ class ApiError extends Error {
   }
 }
 
-async function api(path, { method = "GET", body } = {}) {
+async function api(path, { method = "GET", body } = {}, ctx) {
+  if (ctx && ctx.tabId != null) {
+    // Asked from an admin page: save through that page's own API (see bridge.js "page-api").
+    let answer;
+    try {
+      answer = await chrome.tabs.sendMessage(ctx.tabId, { type: "page-api", path, method, body });
+    } catch (_) {
+      throw new ApiError("The admin page was closed or reloaded — reload it and try again", 0);
+    }
+    if (!answer || !answer.ok) {
+      const detail = answer && answer.data && typeof answer.data.detail === "string" ? answer.data.detail : "";
+      throw new ApiError(detail || `Request failed (${(answer && answer.status) || 0})`, (answer && answer.status) || 0);
+    }
+    return answer.data;
+  }
   const { apiBase, token } = await chrome.storage.local.get(["apiBase", "token"]);
   let response;
   try {
@@ -513,20 +536,65 @@ async function readLoadedPage(tabId) {
   return { page: last };
 }
 
+// ── a page's raw HTML (for the AI fill on shops that block the server) ────────────────────────────
+
+// Reads the page the way a price read does — the first page on a site loads in a tab (that is where a bot check
+// gets passed) and every later one is fetched from inside that tab — but returns the page's HTML instead of a price.
+async function readHtml(url) {
+  if (!url) return { ok: false, error: "No page to read" };
+  const host = hostOf(url);
+  if (!(await hasAccess(url))) {
+    return { ok: false, error: `The extension has no access to ${host} yet — open it and click Allow under Auto-sync` };
+  }
+  return withKeepAlive(async () => {
+    try {
+      let anchor = anchorTab(host);
+      if (anchor == null) {
+        const warm = await readPage(url); // loads the page in a tab, which then becomes the site's anchor
+        if (warm.error) return { ok: false, error: warm.error };
+        anchor = anchorTab(host);
+      }
+      if (anchor == null) return { ok: false, error: "Couldn't open a browser tab on the site" };
+      const [injection] = await chrome.scripting.executeScript({
+        target: { tabId: anchor },
+        args: [url],
+        func: async (pageUrl) => {
+          try {
+            const response = await fetch(pageUrl, { credentials: "include" });
+            const html = await response.text();
+            if (/just a moment|cf-chl|challenge-platform|attention required/i.test(html.slice(0, 3000))) return { challenge: true };
+            if (!response.ok) return { error: `HTTP ${response.status}` };
+            return { html, url: response.url || pageUrl };
+          } catch (err) {
+            return { error: err.message };
+          }
+        },
+      });
+      const result = (injection && injection.result) || {};
+      if (result.challenge) return { ok: false, error: "The site's browser check didn't clear — open the link once in this browser and try again" };
+      if (!result.html) return { ok: false, error: result.error || "The page came back empty" };
+      return { ok: true, html: result.html, page_url: result.url };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+}
+
 // ── one saved link ─────────────────────────────────────────────────────────
 
 const priceSummary = (match) =>
   `৳${Number(match.price).toLocaleString("en-US")}${match.in_stock === false ? " · out of stock" : ""}`;
 
-async function syncItem(item) {
+async function syncItem(item, ctx) {
   const host = hostOf(item.url);
   const domain = (item.competitor_domain || "").replace(/^www\./, "");
   if (domain && host !== domain && !host.endsWith(`.${domain}`)) {
     // Saved under the wrong competitor — say so in AgainERP instead of reading another site.
-    const match = await api("/plugins/price-update/capture/auto", {
-      method: "POST",
-      body: { match_id: item.match_id, error: `the saved link is on ${host}, not ${domain}` },
-    });
+    const match = await api(
+      "/plugins/price-update/capture/auto",
+      { method: "POST", body: { match_id: item.match_id, error: `the saved link is on ${host}, not ${domain}` } },
+      ctx,
+    );
     return { ok: false, match, summary: `Link is on ${host}, not ${item.competitor_label || domain} — fix the link` };
   }
   if (!(await hasAccess(item.url))) {
@@ -550,7 +618,7 @@ async function syncItem(item) {
       stock_label: read.page.stock_label,
     });
   }
-  const match = await api("/plugins/price-update/capture/auto", { method: "POST", body });
+  const match = await api("/plugins/price-update/capture/auto", { method: "POST", body }, ctx);
   const ok = match.status === "matched";
   return { ok, match, summary: ok ? priceSummary(match) : match.status_message || match.status };
 }
@@ -646,10 +714,11 @@ function withKeepAlive(fn) {
 const signInError = (err) =>
   err.status === 401 ? "The extension's AgainERP sign-in expired — open it and sign in again" : err.message;
 
-async function discoverOne(item) {
+async function discoverOne(item, ctx) {
   if (!item || !item.product_id || !item.competitor) return { ok: false, error: "Nothing to look for" };
   const { token, apiBase } = await chrome.storage.local.get(["token", "apiBase"]);
-  if (!token || !apiBase) return { ok: false, error: "Sign in to the Send to AgainERP extension first" };
+  if (!ctx && (!token || !apiBase)) return { ok: false, error: "Sign in to the Send to AgainERP extension first" };
+  const call = (path, options) => api(path, options, ctx);
   const domain = (item.competitor_domain || "").replace(/^www\./, "");
   const label = item.competitor_label || domain;
   if (domain && !(await hasAccess(`https://www.${domain}/`)) && !(await hasAccess(`https://${domain}/`))) {
@@ -660,16 +729,16 @@ async function discoverOne(item) {
     try {
       // 1. Sitemap → candidate pages (AgainERP caches the site's sitemap for a day after this).
       const step = await withCrawlLock(domain || item.competitor, async () => {
-        let s = await api("/plugins/price-update/capture/discover", { method: "POST", body: { ...base, documents: [] } });
+        let s = await call("/plugins/price-update/capture/discover", { method: "POST", body: { ...base, documents: [] } });
         for (let round = 0; s.need && s.need.length && round < 40; round++) {
           const documents = await Promise.all(s.need.map((url) => readSitemapDocument(url)));
-          s = await api("/plugins/price-update/capture/discover", { method: "POST", body: { ...base, documents } });
+          s = await call("/plugins/price-update/capture/discover", { method: "POST", body: { ...base, documents } });
         }
         return s;
       });
       const candidates = step.candidates || [];
       if (!candidates.length) {
-        const done = await api("/plugins/price-update/capture/discover/confirm", { method: "POST", body: { ...base, url: null } });
+        const done = await call("/plugins/price-update/capture/discover/confirm", { method: "POST", body: { ...base, url: null } });
         return { ok: false, match: done.match, error: step.message || `No matching page found on ${label}` };
       }
       // 2. Open the best pages until one passes AgainERP's product check.
@@ -681,7 +750,7 @@ async function discoverOne(item) {
           continue;
         }
         const page = read.page;
-        const result = await api("/plugins/price-update/capture/discover/confirm", {
+        const result = await call("/plugins/price-update/capture/discover/confirm", {
           method: "POST",
           body: {
             ...base,
@@ -699,7 +768,7 @@ async function discoverOne(item) {
         }
         reasons.push(`${page.title || url}: ${result.reason}`);
       }
-      const done = await api("/plugins/price-update/capture/discover/confirm", {
+      const done = await call("/plugins/price-update/capture/discover/confirm", {
         method: "POST",
         body: { ...base, url: null, closest: candidates[0] },
       });
@@ -716,13 +785,14 @@ async function discoverOne(item) {
 }
 
 // Price Compare's ↻ fallback: the server couldn't read this link, so read it here, now.
-async function syncOne(item) {
+async function syncOne(item, ctx) {
   if (!item || !item.match_id || !item.url) return { ok: false, error: "No saved link to read" };
   const { token, apiBase } = await chrome.storage.local.get(["token", "apiBase"]);
-  if (!token || !apiBase) return { ok: false, error: "Sign in to the Send to AgainERP extension first" };
+  // from an admin page the extension needs no sign-in of its own: it saves through that page
+  if (!ctx && (!token || !apiBase)) return { ok: false, error: "Sign in to the Send to AgainERP extension first" };
   return withKeepAlive(async () => {
     try {
-      const result = await syncItem(item);
+      const result = await syncItem(item, ctx);
       return { ok: result.ok, match: result.match || null, error: result.ok ? "" : result.summary };
     } catch (err) {
       return { ok: false, error: signInError(err) };
