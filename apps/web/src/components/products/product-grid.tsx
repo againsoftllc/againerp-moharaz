@@ -56,7 +56,7 @@ import { useGridSourceCompare } from "@/components/products/use-grid-source-comp
 import { FilterTriggerContent } from "@/components/shared/filter-trigger";
 import { useProfileNames } from "@/components/products/use-profile-names";
 import { LinkedRecordEditors, type LinkedTarget } from "@/components/products/linked-record-editors";
-import { CategoryCellEditor } from "@/components/products/category-cell-editor";
+import { CategoryLivePopover } from "@/components/products/category-live-popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FilterSelect } from "@/components/shared/filter-select";
@@ -914,12 +914,9 @@ function ProductCategoryCell({
   product,
   categories,
   onOpen,
-  onEdit,
 }: {
   product: Product;
   categories: Category[];
-  /** live edit is on for the column: a small pencil starts the category tree editor (the chips themselves open the drawers) */
-  onEdit?: () => void;
   /** a chip is clicked: open that category's edit drawer (off while the cell is live-edited) */
   onOpen?: (categoryName: string) => void;
 }) {
@@ -959,20 +956,6 @@ function ProductCategoryCell({
           chip
         );
       })}
-      {onEdit ? (
-        <button
-          type="button"
-          className="ml-auto inline-flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
-          title="Change the categories"
-          aria-label="Change the categories"
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit();
-          }}
-        >
-          <Pencil className="h-3 w-3" />
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -1459,6 +1442,9 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   const [aiSourceSaving, setAiSourceSaving] = useState(false);
   // a category chip / the brand / the specification profile of a row was clicked: that record's own edit drawer opens
   const [linkedTarget, setLinkedTarget] = useState<LinkedTarget | null>(null);
+  // live edit of the categories: a double click on the cell opens the tree under the row
+  const [catPicker, setCatPicker] = useState<{ id: string; rect: DOMRect } | null>(null);
+  const catSaveTimers = useRef(new Map<string, number>());
   // The plain Products list shows the same Source column as Price Compare (company | price, stock dot, re-check, link) for the page on
   // screen; the Price Compare screens pass their own competitor columns and keep them.
   const srcCompare = useGridSourceCompare(!isInventory && !competitorsProp);
@@ -2173,30 +2159,14 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         headerName: "Category",
         width: 140,
         hide: !visibleCols.category,
-        editable: canWrite && resolvedLiveEdit.category,
-        // live edit: the category TREE picker (several categories, search, the picked ones in view) as a popup editor
-        cellEditor: resolvedLiveEdit.category ? CategoryCellEditor : undefined,
-        cellEditorPopup: resolvedLiveEdit.category,
-        cellEditorParams: resolvedLiveEdit.category ? { categories } : undefined,
-        valueSetter: (p) => {
-          const ids = Array.isArray(p.newValue) ? (p.newValue as string[]) : null;
-          if (!ids || !p.data) return false;
-          if (ids.join(",") === (p.data.categoryIds ?? []).join(",")) return false; // nothing changed
-          p.data.categoryIds = ids;
-          p.data.category = categories.find((c) => c.id === ids[0])?.name ?? "Uncategorized";
-          return true;
-        },
+        // live edit: a double click opens the category tree under the row (onCellDoubleClicked below); every tick lands in the row at once
+        editable: false,
         cellRenderer: (p: ICellRendererParams<Product>) =>
           p.data ? (
             <ProductCategoryCell
               product={p.data}
               categories={categories}
               onOpen={canWrite ? (name) => setLinkedTarget({ kind: "category", key: name }) : undefined}
-              onEdit={
-                canWrite && resolvedLiveEdit.category && p.node.rowIndex != null
-                  ? () => p.api.startEditingCell({ rowIndex: p.node.rowIndex as number, colKey: "category" })
-                  : undefined
-              }
             />
           ) : null,
         valueGetter: (p) =>
@@ -2572,6 +2542,31 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         ...(key === "productType" ? { productType: "all" } : {}),
       }));
     }
+  };
+
+  // Category live edit: every tick is applied to the row at once and saved a moment later (several ticks in a row become one save)
+  const applyCategoriesLive = (productId: string, ids: string[]) => {
+    const name = categories.find((c) => c.id === ids[0])?.name ?? "Uncategorized";
+    setRowData((rows) => rows.map((r) => (r.id === productId ? { ...r, categoryIds: ids, category: name } : r)));
+    const timers = catSaveTimers.current;
+    window.clearTimeout(timers.get(productId));
+    timers.set(
+      productId,
+      window.setTimeout(() => {
+        timers.delete(productId);
+        void updateCatalogProduct(productId, { category_ids: ids }).then(
+          (saved) => {
+            const fresh = productListFields(saved);
+            setRowData((rows) => rows.map((r) => (r.id === productId ? { ...r, ...fresh } : r)));
+            toast.success("Categories updated");
+          },
+          (err) => {
+            toast.error(err instanceof Error ? `Categories not saved: ${err.message}` : "Categories not saved");
+            onProductsChanged?.();
+          },
+        );
+      }, 500),
+    );
   };
 
   const resetAllFilters = () => {
@@ -2972,6 +2967,12 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
           }
           onView(e.data);
         },
+        // live edit of the categories: double click on the cell opens the tree just under the row
+        onCellDoubleClicked: (e) => {
+          if (!canWrite || !resolvedLiveEdit.category || !e.data || e.column.getColId() !== "category") return;
+          const cell = (e.event?.target as HTMLElement | null)?.closest(".ag-cell");
+          if (cell) setCatPicker({ id: e.data.id, rect: cell.getBoundingClientRect() });
+        },
         onCellValueChanged,
         onSelectionChanged: (e) => setSelected(e.api.getSelectedRows()),
         // the competitor headers' tick boxes follow the page being shown
@@ -3012,6 +3013,16 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         )
       }
     >
+      {catPicker ? (
+        <CategoryLivePopover
+          anchor={catPicker.rect}
+          categories={categories}
+          values={rowData.find((r) => r.id === catPicker.id)?.categoryIds ?? []}
+          onChange={(ids) => applyCategoriesLive(catPicker.id, ids)}
+          onClose={() => setCatPicker(null)}
+        />
+      ) : null}
+
       <LinkedRecordEditors
         target={linkedTarget}
         categories={categories}
