@@ -68,6 +68,7 @@ from app.routers import (
     seo,
     finance,
     catalog_duplicates,
+    catalog_sitemap_import,
     finance_cheques,
     finance_allocation,
     finance_periods,
@@ -823,6 +824,7 @@ app.include_router(seo.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_cheques.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(catalog_duplicates.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(catalog_sitemap_import.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_allocation.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_periods.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(core_sequences.router, prefix="/api/v1", dependencies=require_admin)
