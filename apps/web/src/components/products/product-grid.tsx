@@ -1289,6 +1289,10 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   const [liveEditSheetOpen, setLiveEditSheetOpen] = useState(false);
   const [printLabelProduct, setPrintLabelProduct] = useState<Product | null>(null);
   const isInventory = preset === "inventory";
+  // The AI column fills a product from its Source link; a product without one (the shop's own migrated products) first asks for it.
+  const [aiSourceTarget, setAiSourceTarget] = useState<Product | null>(null);
+  const [aiSourceUrl, setAiSourceUrl] = useState("");
+  const [aiSourceSaving, setAiSourceSaving] = useState(false);
   // The plain Products list shows the same Source column as Price Compare (company | price, stock dot, re-check, link) for the page on
   // screen; the Price Compare screens pass their own competitor columns and keep them.
   const srcCompare = useGridSourceCompare(!isInventory && !competitorsProp);
@@ -2187,16 +2191,21 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
                 return (
                   <button
                     type="button"
-                    disabled={busy || !canWrite || !url}
+                    disabled={busy || !canWrite}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (!url) {
+                        setAiSourceUrl("");
+                        setAiSourceTarget(product);
+                        return;
+                      }
                       void onAiImport(product);
                     }}
                     className="inline-flex h-6 w-6 items-center justify-center rounded-none border border-violet-500/40 text-violet-600 hover:bg-violet-500/10 disabled:cursor-not-allowed disabled:opacity-40 dark:text-violet-400"
-                    title={url ? "Fill this product from its source URL with AI" : "Add a source URL first"}
+                    title={url ? "Fill this product from its source URL with AI" : "No source link yet - click to add one, then AI fills the product from it"}
                     aria-label="Import this product's details from its source URL with AI"
                   >
-                    {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className={cn("h-3.5 w-3.5", !url && "opacity-60")} />}
                   </button>
                 );
               },
@@ -2644,6 +2653,65 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         )
       }
     >
+      {/* AI column on a product with no Source link: ask for the page, save it, then let the AI fill the product from it */}
+      <Dialog.Root
+        open={!!aiSourceTarget}
+        onOpenChange={(open) => {
+          if (!open && !aiSourceSaving) setAiSourceTarget(null);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(480px,90vw)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-input bg-background p-6 shadow-xl">
+            <Dialog.Title className="text-base font-semibold">Add the source link</Dialog.Title>
+            <Dialog.Description className="mt-2 text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">{aiSourceTarget?.name}</span> has no source link yet. Paste the page of this product
+              on the shop it comes from (for example its Star Tech or Ryans page); the link is saved on the product and AI then fills the product
+              from it.
+            </Dialog.Description>
+            <input
+              autoFocus
+              value={aiSourceUrl}
+              onChange={(e) => setAiSourceUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.preventDefault();
+              }}
+              placeholder="https://www.startech.com.bd/your-product"
+              className="mt-4 h-9 w-full rounded-none border border-input bg-background px-3 text-sm outline-none focus:border-primary"
+              aria-label="Source page link"
+            />
+            {aiSourceUrl.trim() && !/^https?:\/\//i.test(aiSourceUrl.trim()) ? (
+              <p className="mt-1 text-xs text-destructive">The link must start with http:// or https://</p>
+            ) : null}
+            <div className="mt-6 flex justify-end gap-2">
+              <Button variant="outline" size="sm" disabled={aiSourceSaving} onClick={() => setAiSourceTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={aiSourceSaving || !/^https?:\/\//i.test(aiSourceUrl.trim())}
+                onClick={() => {
+                  const target = aiSourceTarget;
+                  const url = aiSourceUrl.trim();
+                  if (!target || !onAiImport) return;
+                  setAiSourceSaving(true);
+                  void updateCatalogProduct(target.id, { source_url: url })
+                    .then(() => {
+                      setRowData((rows) => rows.map((r) => (r.id === target.id ? { ...r, sourceUrl: url } : r)));
+                      setAiSourceTarget(null);
+                      void onAiImport({ ...target, sourceUrl: url });
+                    })
+                    .catch((err) => toast.error(err instanceof Error ? `Source link not saved: ${err.message}` : "Source link not saved"))
+                    .finally(() => setAiSourceSaving(false));
+                }}
+              >
+                {aiSourceSaving ? "Saving…" : "Save link & fill with AI"}
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       {/* Filters sheet — show/hide toolbar filters */}
       <Sheet open={filterSheetOpen} onOpenChange={setFilterSheetOpen}>
         <SheetContent
