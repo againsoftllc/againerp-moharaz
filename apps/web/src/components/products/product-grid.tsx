@@ -1,7 +1,7 @@
 "use client";
 
 import "@/components/providers/ag-grid-provider";
-import { forwardRef, useCallback, useDeferredValue, useEffect, useImperativeHandle, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { forwardRef, useCallback, Fragment, useDeferredValue, useEffect, useImperativeHandle, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { CellValueChangedEvent, ColDef, ColumnState, GridApi, ICellRendererParams, ValueParserParams } from "ag-grid-community";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
@@ -15,7 +15,6 @@ import {
   ClipboardList,
   Trash2,
   X,
-  ChevronDown,
   Search,
   ImageOff,
   RefreshCw,
@@ -28,7 +27,6 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
-import { categoryNamesWithDescendants } from "@/components/categories/category-tree-filter";
 import { CategoryCombobox } from "@/components/categories/category-combobox";
 import {
   archiveCatalogProducts,
@@ -720,6 +718,10 @@ const INVENTORY_DEFAULT_VISIBLE_FILTERS: Record<FilterVisibilityKey, boolean> = 
   brand: true,
   stockStatus: false,
   price: true,
+  source: false,
+  warranty: false,
+  updatedBy: false,
+  productType: false,
 };
 
 const FILTER_VISIBILITY_KEYS = [
@@ -730,6 +732,10 @@ const FILTER_VISIBILITY_KEYS = [
   "brand",
   "stockStatus",
   "price",
+  "source",
+  "warranty",
+  "updatedBy",
+  "productType",
 ] as const;
 type FilterVisibilityKey = (typeof FILTER_VISIBILITY_KEYS)[number];
 
@@ -741,6 +747,10 @@ const FILTER_LABELS: Record<FilterVisibilityKey, string> = {
   brand: "Brand",
   stockStatus: "Stock Status",
   price: "Price range",
+  source: "Source",
+  warranty: "Warranty",
+  updatedBy: "Updated by",
+  productType: "Product type",
 };
 
 const DEFAULT_VISIBLE_FILTERS: Record<FilterVisibilityKey, boolean> = {
@@ -751,6 +761,10 @@ const DEFAULT_VISIBLE_FILTERS: Record<FilterVisibilityKey, boolean> = {
   brand: true,
   stockStatus: true,
   price: false,
+  source: true,
+  warranty: false,
+  updatedBy: false,
+  productType: false,
 };
 
 /* Live-edit parsers. AG Grid hands a typed cell back as a *string*, which used to reach the API client as a string
@@ -1139,6 +1153,12 @@ type FilterState = {
   stockStatus: string;
   priceMin: string;
   priceMax: string;
+  /** the source company (e.g. Startech), or "all" */
+  source: string;
+  /** a warranty value, "__none__" (no warranty set) or "all" */
+  warranty: string;
+  updatedBy: string;
+  productType: string;
 };
 
 const DEFAULT_FILTERS: FilterState = {
@@ -1150,6 +1170,10 @@ const DEFAULT_FILTERS: FilterState = {
   stockStatus: "all",
   priceMin: "",
   priceMax: "",
+  source: "all",
+  warranty: "all",
+  updatedBy: "all",
+  productType: "all",
 };
 
 function countAdvancedFilters(f: FilterState) {
@@ -1159,6 +1183,10 @@ function countAdvancedFilters(f: FilterState) {
   if (f.stockStatus !== "all") n++;
   if (f.priceMin) n++;
   if (f.priceMax) n++;
+  if (f.source !== "all") n++;
+  if (f.warranty !== "all") n++;
+  if (f.updatedBy !== "all") n++;
+  if (f.productType !== "all") n++;
   return n;
 }
 
@@ -1218,6 +1246,13 @@ function applyFilters(rows: Product[], f: FilterState, categories: Category[]) {
     }
     if (f.brand !== "all" && p.brand !== f.brand) return false;
     if (f.stockStatus !== "all" && p.stockStatus !== f.stockStatus) return false;
+    if (f.source !== "all" && sourceCompanyName(p.sourceUrl) !== f.source) return false;
+    if (f.warranty !== "all") {
+      const w = p.warranty?.trim() ?? "";
+      if (f.warranty === "__none__" ? w !== "" : w !== f.warranty) return false;
+    }
+    if (f.updatedBy !== "all" && (p.updatedBy ?? "") !== f.updatedBy) return false;
+    if (f.productType !== "all" && (p.productType ?? "simple") !== f.productType) return false;
     if (min !== null && p.price < min) return false;
     if (max !== null && p.price > max) return false;
     return true;
@@ -1399,6 +1434,11 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   const resolvedVisibleFilters = useMemo(
     () => ({ ...DEFAULT_VISIBLE_FILTERS, ...visibleFilters }),
     [visibleFilters],
+  );
+  // the order of the filters in the toolbar (set by dragging in the Filters drawer); empty = the default order
+  const [filterOrder, setFilterOrder] = useUserScopedState<string[]>(
+    isInventory ? "inventory-catalog-grid:filter-order" : "product-grid:filter-order",
+    [],
   );
   const [liveEdit, setLiveEdit] = useUserScopedState(
     "product-grid:live-edit",
@@ -2426,6 +2466,10 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         ...(key === "brand" ? { brand: "all" } : {}),
         ...(key === "stockStatus" ? { stockStatus: "all" } : {}),
         ...(key === "price" ? { priceMin: "", priceMax: "" } : {}),
+        ...(key === "source" ? { source: "all" } : {}),
+        ...(key === "warranty" ? { warranty: "all" } : {}),
+        ...(key === "updatedBy" ? { updatedBy: "all" } : {}),
+        ...(key === "productType" ? { productType: "all" } : {}),
       }));
     }
   };
@@ -2433,7 +2477,184 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   const resetAllFilters = () => {
     setFilters(DEFAULT_FILTERS);
     setVisibleFilters(DEFAULT_VISIBLE_FILTERS);
+    setFilterOrder([]);
   };
+
+  // The filter row, in the order set in the Filters drawer (drag a filter there to move it, like a column in the Columns drawer).
+  const filterOrderKeys = useMemo<FilterVisibilityKey[]>(() => {
+    const known = new Set<string>(FILTER_VISIBILITY_KEYS);
+    const saved = (filterOrder ?? []).filter((k): k is FilterVisibilityKey => known.has(k));
+    return [...saved, ...FILTER_VISIBILITY_KEYS.filter((k) => !saved.includes(k))];
+  }, [filterOrder]);
+  const dragFilterKeyRef = useRef<FilterVisibilityKey | null>(null);
+  const reorderFilterPanel = (from: FilterVisibilityKey, to: FilterVisibilityKey) => {
+    if (from === to) return;
+    const next = filterOrderKeys.filter((k) => k !== from);
+    const idx = next.indexOf(to);
+    next.splice(idx === -1 ? next.length : idx, 0, from);
+    setFilterOrder(next);
+  };
+  // the values the Source / Warranty / Updated by filters offer: what the rows actually have
+  const filterValueOptions = useMemo(() => {
+    const sources = new Set<string>();
+    const warranties = new Set<string>();
+    const updaters = new Set<string>();
+    for (const p of rowData) {
+      const company = sourceCompanyName(p.sourceUrl);
+      if (company) sources.add(company);
+      const w = p.warranty?.trim();
+      if (w) warranties.add(w);
+      if (p.updatedBy) updaters.add(p.updatedBy);
+    }
+    const sorted = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b));
+    return { sources: sorted(sources), warranties: sorted(warranties), updaters: sorted(updaters) };
+  }, [rowData]);
+  const renderFilter = (key: FilterVisibilityKey): ReactNode => {
+    switch (key) {
+      case "website":
+        return (
+          <FilterSelect
+            value={filters.website}
+            onChange={(website) => setFilters((f) => ({ ...f, website }))}
+            width="w-[152px]"
+            className="shrink-0"
+            ariaLabel="Website visibility"
+            options={[
+              { value: "all", label: "All products" },
+              { value: "on", label: "On website" },
+              { value: "off", label: "Not on website" },
+            ]}
+          />
+        );
+      case "search":
+        return (
+          <Input
+            placeholder="Search SKU, name…"
+            value={filters.search}
+            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+            className="w-[220px] shrink-0 rounded-none"
+          />
+        );
+      case "status":
+        return (
+          <FilterSelect
+            value={filters.status}
+            onChange={(status) => setFilters((f) => ({ ...f, status }))}
+            width="w-[128px]"
+            className="shrink-0"
+            ariaLabel="Status"
+            options={[
+              { value: "all", label: "All statuses" },
+              { value: "published", label: "Published" },
+              { value: "draft", label: "Draft" },
+              { value: "archived", label: "Archived" },
+            ]}
+          />
+        );
+      case "category":
+        return (
+          <div className="shrink-0">
+            <CategoryFilterDropdown
+              value={filters.category}
+              onChange={(category) => setFilters((f) => ({ ...f, category }))}
+              categories={filterCategories}
+            />
+          </div>
+        );
+      case "brand":
+        return (
+          <div className="shrink-0">
+            <BrandFilterDropdown value={filters.brand} onChange={(brand) => setFilters((f) => ({ ...f, brand }))} brands={brands} />
+          </div>
+        );
+      case "stockStatus":
+        return (
+          <FilterSelect
+            value={filters.stockStatus}
+            onChange={(stockStatus) => setFilters((f) => ({ ...f, stockStatus }))}
+            width="w-[148px]"
+            className="shrink-0"
+            ariaLabel="Stock status"
+            options={[
+              { value: "all", label: "All stock statuses" },
+              ...STOCK_STATUSES.map((status) => ({ value: status, label: status })),
+            ]}
+          />
+        );
+      case "price":
+        return (
+          <div className="shrink-0">
+            <PriceRangeFilter
+              valueMin={filters.priceMin}
+              valueMax={filters.priceMax}
+              priceCeiling={priceCeiling}
+              onChange={(priceMin, priceMax) => setFilters((f) => ({ ...f, priceMin, priceMax }))}
+              className="rounded-none"
+            />
+          </div>
+        );
+      case "source":
+        return (
+          <FilterSelect
+            value={filters.source}
+            onChange={(source) => setFilters((f) => ({ ...f, source }))}
+            width="w-[132px]"
+            className="shrink-0"
+            ariaLabel="Source company"
+            searchPlaceholder="Search source…"
+            options={[{ value: "all", label: "All sources" }, ...filterValueOptions.sources.map((s) => ({ value: s, label: s }))]}
+          />
+        );
+      case "warranty":
+        return (
+          <FilterSelect
+            value={filters.warranty}
+            onChange={(warranty) => setFilters((f) => ({ ...f, warranty }))}
+            width="w-[132px]"
+            className="shrink-0"
+            ariaLabel="Warranty"
+            searchPlaceholder="Search warranty…"
+            options={[
+              { value: "all", label: "All warranties" },
+              { value: "__none__", label: "No warranty set" },
+              ...filterValueOptions.warranties.map((w) => ({ value: w, label: w })),
+            ]}
+          />
+        );
+      case "updatedBy":
+        return (
+          <FilterSelect
+            value={filters.updatedBy}
+            onChange={(updatedBy) => setFilters((f) => ({ ...f, updatedBy }))}
+            width="w-[132px]"
+            className="shrink-0"
+            ariaLabel="Updated by"
+            searchPlaceholder="Search user…"
+            options={[{ value: "all", label: "Updated by: all" }, ...filterValueOptions.updaters.map((u) => ({ value: u, label: u }))]}
+          />
+        );
+      case "productType":
+        return (
+          <FilterSelect
+            value={filters.productType}
+            onChange={(productType) => setFilters((f) => ({ ...f, productType }))}
+            width="w-[132px]"
+            className="shrink-0"
+            ariaLabel="Product type"
+            options={[
+              { value: "all", label: "All product types" },
+              { value: "simple", label: "Simple" },
+              { value: "variable", label: "Variable" },
+              { value: "digital", label: "Digital" },
+              { value: "combo", label: "Combo" },
+            ]}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
 
   return (
     <AgainListGrid<Product>
@@ -2458,87 +2679,11 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       }}
       filterBar={
         <>
-          {resolvedVisibleFilters.search && (
-            <Input
-              placeholder="Search SKU, name…"
-              value={filters.search}
-              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-              className="w-[220px] shrink-0 rounded-none"
-            />
-          )}
-          {resolvedVisibleFilters.website && (
-            <FilterSelect
-              value={filters.website}
-              onChange={(website) => setFilters((f) => ({ ...f, website }))}
-              width="w-[152px]"
-              className="shrink-0"
-              ariaLabel="Website visibility"
-              options={[
-                { value: "all", label: "All products" },
-                { value: "on", label: "On website" },
-                { value: "off", label: "Not on website" },
-              ]}
-            />
-          )}
-          {resolvedVisibleFilters.status && (
-            <FilterSelect
-              value={filters.status}
-              onChange={(status) => setFilters((f) => ({ ...f, status }))}
-              width="w-[128px]"
-              className="shrink-0"
-              ariaLabel="Status"
-              options={[
-                { value: "all", label: "All statuses" },
-                { value: "published", label: "Published" },
-                { value: "draft", label: "Draft" },
-                { value: "archived", label: "Archived" },
-              ]}
-            />
-          )}
-          {resolvedVisibleFilters.category && (
-            <div className="shrink-0">
-              <CategoryFilterDropdown
-                value={filters.category}
-                onChange={(category) => setFilters((f) => ({ ...f, category }))}
-                categories={filterCategories}
-              />
-            </div>
-          )}
-          {resolvedVisibleFilters.brand && (
-            <div className="shrink-0">
-              <BrandFilterDropdown
-                value={filters.brand}
-                onChange={(brand) => setFilters((f) => ({ ...f, brand }))}
-                brands={brands}
-              />
-            </div>
-          )}
-          {resolvedVisibleFilters.stockStatus && (
-            <FilterSelect
-              value={filters.stockStatus}
-              onChange={(stockStatus) => setFilters((f) => ({ ...f, stockStatus }))}
-              width="w-[148px]"
-              className="shrink-0"
-              ariaLabel="Stock status"
-              options={[
-                { value: "all", label: "All stock statuses" },
-                ...STOCK_STATUSES.map((status) => ({ value: status, label: status })),
-              ]}
-            />
-          )}
-          {resolvedVisibleFilters.price && (
-            <div className="shrink-0">
-              <PriceRangeFilter
-                valueMin={filters.priceMin}
-                valueMax={filters.priceMax}
-                priceCeiling={priceCeiling}
-                onChange={(priceMin, priceMax) =>
-                  setFilters((f) => ({ ...f, priceMin, priceMax }))
-                }
-                className="rounded-none"
-              />
-            </div>
-          )}
+          {filterOrderKeys
+            .filter((k) => resolvedVisibleFilters[k])
+            .map((k) => (
+              <Fragment key={k}>{renderFilter(k)}</Fragment>
+            ))}
         </>
       }
       banner={
@@ -2836,12 +2981,28 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
           className="w-[180px] min-w-[160px] max-w-[720px] gap-2 rounded-none p-3"
         >
           <h2 className="border-b border-border pb-2 pr-8 text-sm font-semibold">Filters</h2>
+          <p className="mt-1 text-[11px] text-muted-foreground">Drag to reorder</p>
           <div className="mt-1 flex-1 space-y-1.5 overflow-y-auto">
-            {FILTER_VISIBILITY_KEYS.map((key) => (
+            {filterOrderKeys.map((key) => (
               <label
                 key={key}
-                className="flex cursor-pointer items-center gap-2 text-xs text-foreground"
+                draggable
+                onDragStart={() => {
+                  dragFilterKeyRef.current = key;
+                }}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const from = dragFilterKeyRef.current;
+                  dragFilterKeyRef.current = null;
+                  if (from) reorderFilterPanel(from, key);
+                }}
+                onDragEnd={() => {
+                  dragFilterKeyRef.current = null;
+                }}
+                className="flex cursor-grab items-center gap-2 text-xs text-foreground active:cursor-grabbing"
               >
+                <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
                 <input
                   type="checkbox"
                   checked={resolvedVisibleFilters[key]}
