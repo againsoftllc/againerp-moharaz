@@ -246,6 +246,7 @@ export function apiProductToProduct(row: ApiCatalogProduct): Product {
     slug: row.slug,
     sku: row.sku,
     sourceUrl: row.source_url ?? null,
+    attributeProfileId: row.attribute_profile_id ?? null,
     model: row.model ?? null,
     remarks: row.remarks ?? null,
     price,

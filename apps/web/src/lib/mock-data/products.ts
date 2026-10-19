@@ -16,6 +16,8 @@ export type Product = {
   sku: string;
   /** where the product was copied from (a competitor page); Product Draft's AI column reads it */
   sourceUrl?: string | null;
+  /** The product's specification profile (the list shows its name) */
+  attributeProfileId?: string | null;
   model?: string;
   /** Internal staff note about the product — not shown on the storefront. */
   remarks?: string | null;

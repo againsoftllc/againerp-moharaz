@@ -53,6 +53,7 @@ import { RowActionsTrigger } from "@/components/shared/row-actions-icon";
 import { GridFullscreenHeader } from "@/components/shared/grid-fullscreen";
 import { AgainListGrid } from "@/components/shared/again-list-grid";
 import { useGridSourceCompare } from "@/components/products/use-grid-source-compare";
+import { useProfileNames } from "@/components/products/use-profile-names";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FilterSelect } from "@/components/shared/filter-select";
@@ -599,8 +600,14 @@ const COLUMN_KEYS = [
   "unitType",
   "productType",
   "updatedAt",
+  "profile",
+  "origin",
+  "source",
+  "aiImport",
 ] as const;
 type ColumnKey = (typeof COLUMN_KEYS)[number];
+/** The Columns list of the website lists: Alert quantity and Unit type are Inventory columns, not offered here. */
+const WEBSITE_COLUMN_KEYS: ColumnKey[] = COLUMN_KEYS.filter((k) => k !== "alertQuantity" && k !== "unitType");
 
 const COLUMN_LABELS: Record<ColumnKey, string> = {
   thumbnail: "Image",
@@ -624,6 +631,10 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
   unitType: "Unit type",
   productType: "Product type",
   updatedAt: "Updated",
+  profile: "Specification profile",
+  origin: "Origin",
+  source: "Source",
+  aiImport: "AI",
 };
 
 const DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
@@ -648,6 +659,10 @@ const DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
   unitType: false,
   productType: false,
   updatedAt: true,
+  profile: true,
+  origin: true,
+  source: true,
+  aiImport: true,
 };
 
 const INVENTORY_COLUMN_KEYS: ColumnKey[] = [
@@ -688,6 +703,10 @@ const INVENTORY_DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
   unitType: true,
   productType: true,
   updatedAt: false,
+  profile: false,
+  origin: false,
+  source: false,
+  aiImport: false,
 };
 
 const INVENTORY_DEFAULT_VISIBLE_FILTERS: Record<FilterVisibilityKey, boolean> = {
@@ -1300,6 +1319,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   // The plain Products list shows the same Source column as Price Compare (company | price, stock dot, re-check, link) for the page on
   // screen; the Price Compare screens pass their own competitor columns and keep them.
   const srcCompare = useGridSourceCompare(!isInventory && !competitorsProp);
+  const profileNames = useProfileNames(!isInventory); // Specification profile column (read-only)
   const competitors = competitorsProp ?? srcCompare.competitors;
   const competitorMatches = competitorMatchesProp ?? (competitorsProp ? undefined : srcCompare.matches);
   const onSyncCompetitor = onSyncCompetitorProp ?? (competitorsProp ? undefined : srcCompare.onSync);
@@ -1403,7 +1423,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
   // and dragging a row there reorders the real grid columns the same way
   // dragging a header would — both go through the same savedColumnState.
   const toggleKeys = useMemo<readonly ColumnKey[]>(
-    () => (isInventory ? INVENTORY_COLUMN_KEYS : COLUMN_KEYS),
+    () => (isInventory ? INVENTORY_COLUMN_KEYS : WEBSITE_COLUMN_KEYS),
     [isInventory],
   );
   const computeToggleOrder = useCallback((): ColumnKey[] => {
@@ -2016,6 +2036,18 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
             : "product-grid-category-col",
       },
       {
+        // The product's specification profile - its name only; changed in the product editor, never live here.
+        colId: "profile",
+        headerName: "Specification profile",
+        width: 160,
+        minWidth: 110,
+        hide: visibleCols.profile === false || isInventory,
+        editable: false,
+        valueGetter: (p) => (p.data?.attributeProfileId ? (profileNames[p.data.attributeProfileId] ?? "") : ""),
+        cellRenderer: (p: ICellRendererParams<Product>) =>
+          p.value ? <span className="truncate">{String(p.value)}</span> : <span className="text-muted-foreground">—</span>,
+      },
+      {
         field: "brand",
         headerName: "Brand",
         width: 100,
@@ -2038,9 +2070,19 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         valueFormatter: (p) => (p.value ? String(p.value) : "—"),
       },
       {
+        field: "origin",
+        headerName: "Origin",
+        width: 110,
+        minWidth: 80,
+        hide: visibleCols.origin === false || isInventory,
+        editable: false,
+        valueGetter: (p) => p.data?.origin?.trim() || "",
+        valueFormatter: (p) => (p.value ? String(p.value) : "—"),
+      },
+      {
         field: "alertQuantity",
         headerName: "Alert quantity",
-        hide: !visibleCols.alertQuantity,
+        hide: !isInventory || !visibleCols.alertQuantity,
         editable: canWrite && resolvedLiveEdit.alertQuantity,
         cellClass: canWrite && resolvedLiveEdit.alertQuantity ? "live-edit-cell" : undefined,
         valueParser: numberParser({ label: "Alert quantity", integer: true }),
@@ -2052,7 +2094,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       {
         field: "unitType",
         headerName: "Unit type",
-        hide: !visibleCols.unitType,
+        hide: !isInventory || !visibleCols.unitType,
         width: 100,
         minWidth: 80,
         valueGetter: (p) => p.data?.unitType ?? "",
@@ -2110,7 +2152,8 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       },
       ...(competitorMatches && competitors
         ? competitors.map(({ key, label }) => ({
-            colId: `competitor-${key}`,
+            colId: key === "source" ? "source" : `competitor-${key}`,
+            hide: key === "source" && visibleCols.source === false,
             headerName: label,
             // Centre the tick box and price vertically in the row.
             cellStyle: { display: "flex", alignItems: "center" },
@@ -2179,7 +2222,8 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       ...(onAiImport
         ? [
             {
-              colId: "ai-import",
+              colId: "aiImport",
+              hide: visibleCols.aiImport === false,
               headerName: "AI",
               headerClass: "product-grid-center-col",
               headerTooltip: "Fill this product from its source URL with AI",
@@ -2219,7 +2263,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
           ]
         : []),
     ],
-    [onView, onEdit, nameClickAction, disableView, visibleCols, resolvedLiveEdit, ProductControlsCell, ProductRowMenu, brands, canWrite, categories, categoryNames, toggleManageStock, isInventory, companyFormat, competitors, competitorMatches, onSyncCompetitor, competitorSyncingKeys, onSetManualUrl, savedColumnNameWidth, pickedCells, onToggleCellPick, onSetCellPicks, onAiImport, aiImportingIds],
+    [onView, onEdit, nameClickAction, disableView, visibleCols, resolvedLiveEdit, ProductControlsCell, ProductRowMenu, brands, canWrite, categories, categoryNames, toggleManageStock, isInventory, companyFormat, competitors, competitorMatches, onSyncCompetitor, competitorSyncingKeys, onSetManualUrl, savedColumnNameWidth, pickedCells, onToggleCellPick, onSetCellPicks, onAiImport, aiImportingIds, profileNames],
   );
 
   const onCellValueChanged = useCallback(
