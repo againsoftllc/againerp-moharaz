@@ -53,6 +53,19 @@ const DEFAULT_COL_DEF: ColDef = {
 
 type RowWithId = { id?: string };
 
+/** Every list's columns resize freely: a column can be dragged down to the grid's 48px floor and up to any width. A page's own `minWidth`
+ *  (80-190px was common) and `maxWidth` caps are only starting hints, not limits; a column fixed on purpose (min = max: the tick box,
+ *  the star, an icon column) keeps its size. */
+const COLUMN_MIN_WIDTH = 48;
+function relaxWidthLimits<T>(def: ColDef<T>): ColDef<T> {
+  const { minWidth, maxWidth } = def;
+  if (minWidth !== undefined && maxWidth !== undefined && minWidth === maxWidth) return def; // fixed on purpose
+  if ((minWidth === undefined || minWidth <= COLUMN_MIN_WIDTH) && maxWidth === undefined) return def;
+  const { maxWidth: _drop, ...rest } = def;
+  void _drop;
+  return { ...rest, minWidth: Math.min(minWidth ?? COLUMN_MIN_WIDTH, COLUMN_MIN_WIDTH) } as ColDef<T>;
+}
+
 export type AgainListServerPaging = {
   total: number;
   page: number;
@@ -359,7 +372,8 @@ export function AgainListGrid<T extends RowWithId = RowWithId>({
   }, [layoutEnabled, savedLayout, layoutWidths]);
   const resolvedColumnDefs = useMemo(() => {
     const patched = patchFullscreenHeader(columnDefs, fullscreen, toggleFullscreen);
-    return patched.map((raw) => {
+    return patched.map((rawDef) => {
+      const raw = relaxWidthLimits(rawDef as ColDef<T>);
       // the header "select all" checkbox ticks the rows of the page on screen, not every page of the list
       const col = (raw as ColDef<T>).headerCheckboxSelection && (raw as ColDef<T>).headerCheckboxSelectionCurrentPageOnly === undefined
         ? ({ ...raw, headerCheckboxSelectionCurrentPageOnly: true } as ColDef<T>)

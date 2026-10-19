@@ -32,6 +32,17 @@ Page files pass columns, rows, `filterBar`, `headerLeftActions`, sheets as child
 
 **Zoom covers the whole list, not just the rows** (2026-10-18): the footer zoom control (85 - 140 %) scales the grid's cells, headers AND the filter row above it (search box, selects, buttons, `New`). The shell does it once - `AgainListGrid` gives the filter bar the same scale (`style={{ zoom: scale }}`) - so every list that uses `AgainListGrid` behaves the same; a grid file must not size its own filter row in a way that ignores zoom (no fixed pixel heights set from outside the shell, no second zoom state). Menus that open from the filter row are portalled out of the zoomed row, so they follow the zoom through `--list-zoom` (published by `useGridZoom`): mark such a menu with `data-list-filter-menu` (`FilterSelect`, `CategoryTreeFilter` and `CategoryCombobox listFilter` already do) and `globals.css` gives its search box, rows and messages **one font size** (10px x zoom) - the same as the filter row. A new filter control must use those components or set the attribute; no `text-xs` / `text-sm` of its own.
 
+### Behaviours every list shares (all come from `AgainListGrid` - a grid file does not re-implement them)
+
+| Behaviour | How |
+| --- | --- |
+| **Columns resize freely** (2026-10-18) | Any column can be dragged down to **48px** and up to any width. A page's own `minWidth` (80-190px was common) and `maxWidth` are only starting hints - the shell relaxes them (`relaxWidthLimits`). A column fixed on purpose (`minWidth === maxWidth`: tick box, star, icon) keeps its size. Saved widths still win. |
+| **Zoom covers the filter row** | rows, headers and the filter row scale together (see above) |
+| **Filter menus follow zoom, one font size** | `data-list-filter-menu` (see above) |
+| **Header tick box = this page only** | a colDef with `headerCheckboxSelection` gets `headerCheckboxSelectionCurrentPageOnly` unless the page sets it; "select all" never ticks rows of other pages |
+| **Heavy client-side filters stay responsive** | a page that filters thousands of rows in the browser prepares what it needs **once** (sets / maps built before the row loop, never inside it) and feeds the filter state through `useDeferredValue`, so ticking a filter never waits for the list (Products: category filter, 36k rows) |
+| **A header that depends on the page** | a custom header (Price Compare's site tick boxes) refreshes on `onPaginationChanged` (`api.refreshHeader()`) |
+
 ---
 
 ## How to update all datatables together
