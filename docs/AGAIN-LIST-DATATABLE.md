@@ -30,6 +30,8 @@ Living UI rules: `docs/ERP-UI-COMMON.md`. This file is the **inventory** of whic
 
 Page files pass columns, rows, `filterBar`, `headerLeftActions`, sheets as children. Do **not** fork chrome (`ag-theme-again-list`, zoom, pager) in a grid file.
 
+**Zoom covers the whole list, not just the rows** (2026-10-18): the footer zoom control (85 - 140 %) scales the grid's cells, headers AND the filter row above it (search box, selects, buttons, `New`). The shell does it once - `AgainListGrid` gives the filter bar the same scale (`style={{ zoom: scale }}`) - so every list that uses `AgainListGrid` behaves the same; a grid file must not size its own filter row in a way that ignores zoom (no fixed pixel heights set from outside the shell, no second zoom state). Menus that open from the filter row are portalled and keep their normal size.
+
 ---
 
 ## How to update all datatables together

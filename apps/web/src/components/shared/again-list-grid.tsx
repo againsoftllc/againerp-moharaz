@@ -266,7 +266,7 @@ export function AgainListGrid<T extends RowWithId = RowWithId>({
   const isDark = useIsDark();
   const companyFormat = useCompanyFormatStore((s) => s.format);
   const { fullscreen, toggleFullscreen, fullscreenClassName } = useGridFullscreen();
-  const { zoom, setZoom, zoomStyle, rowHeight, headerHeight } = useGridZoom();
+  const { zoom, setZoom, scale, zoomStyle, rowHeight, headerHeight } = useGridZoom();
   const innerApiRef = useRef<GridApi<T> | null>(null);
   const gridContainerRef = useRef<HTMLDivElement>(null);
   const [gridReady, setGridReady] = useState(false);
@@ -596,6 +596,8 @@ export function AgainListGrid<T extends RowWithId = RowWithId>({
             "product-grid-filters flex min-w-0 shrink-0 items-center gap-1.5 border-b border-border py-1 pl-2 pr-0",
             fullscreen && "hidden",
           )}
+          // the filter row follows the grid's zoom (its search box, selects and buttons grow / shrink with the rows)
+          style={scale === 1 ? undefined : { zoom: scale }}
         >
           {headerLeftActions ? (
             <div className="flex shrink-0 items-center gap-2 border-r border-border bg-background pr-2">
