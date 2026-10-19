@@ -2163,7 +2163,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
             <ProductCategoryCell
               product={p.data}
               categories={categories}
-              onOpen={canWrite && !resolvedLiveEdit.category ? (name) => setLinkedTarget({ kind: "category", key: name }) : undefined}
+              onOpen={canWrite ? (name) => setLinkedTarget({ kind: "category", key: name }) : undefined}
             />
           ) : null,
         valueGetter: (p) =>
@@ -2213,7 +2213,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         cellRenderer: (p: ICellRendererParams<Product>) => {
           const brand = p.data?.brand;
           if (!brand || brand === "Unknown") return <span className="text-muted-foreground">{brand || "—"}</span>;
-          if (!canWrite || resolvedLiveEdit.brand) return <span className="truncate">{brand}</span>;
+          if (!canWrite) return <span className="truncate">{brand}</span>;
           return (
             <button
               type="button"
