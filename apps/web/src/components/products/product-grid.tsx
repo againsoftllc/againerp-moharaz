@@ -929,7 +929,6 @@ function ProductCategoryCell({
   return (
     <div className="flex h-full flex-nowrap items-center gap-0.5 overflow-hidden">
       {names.map((name) => {
-        const { label } = getProductCategoryDisplay(name, categories);
         const chip = (
           <Badge
             key={name}
@@ -937,7 +936,7 @@ function ProductCategoryCell({
             className={cn("max-w-[7rem] shrink-0 truncate", onOpen && "cursor-pointer hover:bg-muted/70")}
             title={onOpen ? `${getCategoryBreadcrumbTitle(name, categories)} - click to edit this category` : getCategoryBreadcrumbTitle(name, categories)}
           >
-            {label}
+            {name}
           </Badge>
         );
         return onOpen ? (
