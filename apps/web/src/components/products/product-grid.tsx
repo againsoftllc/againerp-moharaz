@@ -56,6 +56,8 @@ import { useGridSourceCompare } from "@/components/products/use-grid-source-comp
 import { FilterTriggerContent } from "@/components/shared/filter-trigger";
 import { useProfileNames } from "@/components/products/use-profile-names";
 import { LinkedRecordEditors, type LinkedTarget } from "@/components/products/linked-record-editors";
+import { gridToTable } from "@/lib/list-io/grid-table";
+import type { TableData } from "@/lib/list-io/spreadsheet";
 import { CategoryLivePopover } from "@/components/products/category-live-popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1369,6 +1371,8 @@ export type ProductGridHandle = {
   archive: (product: Product) => void;
   /** Ids of the rows currently shown — after the search box and filters — in display order. */
   getShownProductIds: () => string[];
+  /** The visible columns x every shown row, as a table for the Excel / PDF export (Import / Export menu). */
+  getExportTable: (opts?: { numbersAsText?: boolean }) => TableData;
 };
 
 export const ProductGrid = forwardRef<ProductGridHandle, Props>(function ProductGrid({
@@ -1748,6 +1752,10 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       openColumns: () => setColumnSheetOpen(true),
       duplicate: (product: Product) => void duplicateProduct(product),
       archive: (product: Product) => openArchiveConfirm([product]),
+      getExportTable: (opts) => {
+        const api = gridApiRef.current;
+        return api ? gridToTable<Product>(api, opts) : { headers: [], rows: [] };
+      },
       getShownProductIds: () => {
         const api = gridApiRef.current;
         if (!api) return filtered.map((p) => p.id);
@@ -2327,6 +2335,8 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       ...(competitorMatches && competitors
         ? competitors.map(({ key, label }) => ({
             colId: key === "source" ? "source" : `competitor-${key}`,
+            // the export (and sorting) of the Source column is the company name
+            valueGetter: key === "source" ? (p: { data?: Product }) => (p.data ? sourceCompanyName(p.data.sourceUrl, competitors) : "") : undefined,
             hide: key === "source" && visibleCols.source === false,
             headerName: label,
             // Centre the tick box and price vertically in the row.
