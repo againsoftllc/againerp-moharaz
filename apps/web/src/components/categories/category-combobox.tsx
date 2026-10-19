@@ -19,6 +19,12 @@ type SingleProps = {
   onList?: () => void;
   placeholder?: string;
   className?: string;
+  /** Open the list as soon as it mounts (a grid cell editor). */
+  autoOpen?: boolean;
+  /** The list is part of the layout under the button instead of a floating menu (inside a popup that must not lose focus). */
+  inline?: boolean;
+  /** Show the picked categories as chips under the button (multi select; default on). */
+  chips?: boolean;
 };
 
 type MultiProps = {
@@ -29,6 +35,9 @@ type MultiProps = {
   onList?: () => void;
   placeholder?: string;
   className?: string;
+  autoOpen?: boolean;
+  inline?: boolean;
+  chips?: boolean;
 };
 
 type Props = SingleProps | MultiProps;
@@ -50,9 +59,12 @@ export function CategoryCombobox(props: Props) {
     placeholder = "Select category",
     className,
     multiple = false,
+    autoOpen = false,
+    inline = false,
+    chips = true,
   } = props;
 
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0, fixed: true });
@@ -62,6 +74,7 @@ export function CategoryCombobox(props: Props) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   // Modal dialogs disable pointer events on <body>, so the menu has to live
   // inside the dialog rather than being portalled next to it.
   const hostRef = useRef<HTMLElement | null>(null);
@@ -124,7 +137,7 @@ export function CategoryCombobox(props: Props) {
 
   const place = useCallback(() => {
     const trigger = triggerRef.current;
-    if (!trigger) return;
+    if (!trigger || inline) return;
 
     const host = hostRef.current;
     const rect = trigger.getBoundingClientRect();
@@ -158,7 +171,7 @@ export function CategoryCombobox(props: Props) {
           }
         : { top, left, width, fixed: true },
     );
-  }, []);
+  }, [inline]);
 
   useEffect(() => {
     if (!open) {
@@ -172,6 +185,7 @@ export function CategoryCombobox(props: Props) {
       ) as HTMLElement | null) ?? null;
     hostRef.current = host;
     setPortalTarget(host ?? document.body);
+    if (inline) setPlaced(true);
     place();
     setTimeout(() => inputRef.current?.focus(), 50);
     // Expand ancestors of selected + top-level parents that have children
@@ -201,6 +215,18 @@ export function CategoryCombobox(props: Props) {
     });
     return () => cancelAnimationFrame(frame);
   }, [open, place, rows.length]);
+
+  // Opening the list shows what is already selected: scroll the first selected row into the middle of the list.
+  useEffect(() => {
+    if (!open || !placed || search) return;
+    const frame = requestAnimationFrame(() => {
+      const list = listRef.current;
+      const row = list?.querySelector<HTMLElement>('[data-selected="true"]');
+      if (list && row) list.scrollTop = Math.max(0, row.offsetTop - list.clientHeight / 2 + row.offsetHeight / 2);
+    });
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- when the list opens / is placed (the selection itself may change while it is open)
+  }, [open, placed]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -303,7 +329,7 @@ export function CategoryCombobox(props: Props) {
         </div>
       </button>
 
-      {multiple && selected.length > 0 ? (
+      {multiple && chips && selected.length > 0 ? (
         <div className="mt-0.5 flex flex-wrap gap-0.5">
           {selected.map((cat) => (
             <span
@@ -324,7 +350,76 @@ export function CategoryCombobox(props: Props) {
         </div>
       ) : null}
 
-      {open && portalTarget
+      {open && inline ? (
+        <div ref={menuRef} className="mt-1 rounded-none border border-border bg-popover text-popover-foreground shadow-sm">
+          <div className="flex items-center border-b border-border px-1.5 py-1">
+            <Search className="mr-1 h-3 w-3 shrink-0 text-muted-foreground" />
+            <input
+              ref={inputRef}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search…"
+              className="w-full bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+          <div ref={listRef} className="relative max-h-56 overflow-y-auto py-0.5">
+            {rows.length === 0 ? (
+              <p className="px-2 py-1.5 text-[11px] text-muted-foreground">No categories</p>
+            ) : (
+              rows.map(({ node, depth, hasChildren, expanded: isOpen }) => {
+                const isSelected = selectedIds.includes(node.id);
+                return (
+                  <div
+                    key={node.id}
+                    data-selected={isSelected ? "true" : undefined}
+                    className={cn(
+                      "flex w-full items-center gap-0.5 pr-1.5 text-left text-[11px] leading-tight hover:bg-accent",
+                      isSelected && "bg-accent/50 font-medium",
+                    )}
+                    style={{ paddingLeft: `${4 + depth * 10}px` }}
+                  >
+                    {hasChildren && !q ? (
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        className="flex h-5 w-4 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
+                        aria-label={isOpen ? "Collapse" : "Expand"}
+                        onClick={(e) => toggleExpand(e, node.id)}
+                      >
+                        <ChevronRight
+                          className={cn("h-3 w-3 transition", isOpen && "rotate-90")}
+                        />
+                      </button>
+                    ) : (
+                      <span className="inline-block h-5 w-4 shrink-0" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => toggle(node)}
+                      className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left"
+                    >
+                      {multiple ? (
+                        <span
+                          className={cn(
+                            "flex h-3 w-3 shrink-0 items-center justify-center border border-border text-[8px]",
+                            isSelected && "border-[#00a09d] bg-[#00a09d] text-white",
+                          )}
+                          aria-hidden
+                        >
+                          {isSelected ? "✓" : ""}
+                        </span>
+                      ) : null}
+                      <span className="truncate">{node.name}</span>
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {open && !inline && portalTarget
         ? createPortal(
             <div
               ref={menuRef}
@@ -349,7 +444,7 @@ export function CategoryCombobox(props: Props) {
                   className="w-full bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
                 />
               </div>
-              <div className="max-h-56 overflow-y-auto py-0.5">
+              <div ref={listRef} className="relative max-h-56 overflow-y-auto py-0.5">
                 {rows.length === 0 ? (
                   <p className="px-2 py-1.5 text-[11px] text-muted-foreground">No categories</p>
                 ) : (
@@ -358,6 +453,7 @@ export function CategoryCombobox(props: Props) {
                     return (
                       <div
                         key={node.id}
+                        data-selected={isSelected ? "true" : undefined}
                         className={cn(
                           "flex w-full items-center gap-0.5 pr-1.5 text-left text-[11px] leading-tight hover:bg-accent",
                           isSelected && "bg-accent/50 font-medium",

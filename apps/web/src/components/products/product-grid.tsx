@@ -27,7 +27,8 @@ import {
   Warehouse,
 } from "lucide-react";
 import { toast } from "sonner";
-import { CategoryTreeFilter, categoryNamesWithDescendants } from "@/components/categories/category-tree-filter";
+import { categoryNamesWithDescendants } from "@/components/categories/category-tree-filter";
+import { CategoryCombobox } from "@/components/categories/category-combobox";
 import {
   archiveCatalogProducts,
   deleteCatalogProduct,
@@ -955,11 +956,22 @@ function CategoryFilterDropdown({
   onChange,
   categories,
 }: {
-  value: string;
-  onChange: (value: string) => void;
+  value: string[];
+  onChange: (value: string[]) => void;
   categories: Category[];
 }) {
-  return <CategoryTreeFilter categories={categories} value={value} onChange={onChange} />;
+  // the same picker as the product form: tree with check boxes, several categories at once, search, the picked ones scrolled into view
+  return (
+    <CategoryCombobox
+      multiple
+      categories={categories}
+      values={value}
+      onChange={onChange}
+      placeholder="All categories"
+      chips={false}
+      className="w-[190px]"
+    />
+  );
 }
 
 function BrandFilterDropdown({
@@ -1109,7 +1121,8 @@ type FilterState = {
   search: string;
   website: string;
   status: string;
-  category: string;
+  /** the picked categories (ids, several allowed); empty = all */
+  category: string[];
   brand: string;
   stockStatus: string;
   priceMin: string;
@@ -1120,7 +1133,7 @@ const DEFAULT_FILTERS: FilterState = {
   search: "",
   website: "all",
   status: "all",
-  category: "all",
+  category: [],
   brand: "all",
   stockStatus: "all",
   priceMin: "",
@@ -1129,7 +1142,7 @@ const DEFAULT_FILTERS: FilterState = {
 
 function countAdvancedFilters(f: FilterState) {
   let n = 0;
-  if (f.category !== "all") n++;
+  if (f.category.length > 0) n++;
   if (f.brand !== "all") n++;
   if (f.stockStatus !== "all") n++;
   if (f.priceMin) n++;
@@ -1147,9 +1160,13 @@ function applyFilters(rows: Product[], f: FilterState, categories: Category[]) {
     if (f.website === "on" && !isProductOnWebsite(p, categories)) return false;
     if (f.website === "off" && isProductOnWebsite(p, categories)) return false;
     if (f.status !== "all" && p.status !== f.status) return false;
-    if (f.category !== "all") {
-      // a parent category also lists the products filed under its sub-categories
-      const wanted = categoryNamesWithDescendants(f.category, categories);
+    if (f.category.length > 0) {
+      // a parent category also lists the products filed under its sub-categories; any of the picked categories matches
+      const wanted = new Set<string>();
+      for (const id of f.category) {
+        const name = categories.find((c) => c.id === id)?.name;
+        if (name) categoryNamesWithDescendants(name, categories).forEach((n) => wanted.add(n));
+      }
       const names = productCategoryNames(p, categories);
       if (!names.some((n) => wanted.has(n)) && !wanted.has(p.category)) return false;
     }
@@ -2357,7 +2374,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         ...(key === "search" ? { search: "" } : {}),
         ...(key === "website" ? { website: "all" } : {}),
         ...(key === "status" ? { status: "all" } : {}),
-        ...(key === "category" ? { category: "all" } : {}),
+        ...(key === "category" ? { category: [] } : {}),
         ...(key === "brand" ? { brand: "all" } : {}),
         ...(key === "stockStatus" ? { stockStatus: "all" } : {}),
         ...(key === "price" ? { priceMin: "", priceMax: "" } : {}),
