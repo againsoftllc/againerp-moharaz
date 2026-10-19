@@ -79,6 +79,22 @@ import {
 } from "@/lib/catalog/website-visibility";
 import type { PriceUpdateCompetitor, PriceUpdateMatch } from "@/lib/api/price-update-plugin";
 
+/** The company a source page belongs to, for the Source column: the competitor's own label when its site is one of the compared sites,
+ *  else the site's name from its host (startech.com.bd -> "Startech"). */
+function sourceCompanyName(url: string | null | undefined, competitors?: { key: string; label: string }[]): string {
+  if (!url) return "";
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+  const known = competitors?.find((c) => c.key !== "source" && host.includes(String(c.key).toLowerCase()));
+  if (known) return known.label;
+  const first = host.split(".")[0] ?? "";
+  return first ? first.charAt(0).toUpperCase() + first.slice(1) : "";
+}
+
 /** Stock wording + dot colour for a competitor match: green in stock, red out of stock, amber
  * for anything in between ("Up Coming", "Coming Soon", "Discontinued", "Pre Order", "Call For
  * Price", …) — those aren't simply in or out, so they're flagged rather than guessed. */
@@ -196,6 +212,8 @@ function CompetitorPriceCellBody({
   ourPrice: number;
   /** The product's own source page, when it was imported from this competitor's site. */
   sourceUrl?: string;
+  /** Source column: the company the source page belongs to, shown in front of the price ("Startech | ৳2,399"). */
+  companyName?: string;
   /** Re-check just this one product/competitor pair, without a full bulk refresh. */
   onSync?: () => void;
   /** True while this exact product/competitor pair is being processed by an in-progress
@@ -406,6 +424,12 @@ function CompetitorPriceCell(props: Parameters<typeof CompetitorPriceCellBody>[0
           onToggle={() => props.onTogglePick?.()}
           label="Select this price for a bulk check"
         />
+      ) : null}
+      {props.companyName ? (
+        <span className="shrink-0 text-[11px] font-medium text-foreground/80" title={`Source: ${props.companyName}`}>
+          {props.companyName}
+          <span className="ml-1 text-muted-foreground/50">|</span>
+        </span>
       ) : null}
       <span className="min-w-0 flex-1">
         <CompetitorPriceCellBody {...props} />
@@ -2076,8 +2100,8 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
                     }
                   : undefined,
             },
-            width: 170,
-            minWidth: 140,
+            width: key === "source" ? 230 : 170,
+            minWidth: key === "source" ? 190 : 140,
             sortable: false,
             editable: false,
             cellRenderer: (p: ICellRendererParams<Product>) => {
@@ -2088,6 +2112,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
                 <CompetitorPriceCell
                   match={match}
                   ourPrice={p.data.price}
+                  companyName={key === "source" ? sourceCompanyName(p.data.sourceUrl || match?.matched_url, competitors) : undefined}
                   sourceUrl={
                     p.data.sourceUrl && p.data.sourceUrl.toLowerCase().includes(String(key).toLowerCase())
                       ? p.data.sourceUrl
