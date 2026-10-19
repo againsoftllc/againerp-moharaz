@@ -104,6 +104,7 @@ export type ProductFormValues = {
   sku: string;
   model: string;
   remarks: string;
+  sourceUrl: string;
   category: string;
   categoryId: string;
   categoryIds: string[];
@@ -138,6 +139,7 @@ export const PRODUCT_FORM_DEFAULT_VALUES: ProductFormValues = {
   sku: "",
   model: "",
   remarks: "",
+  sourceUrl: "",
   category: "",
   categoryId: "",
   categoryIds: [],
@@ -324,6 +326,7 @@ function buildProductPayload(
       ? truncateToLimit(values.model.trim(), PRODUCT_FIELD_LIMITS.model)
       : null,
     remarks: values.remarks.trim() ? values.remarks.trim().slice(0, 2000) : null,
+    source_url: values.sourceUrl.trim() ? values.sourceUrl.trim().slice(0, 1000) : null,
     price: parseFloat(values.price) || 0,
     compare_at_price: values.compareAtPrice ? parseFloat(values.compareAtPrice) : undefined,
     last_selling_price: values.lastSellingPrice ? parseFloat(values.lastSellingPrice) : undefined,
@@ -635,6 +638,7 @@ export function ProductForm({
       sku: productDetail.sku,
       model: productDetail.model ?? "",
       remarks: productDetail.remarks ?? "",
+      sourceUrl: productDetail.sourceUrl ?? "",
       category: productDetail.category,
       categoryId: productDetail.categoryId ?? "",
       categoryIds: productDetail.categoryIds?.length
@@ -1604,15 +1608,6 @@ export function ProductForm({
                         />
                         <p className="mt-1 text-[10px] text-muted-foreground">{values.metaDescription.length}/160</p>
                       </Field>
-                      <div className="rounded-none border border-input bg-muted/20 p-3">
-                        <p className="text-sm font-medium text-primary">{values.metaTitle || values.name || "Product title"}</p>
-                        <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                          againerp.com/{values.slug || "product-slug"}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {values.metaDescription || "Meta description preview…"}
-                        </p>
-                      </div>
                     </div>
                   </>
                 );
@@ -1620,7 +1615,28 @@ export function ProductForm({
             </Section>
           </div>
 
-          <div data-section="remarks" className="py-6">
+          <div data-section="remarks" className="space-y-4 py-6">
+            <Field label="Source link" hint="The page this product was taken from (an AI upload fills it). Used to spot the same product added twice.">
+              <div className="flex items-center gap-2">
+                <Input
+                  type="url"
+                  value={values.sourceUrl}
+                  onChange={(e) => set("sourceUrl", e.target.value)}
+                  placeholder="https://www.example.com/product-page"
+                  maxLength={1000}
+                />
+                {/^https?:\/\//i.test(values.sourceUrl.trim()) ? (
+                  <a
+                    href={values.sourceUrl.trim()}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 text-xs text-primary underline"
+                  >
+                    Open
+                  </a>
+                ) : null}
+              </div>
+            </Field>
             <Field label="Remarks" hint="Internal note — staff only, not shown on the website.">
               <Textarea
                 value={values.remarks}

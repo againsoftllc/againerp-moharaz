@@ -371,6 +371,8 @@ export type CreateCatalogProductInput = {
   sku: string;
   model?: string | null;
   remarks?: string | null;
+  /** The product's source page (Source link field); AI uploads fill it. */
+  source_url?: string | null;
   price: number;
   stock?: number;
   status?: ProductStatus;
@@ -458,6 +460,7 @@ function productPayload(input: CreateCatalogProductInput | UpdateCatalogProductI
   if (input.sku !== undefined) payload.sku = input.sku;
   if (input.model !== undefined) payload.model = input.model;
   if (input.remarks !== undefined) payload.remarks = input.remarks;
+  if (input.source_url !== undefined) payload.source_url = input.source_url;
   if (input.price !== undefined) payload.price = input.price.toFixed(2);
   if (input.compare_at_price !== undefined) {
     payload.compare_at_price =

@@ -595,6 +595,22 @@ _ID_LABELS = {"product code", "sku", "mpn", "part number", "part no", "model num
 _SUMMARY_LABELS = {"price", "regular price", "special price", "old price", "status", "availability", "product code", "sku", "brand", "model"}
 
 
+def _summary_ids(soup: BeautifulSoup) -> dict[str, str]:
+    """The product code / SKU / MPN the shop prints in its top info box (Star Tech: `tr.product-info-group` rows), whether or not the page
+    also has a specification table."""
+    out: dict[str, str] = {}
+    for row in soup.select("tr.product-info-group, .product-info-group"):
+        label = row.select_one(".product-info-label")
+        data = row.select_one(".product-info-data")
+        if label is None or data is None:
+            continue
+        name = label.get_text(" ", strip=True)
+        value = data.get_text(" ", strip=True)
+        if name.lower() in _ID_LABELS and value and len(value) <= 60:
+            out.setdefault(name, value)
+    return out
+
+
 def _extract_spec_groups(soup: BeautifulSoup, info: Optional[dict] = None) -> list[dict]:
     """The page's specification sheet, without an LLM:
     1. known store layouts (startech.com.bd, ryans.com);
@@ -751,7 +767,8 @@ def fetch_page(url: str, *, timeout: float = FETCH_TIMEOUT) -> ScrapedPage:
         list(dict.fromkeys([*gallery, *structured.get("images", []), *page_images]))
     )[:MAX_IMAGES]
     spec_info: dict = {}
-    spec_groups = _extract_spec_groups(soup, spec_info)  # before _extract_text, which strips chrome tags in place
+    spec_groups = _extract_spec_groups(soup, spec_info)
+    spec_info["ids"] = {**(spec_info.get("ids") or {}), **_summary_ids(soup)}  # before _extract_text, which strips chrome tags in place
     highlights = _extract_highlights(soup)
     text = _extract_text(soup)
 

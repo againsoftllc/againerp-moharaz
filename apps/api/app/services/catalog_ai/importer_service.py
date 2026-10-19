@@ -263,20 +263,28 @@ def _warranty_last(draft: ProductDraft) -> ProductDraft:
     return draft.model_copy(update={"specifications": groups})
 
 
-REMARKS_MARK = "Product Code:"
-_OLD_REMARKS_MARKS = ("Source (AI import):",)  # the longer note written before 2026-10-18
+REMARKS_MARK = "AI upload"
+_OLD_REMARKS_MARKS = ("Product Code:", "Source (AI import):")  # the shorter notes written before
 
 
 def _source_remarks(draft: ProductDraft, page) -> Optional[str]:
-    """The source's own product code - the one id that finds the same source product imported twice. 'Product Code: 53803'; the page's
-    SKU / MPN when it shows no code; nothing when the page has none of them."""
+    """One staff-only line that says the product came from an AI upload, from which shop, and the shop's own product code / serial -
+    the ids that find the same source product imported twice: 'AI upload | Source: startech.com.bd | Product Code: 53803'. The page's
+    SKU / MPN when it shows no code. (The source link itself is the product's own Source link field.)"""
     ids: dict[str, str] = {k.lower(): v for k, v in dict(getattr(page, "source_ids", None) or {}).items()}
     structured = getattr(page, "structured", None) or {}
     code = (
         ids.get("product code") or ids.get("item code") or ids.get("product id") or ids.get("sku") or ids.get("mpn")
         or str(structured.get("sku") or "").strip() or str(structured.get("mpn") or "").strip()
     )
-    return f"{REMARKS_MARK} {code[:60]}" if code else None
+    url = draft.source_url or getattr(page, "url", None)
+    host = urlparse(url).netloc.lower().removeprefix("www.") if url else ""
+    bits = [REMARKS_MARK]
+    if host:
+        bits.append(f"Source: {host}")
+    if code:
+        bits.append(f"Product Code: {code[:60]}")
+    return " | ".join(bits)
 
 
 def _merge_remarks(old: Optional[str], new: Optional[str]) -> Optional[str]:
