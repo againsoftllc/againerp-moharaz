@@ -56,6 +56,7 @@ import { useGridSourceCompare } from "@/components/products/use-grid-source-comp
 import { FilterTriggerContent } from "@/components/shared/filter-trigger";
 import { useProfileNames } from "@/components/products/use-profile-names";
 import { LinkedRecordEditors, type LinkedTarget } from "@/components/products/linked-record-editors";
+import { CategoryCellEditor } from "@/components/products/category-cell-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FilterSelect } from "@/components/shared/filter-select";
@@ -913,9 +914,12 @@ function ProductCategoryCell({
   product,
   categories,
   onOpen,
+  onEdit,
 }: {
   product: Product;
   categories: Category[];
+  /** live edit is on for the column: a small pencil starts the category tree editor (the chips themselves open the drawers) */
+  onEdit?: () => void;
   /** a chip is clicked: open that category's edit drawer (off while the cell is live-edited) */
   onOpen?: (categoryName: string) => void;
 }) {
@@ -955,6 +959,20 @@ function ProductCategoryCell({
           chip
         );
       })}
+      {onEdit ? (
+        <button
+          type="button"
+          className="ml-auto inline-flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
+          title="Change the categories"
+          aria-label="Change the categories"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -2156,14 +2174,29 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
         width: 140,
         hide: !visibleCols.category,
         editable: canWrite && resolvedLiveEdit.category,
-        cellEditor: resolvedLiveEdit.category ? "agSelectCellEditor" : undefined,
-        cellEditorParams: resolvedLiveEdit.category ? { values: categoryNames } : undefined,
+        // live edit: the category TREE picker (several categories, search, the picked ones in view) as a popup editor
+        cellEditor: resolvedLiveEdit.category ? CategoryCellEditor : undefined,
+        cellEditorPopup: resolvedLiveEdit.category,
+        cellEditorParams: resolvedLiveEdit.category ? { categories } : undefined,
+        valueSetter: (p) => {
+          const ids = Array.isArray(p.newValue) ? (p.newValue as string[]) : null;
+          if (!ids || !p.data) return false;
+          if (ids.join(",") === (p.data.categoryIds ?? []).join(",")) return false; // nothing changed
+          p.data.categoryIds = ids;
+          p.data.category = categories.find((c) => c.id === ids[0])?.name ?? "Uncategorized";
+          return true;
+        },
         cellRenderer: (p: ICellRendererParams<Product>) =>
           p.data ? (
             <ProductCategoryCell
               product={p.data}
               categories={categories}
               onOpen={canWrite ? (name) => setLinkedTarget({ kind: "category", key: name }) : undefined}
+              onEdit={
+                canWrite && resolvedLiveEdit.category && p.node.rowIndex != null
+                  ? () => p.api.startEditingCell({ rowIndex: p.node.rowIndex as number, colKey: "category" })
+                  : undefined
+              }
             />
           ) : null,
         valueGetter: (p) =>
@@ -2478,7 +2511,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       }
       if (field === "stock") patch.stock = Number(e.data.stock);
       if (field === "status") patch.status = e.data.status;
-      if (field === "category") patch.category = e.data.category;
+      if (field === "category") patch.category_ids = e.data.categoryIds ?? [];
       if (field === "brand") patch.brand = e.data.brand;
       if (field === "seoTitle") patch.seo_title = e.data.seoTitle;
       if (field === "purchasePrice") {

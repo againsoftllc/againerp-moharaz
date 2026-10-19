@@ -231,6 +231,7 @@ export function productListFields(d: ProductDetail): Partial<Product> {
     status: d.status,
     visibility: d.visibility,
     category: d.category,
+    categoryIds: d.categoryIds,
     brand: d.brand,
     seoTitle: d.seoTitle,
     warranty: d.warranty,
