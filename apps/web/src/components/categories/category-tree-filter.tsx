@@ -12,6 +12,7 @@ import {
 import { buildCategoryTree, type Category, type CategoryNode } from "@/lib/mock-data/categories";
 import { getProductCategoryDisplay } from "@/lib/category-utils";
 import { cn } from "@/lib/utils";
+import { FilterTriggerContent } from "@/components/shared/filter-trigger";
 
 /**
  * Category names a filter on `name` must match: the category itself plus every sub-category under it, so picking
@@ -165,13 +166,12 @@ export function CategoryTreeFilter({
           aria-label={ariaLabel}
           title={isAll ? allLabel : value}
           className={cn(
-            "justify-between gap-1 rounded-none px-2 text-left font-normal shadow-sm",
+            "group justify-start gap-1 rounded-none px-2 text-left font-normal shadow-sm",
             width,
             className,
           )}
         >
-          <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <FilterTriggerContent label={triggerLabel} active={!isAll} onClear={() => onChange(allValue)} clearLabel="Clear category filter" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

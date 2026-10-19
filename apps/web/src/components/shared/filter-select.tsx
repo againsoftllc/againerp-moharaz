@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, ChevronDown, Search } from "lucide-react";
+import { Check, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { FilterTriggerContent } from "@/components/shared/filter-trigger";
 
 export type FilterSelectOption = {
   value: string;
@@ -31,6 +32,8 @@ type Props = {
   disabled?: boolean;
   /** Flip the menu above the trigger when there is no room below (use inside drawers). */
   avoidCollisions?: boolean;
+  /** The "no filter" value the cross resets to (default: the option whose value is "all" or ""; none -> no cross). */
+  clearValue?: string;
 };
 
 /**
@@ -49,6 +52,7 @@ export function FilterSelect({
   ariaLabel,
   disabled = false,
   avoidCollisions = false,
+  clearValue,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -64,6 +68,7 @@ export function FilterSelect({
   }, [options, search]);
 
   const current = options.find((o) => o.value === value);
+  const resetValue = clearValue ?? options.find((o) => o.value === "all" || o.value === "")?.value;
 
   const select = (next: string) => {
     onChange(next);
@@ -86,13 +91,16 @@ export function FilterSelect({
           disabled={disabled}
           aria-label={ariaLabel}
           className={cn(
-            "justify-between gap-1 rounded-none px-2 text-left font-normal shadow-sm",
+            "group justify-start gap-1 rounded-none px-2 text-left font-normal shadow-sm",
             width,
             className,
           )}
         >
-          <span className="min-w-0 flex-1 truncate">{current?.label ?? placeholder}</span>
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <FilterTriggerContent
+            label={current?.label ?? placeholder}
+            active={resetValue !== undefined && value !== resetValue}
+            onClear={() => resetValue !== undefined && onChange(resetValue)}
+          />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

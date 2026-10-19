@@ -55,6 +55,7 @@ import { RowActionsTrigger } from "@/components/shared/row-actions-icon";
 import { GridFullscreenHeader } from "@/components/shared/grid-fullscreen";
 import { AgainListGrid } from "@/components/shared/again-list-grid";
 import { useGridSourceCompare } from "@/components/products/use-grid-source-compare";
+import { FilterTriggerContent } from "@/components/shared/filter-trigger";
 import { useProfileNames } from "@/components/products/use-profile-names";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1011,12 +1012,14 @@ function BrandFilterDropdown({
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          className="w-[148px] justify-between gap-1 rounded-none px-2 text-left font-normal shadow-sm"
+          className="group w-[148px] justify-start gap-1 rounded-none px-2 text-left font-normal shadow-sm"
         >
-          <span className="min-w-0 flex-1 truncate">
-            {value === "all" ? "All brands" : value}
-          </span>
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <FilterTriggerContent
+            label={value === "all" ? "All brands" : value}
+            active={value !== "all"}
+            onClear={() => onChange("all")}
+            clearLabel="Clear brand filter"
+          />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
