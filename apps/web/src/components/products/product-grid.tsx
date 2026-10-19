@@ -23,6 +23,7 @@ import {
   ExternalLink,
   Sparkles,
   Loader2,
+  MoreHorizontal,
   Warehouse,
   Zap,
 } from "lucide-react";
@@ -2578,6 +2579,70 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
     );
   };
 
+  // The bulk actions of the selection bar: one list, drawn as buttons when the bar is wide and as an "Actions" menu when it is narrow
+  const bulkPublish = async () => {
+    try {
+      const { ok, failed } = await runBulk(
+        selected,
+        (p) => publishProductToApi(p.id),
+        4,
+        (d, n) => toast.loading("Publishing " + d + " of " + n + "…", { id: "bulk-status" }),
+      );
+      toast.dismiss("bulk-status");
+      const okIds = new Set(ok.map((p) => p.id));
+      setRowData((rows) => rows.map((r) => (okIds.has(r.id) ? publishProductToWebsite(r) : r)));
+      if (ok.length) toast.success(`Published ${ok.length} product${ok.length > 1 ? "s" : ""} to website`);
+      if (failed.length) toast.error(`${failed.length} failed: ${failed[0].error}`);
+      setSelected(failed.map((x) => x.item));
+      onProductsChanged?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Bulk publish failed");
+    }
+  };
+  const bulkUnpublish = async () => {
+    try {
+      const { ok, failed } = await runBulk(
+        selected,
+        (p) => unpublishProductFromApi(p.id),
+        4,
+        (d, n) => toast.loading("Moving " + d + " of " + n + "…", { id: "bulk-status" }),
+      );
+      toast.dismiss("bulk-status");
+      const okIds = new Set(ok.map((p) => p.id));
+      setRowData((rows) => rows.map((r) => (okIds.has(r.id) ? removeProductFromWebsite(r) : r)));
+      if (ok.length) toast.success(`Moved ${ok.length} product${ok.length > 1 ? "s" : ""} to Unlisted`);
+      if (failed.length) toast.error(`${failed.length} failed: ${failed[0].error}`);
+      setSelected(failed.map((x) => x.item));
+      onProductsChanged?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Bulk unpublish failed");
+    }
+  };
+  // "Export selected": the visible columns x the ticked rows, as an Excel file
+  const bulkExportSelected = async () => {
+    const api = gridApiRef.current;
+    if (!api || selected.length === 0) return;
+    try {
+      const table = gridToTable<Product>(api, { onlyIds: new Set(selected.map((p) => p.id)) });
+      const { downloadXlsx, fileStamp } = await import("@/lib/list-io/spreadsheet");
+      await downloadXlsx(table, `products-selected-${fileStamp()}`, "Products");
+      toast.success(`Exported ${table.rows.length} selected product${table.rows.length === 1 ? "" : "s"}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? `Export failed: ${err.message}` : "Export failed");
+    }
+  };
+  type BulkAction = { key: string; label: string; icon?: ReactNode; variant: "default" | "secondary" | "destructive" | "outline"; run: () => void };
+  const bulkActions: BulkAction[] = [
+    { key: "publish", label: "Publish to website", icon: <Globe className="mr-1.5 h-3.5 w-3.5" />, variant: "default", run: () => void bulkPublish() },
+    { key: "unlist", label: "Move to Unlisted", variant: "secondary", run: () => void bulkUnpublish() },
+    ...(onAddToInventory
+      ? [{ key: "inventory", label: "Add to Inventory", icon: <Warehouse className="mr-1.5 h-3.5 w-3.5" />, variant: "secondary" as const, run: () => void onAddToInventory(selected) }]
+      : []),
+    { key: "archive", label: "Bulk archive", variant: "secondary", run: () => openArchiveConfirm(selected) },
+    { key: "delete", label: "Delete", icon: <Trash2 className="mr-1.5 h-3.5 w-3.5" />, variant: "destructive", run: () => openDeleteConfirm(selected) },
+    { key: "export", label: "Export selected", variant: "outline", run: () => void bulkExportSelected() },
+  ];
+
   const resetAllFilters = () => {
     setFilters(DEFAULT_FILTERS);
     setVisibleFilters(DEFAULT_VISIBLE_FILTERS);
@@ -2792,7 +2857,7 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
       }
       banner={
         (selected.length > 0 || (pickedCells?.size ?? 0) > 0) && canWrite ? (
-        <div className="flex flex-wrap items-center gap-2 border-b border-primary/30 bg-primary/5 px-3 py-2">
+        <div className="@container flex flex-wrap items-center gap-2 border-b border-primary/30 bg-primary/5 px-3 py-2">
           {selected.length > 0 ? <span className="text-xs font-medium">{selected.length} selected</span> : null}
           {pickedCells && pickedCells.size > 0 && onCheckPickedCells ? (
             <>
@@ -2854,88 +2919,37 @@ export const ProductGrid = forwardRef<ProductGridHandle, Props>(function Product
           <>
           {!hideCatalogBulkActions ? (
           <>
-          <Button
-            size="sm"
-            onClick={() => {
-              void (async () => {
-                try {
-                  const { ok, failed } = await runBulk(
-                    selected,
-                    (p) => publishProductToApi(p.id),
-                    4,
-                    (d, n) => toast.loading("Publishing " + d + " of " + n + "…", { id: "bulk-status" }),
-                  );
-                  toast.dismiss("bulk-status");
-                  const okIds = new Set(ok.map((p) => p.id));
-                  setRowData((rows) => rows.map((r) => (okIds.has(r.id) ? publishProductToWebsite(r) : r)));
-                  if (ok.length) toast.success(`Published ${ok.length} product${ok.length > 1 ? "s" : ""} to website`);
-                  if (failed.length) toast.error(`${failed.length} failed: ${failed[0].error}`);
-                  setSelected(failed.map((x) => x.item));
-                  onProductsChanged?.();
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Bulk publish failed");
-                }
-              })();
-            }}
-          >
-            <Globe className="mr-1.5 h-3.5 w-3.5" />
-            Publish to website
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              void (async () => {
-                try {
-                  const { ok, failed } = await runBulk(
-                    selected,
-                    (p) => unpublishProductFromApi(p.id),
-                    4,
-                    (d, n) => toast.loading("Removing " + d + " of " + n + "…", { id: "bulk-status" }),
-                  );
-                  toast.dismiss("bulk-status");
-                  const okIds = new Set(ok.map((p) => p.id));
-                  setRowData((rows) => rows.map((r) => (okIds.has(r.id) ? removeProductFromWebsite(r) : r)));
-                  if (ok.length) toast.success(`Removed ${ok.length} product${ok.length > 1 ? "s" : ""} from website`);
-                  if (failed.length) toast.error(`${failed.length} failed: ${failed[0].error}`);
-                  setSelected(failed.map((x) => x.item));
-                  onProductsChanged?.();
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Bulk unpublish failed");
-                }
-              })();
-            }}
-          >
-            Remove from website
-          </Button>
-          {onAddToInventory ? (
-            <Button size="sm" variant="secondary" onClick={() => void onAddToInventory(selected)}>
-              <Warehouse className="mr-1.5 h-3.5 w-3.5" />
-              Add to Inventory
-            </Button>
-          ) : null}
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => openArchiveConfirm(selected)}
-          >
-            Bulk archive
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => openDeleteConfirm(selected)}
-          >
-            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-            Delete
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => toast.success("Export started (mock CSV)")}
-          >
-            Export selected
-          </Button>
+          {/* wide bar: every action is a button; narrow bar: they fold into one Actions menu (the bar is the container) */}
+          <div className="hidden flex-wrap items-center gap-2 @[820px]:flex">
+            {bulkActions.map((a) => (
+              <Button key={a.key} size="sm" variant={a.variant} className="whitespace-nowrap" onClick={a.run}>
+                {a.icon}
+                {a.label}
+              </Button>
+            ))}
+          </div>
+          <div className="@[820px]:hidden">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="secondary" className="whitespace-nowrap">
+                  <MoreHorizontal className="mr-1.5 h-3.5 w-3.5" />
+                  Actions
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {bulkActions.map((a) => (
+                  <DropdownMenuItem
+                    key={a.key}
+                    className={a.variant === "destructive" ? "text-destructive focus:text-destructive" : undefined}
+                    onClick={a.run}
+                  >
+                    {a.icon}
+                    {a.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           </>
           ) : null}
           <Button
