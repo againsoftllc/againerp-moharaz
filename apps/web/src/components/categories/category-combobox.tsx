@@ -25,6 +25,8 @@ type SingleProps = {
   inline?: boolean;
   /** Show the picked categories as chips under the button (multi select; default on). */
   chips?: boolean;
+  /** A list filter bar picker: its menu follows the list zoom and the filter font size (globals.css [data-list-filter-menu]). */
+  listFilter?: boolean;
 };
 
 type MultiProps = {
@@ -38,6 +40,7 @@ type MultiProps = {
   autoOpen?: boolean;
   inline?: boolean;
   chips?: boolean;
+  listFilter?: boolean;
 };
 
 type Props = SingleProps | MultiProps;
@@ -62,6 +65,7 @@ export function CategoryCombobox(props: Props) {
     autoOpen = false,
     inline = false,
     chips = true,
+    listFilter = false,
   } = props;
 
   const [open, setOpen] = useState(autoOpen);
@@ -424,6 +428,7 @@ export function CategoryCombobox(props: Props) {
             <div
               ref={menuRef}
               data-portal-popover=""
+              data-list-filter-menu={listFilter ? "" : undefined}
               className="z-[9999] rounded-none border border-border bg-popover text-popover-foreground shadow-md"
               style={{
                 position: menuPos.fixed ? "fixed" : "absolute",

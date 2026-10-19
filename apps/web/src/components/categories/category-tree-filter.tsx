@@ -181,6 +181,7 @@ export function CategoryTreeFilter({
         avoidCollisions={avoidCollisions}
         collisionPadding={8}
         className="w-[max(var(--radix-dropdown-menu-trigger-width),240px)] overflow-hidden p-0"
+        data-list-filter-menu=""
       >
         <div className="border-b border-input p-1" onPointerDown={(e) => e.stopPropagation()}>
           <div className="relative">

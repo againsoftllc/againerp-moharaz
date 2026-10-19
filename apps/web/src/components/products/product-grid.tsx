@@ -970,6 +970,7 @@ function CategoryFilterDropdown({
       onChange={onChange}
       placeholder="All categories"
       chips={false}
+      listFilter
       className="w-[190px]"
     />
   );
@@ -1023,6 +1024,7 @@ function BrandFilterDropdown({
         side="bottom"
         avoidCollisions={false}
         className="w-[180px] overflow-hidden p-0"
+        data-list-filter-menu=""
       >
         <FilterDropdownSearch
           value={search}

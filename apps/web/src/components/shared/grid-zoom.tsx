@@ -43,6 +43,11 @@ export function useGridZoom() {
     }
   }, []);
 
+  // The filter dropdown menus are portalled out of the list; they read the zoom from here (globals.css: [data-list-filter-menu])
+  useEffect(() => {
+    document.documentElement.style.setProperty("--list-zoom", String(zoom / 100));
+  }, [zoom]);
+
   const scale = zoom / 100;
   const fontSize = Math.round(11 * scale);
   const rowHeight = Math.round(28 * scale);

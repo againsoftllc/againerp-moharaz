@@ -102,6 +102,7 @@ export function FilterSelect({
         avoidCollisions={avoidCollisions}
         collisionPadding={8}
         className="max-h-72 w-[var(--radix-dropdown-menu-trigger-width)] min-w-[8rem] overflow-hidden p-0"
+        data-list-filter-menu=""
       >
         {showSearch && (
           <div className="border-b border-input p-1" onPointerDown={(e) => e.stopPropagation()}>
