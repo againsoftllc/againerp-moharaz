@@ -23,6 +23,7 @@ import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { useViewerWriteUrlGuard } from "@/lib/hooks/use-viewer-write-url-guard";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useAiChatStore } from "@/lib/store/ai-chat-store";
 import { addProductsToInventory } from "@/lib/api/catalog-products";
 
 const ProductGrid = dynamic(
@@ -335,6 +336,8 @@ function ProductListContent({ basePath = "/website/products", title = "Products"
           onView={handleView}
           onEdit={handleEdit}
           onProductsChanged={() => void refetch()}
+          // the AI column (like Unlisted): fill the product from its source link in the Aladin drawer
+          onAiImport={(product) => useAiChatStore.getState().startProductTask({ id: product.id, name: product.name }, () => void refetch())}
           onAddToInventory={async (rows) => {
             try {
               const r = await addProductsToInventory(rows.map((p) => p.id));
