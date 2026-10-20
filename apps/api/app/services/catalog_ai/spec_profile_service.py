@@ -204,8 +204,9 @@ _MAP_SCHEMA = {
                 "properties": {
                     "field_id": {"type": "string"},
                     "value": {"type": "string"},
+                    "source_label": {"type": "string"},
                 },
-                "required": ["field_id", "value"],
+                "required": ["field_id", "value", "source_label"],
             },
         }
     },
@@ -213,20 +214,70 @@ _MAP_SCHEMA = {
 }
 
 
-def exact_values(specs: SourceSpecs, fields: list[dict]) -> dict[str, str]:
-    """{attribute_id: value} where a source label matches a field name (same group first)."""
-    by_group: dict[tuple[str, str], str] = {}
-    by_label: dict[str, str] = {}
+# Shops name the same spec differently: Star Tech "Processor Model", Ryans "Processor", Techland "CPU". The profile's attribute
+# keeps ITS name and takes the value from whichever source row means the same - a row is never turned into a second attribute.
+_CONCEPT_PHRASES = [
+    (r"operating\s+system|\bos\b", " os "),
+    (r"hard\s*(?:disk|drive)|\bhdd\b|\bssd\b|solid\s+state", " storage "),
+    (r"video\s+card|graphics?\s+card|graphic\s+card|\bgraphics?\b|\bvga\b|\bgpu\b", " gpu "),
+    (r"\bprocessors?\b|\bcpu\b|\bchip\b", " cpu "),
+    (r"\bram\b|\bmemory\b", " ram "),
+    (r"\bscreen\b|\bdisplay\b|\bmonitor\b|\bpanel\b", " display "),
+    (r"\bcolou?rs?\b", " color "),
+    (r"\bbrand\b|\bmanufacturer\b|\bmake\b", " brand "),
+    (r"\bwireless\b|\bwi-?fi\b|\bwlan\b", " wifi "),
+    (r"\bethernet\b|\blan\b", " lan "),
+]
+_CONCEPT_STOP = {"model", "type", "name", "series", "detail", "info", "information", "spec", "specification", "feature", "number", "no", "of", "the", "and"}
+
+
+def concept_key(label: str) -> Optional[frozenset]:
+    """The meaning of a spec label as a set of canonical words: 'Processor Model' = 'CPU' = {cpu}; 'Memory Slots' = 'RAM Slot'.
+    None when nothing is left (e.g. 'Model')."""
+    text = (label or "").lower()
+    for pattern, word in _CONCEPT_PHRASES:
+        text = re.sub(pattern, word, text)
+    words = {w[:-1] if len(w) > 3 and w.endswith("s") else w for w in re.findall(r"[a-z0-9]+", text)}
+    words = {w for w in words if len(w) > 1 and w not in _CONCEPT_STOP}
+    return frozenset(words) if words else None
+
+
+def _exact_hits(specs: SourceSpecs, fields: list[dict]) -> dict[str, tuple[str, str]]:
+    """{attribute_id: (source label, value)}: the source row with the attribute's name (same group first), then - for an
+    attribute still open - the ONE source row that means the same thing under another name."""
+    by_group: dict[tuple[str, str], tuple[str, str]] = {}
+    by_label: dict[str, tuple[str, str]] = {}
+    by_concept: dict[frozenset, list[tuple[str, str]]] = {}
     for g in _clean_specs(specs):
         for i in g["items"]:
-            by_group.setdefault((_norm(g["group"]), _norm(i["label"])), i["value"])
-            by_label.setdefault(_norm(i["label"]), i["value"])
-    values: dict[str, str] = {}
+            row = (i["label"], i["value"])
+            by_group.setdefault((_norm(g["group"]), _norm(i["label"])), row)
+            by_label.setdefault(_norm(i["label"]), row)
+            key = concept_key(i["label"])
+            if key:
+                rows = by_concept.setdefault(key, [])
+                if all(_norm(r[0]) != _norm(i["label"]) for r in rows):
+                    rows.append(row)
+    hits: dict[str, tuple[str, str]] = {}
     for f in fields:
         hit = by_group.get((_norm(f["group"]), _norm(f["name"]))) or by_label.get(_norm(f["name"]))
         if hit:
-            values[f["id"]] = hit
-    return values
+            hits[f["id"]] = hit
+    taken = {_norm(row[0]) for row in hits.values()}
+    for f in fields:
+        if f["id"] in hits:
+            continue
+        key = concept_key(f["name"])
+        rows = [r for r in by_concept.get(key, []) if _norm(r[0]) not in taken] if key else []
+        if len(rows) == 1:  # two rows with the same meaning (HDD / SSD) are ambiguous: left to the model
+            hits[f["id"]] = rows[0]
+            taken.add(_norm(rows[0][0]))
+    return hits
+
+
+def exact_values(specs: SourceSpecs, fields: list[dict]) -> dict[str, str]:
+    """{attribute_id: value} where a source label matches a field name or means the same thing (same group first)."""
+    return {fid: row[1] for fid, row in _exact_hits(specs, fields).items()}
 
 
 def _canon_text(text: str) -> str:
@@ -306,22 +357,29 @@ def _suggest_option(field: dict, value: str) -> str:
     return re.split(r"[,(;\n]", value, maxsplit=1)[0].strip()[:100] or value[:100]
 
 
-def map_values_detailed(
+MAX_MODEL_FIELDS = 150
+MAX_MODEL_ROWS = 200
+
+
+def map_values_traced(
     db: Session, company_id: Optional[str], specs: SourceSpecs, fields: list[dict]
-) -> tuple[dict[str, str], dict[str, str]]:
-    """(values, off_options). `values`: {field_id: value} the source answers — for a field with
-    allowed values, only one of those. `off_options`: {field_id: source value} for fields whose
-    allowed values don't include what the source says (adding an option changes the profile for
-    everyone, so callers only suggest it)."""
+) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+    """(values, off_options, source_of). `values`: {field_id: value} the source answers - for a field with allowed
+    values, only one of those. `off_options`: {field_id: source value} for fields whose allowed values don't include what
+    the source says (adding an option changes the profile for everyone, so callers only suggest it). `source_of`:
+    {field_id: normalised label of the source row it came from}, so the caller can keep the rows that were NOT used.
+    Every open attribute is answered by the row that means the same ("CPU" <- "Processor Model"); an attribute keeps
+    its own name and the source's name is never added as another one."""
     specs = _clean_specs(specs)
     if not specs or not fields:
-        return {}, {}
+        return {}, {}, {}
     fields = [{**f, "options": list(f.get("options") or [])} for f in fields]
     by_id = {f["id"]: f for f in fields}
     values: dict[str, str] = {}
     off: dict[str, str] = {}
+    source_of: dict[str, str] = {}
 
-    def put(fid: str, val: str) -> None:
+    def put(fid: str, val: str, label: Optional[str] = None) -> None:
         field = by_id[fid]
         val = val.strip()[:2000]
         if not val or is_placeholder(val):
@@ -330,16 +388,20 @@ def map_values_detailed(
             fit = _fit_option(field, val)
             if fit is None:
                 off[fid] = _suggest_option(field, val)
+                if label:
+                    source_of[fid] = _norm(label)
                 return
             val = fit
         values[fid] = val
         off.pop(fid, None)
+        if label:
+            source_of[fid] = _norm(label)
 
-    for fid, val in exact_values(specs, fields).items():
-        put(fid, val)
+    for fid, (label, val) in _exact_hits(specs, fields).items():
+        put(fid, val, label)
     # Dropdown/filter fields still open: a source row whose label shares a meaningful word with
-    # the field ("Panel Size" ↔ "Display Size") and whose value fits an option or carries the
-    # options' unit (17 Inch for a field of 24"/27"…) — deterministic, before any LLM call.
+    # the field ("Panel Size" <-> "Display Size") and whose value fits an option or carries the
+    # options' unit (17 Inch for a field of 24"/27"...) - deterministic, before any LLM call.
     for f in fields:
         if f["id"] in values or not f["options"]:
             continue
@@ -349,15 +411,18 @@ def map_values_detailed(
                 if not words & _label_words(i["label"]):
                     continue
                 if _fit_option(f, i["value"]) is not None or _has_option_unit(f, i["value"]):
-                    put(f["id"], i["value"])
+                    put(f["id"], i["value"], i["label"])
                     break
             if f["id"] in values or f["id"] in off:
                 break
-    # the model only decides the fields it is needed for: storefront filters and dropdowns. Plain text fields are
-    # filled by the exact label match above - sending all of a big profile's fields cost thousands of tokens per product.
-    missing = [f for f in fields if f["id"] not in values and (f.get("filterable") or f["options"])]
-    if not missing:
-        return values, off
+    # The model answers every attribute still open, from the source rows nothing has used yet - so a profile attribute
+    # "Processor" gets the value of a source row called "CPU" (the shops all name things differently) instead of the row
+    # staying behind as a second, differently named spec. Only the open fields and unused rows are sent (small prompt).
+    used = set(source_of.values())
+    missing = [f for f in fields if f["id"] not in values and f["id"] not in off][:MAX_MODEL_FIELDS]
+    rows = [(g["group"], i) for g in specs for i in g["items"] if _norm(i["label"]) not in used][:MAX_MODEL_ROWS]
+    if not missing or not rows:
+        return values, off, source_of
 
     from app.services.catalog_ai.llm_extractor import generate_structured
 
@@ -368,21 +433,25 @@ def map_values_detailed(
         + (f" | allowed values: {', '.join(f['options'])}" if f["options"] else "")
         for f in missing
     )
-    source_lines = "\n".join(f"[{g['group']}] {i['label']}: {i['value']}" for g in specs for i in g["items"])
+    source_lines = "\n".join(f"[{group}] {i['label']}: {i['value']}" for group, i in rows)
     prompt = (
         "Fill these product specification fields from the product's source spec table.\n\n"
         f"Fields to fill:\n{field_lines}\n\n"
         f"Source specifications (from the product page):\n{source_lines}\n\n"
-        "Rules: use ONLY information in the source specifications — never guess or add facts. Copy the "
-        "value as written (you may drop the label or reformat units to match the field). When a field "
-        "lists allowed values, use exactly one of them if one means the same thing; if none does, give the "
-        "value as the source writes it (e.g. '17 Inch') — never answer 'N/A', '-' or 'none' for a field the "
-        "source has a value for, and leave the field out when it really has none. Fields marked [STOREFRONT FILTER] are how shoppers filter the "
-        "catalog — never skip one the source has any information for: pick the allowed value the product "
-        "falls under (e.g. processor 'AMD Ryzen 7 8840HS' → 'AMD', RAM '16GB LPDDR5X' → '16 GB', a brand or "
+        "Rules: match by MEANING, not by exact wording - shops name the same thing differently ('Processor', 'CPU', "
+        "'Processor Model' and 'Processor Type' are one thing; so are 'Memory' / 'RAM', 'Display' / 'Screen' / 'Monitor', "
+        "'Graphics' / 'GPU' / 'Graphics Card', 'Storage' / 'SSD' / 'Hard Disk'). Put the source row's value in the field "
+        "that means the same, and give that row's label in source_label exactly as written in the source. The field "
+        "keeps its own name - never rename it. Use ONLY information in the source specifications - never guess or add "
+        "facts. Copy the value as written (you may drop the label or reformat units to match the field). When a field "
+        "lists allowed values, use exactly one of them if one means the same thing; if none does, give the value as the "
+        "source writes it (e.g. '17 Inch') - never answer 'N/A', '-' or 'none' for a field the source has a value for, "
+        "and leave the field out when it really has none. Fields marked [STOREFRONT FILTER] are how shoppers filter the "
+        "catalog - never skip one the source has any information for: pick the allowed value the product "
+        "falls under (e.g. processor 'AMD Ryzen 7 8840HS' -> 'AMD', RAM '16GB LPDDR5X' -> '16 GB', a brand or "
         "type named inside a longer value), and look across ALL source rows (a display size may sit under "
-        "'Display', RAM under 'Memory'). Leave out any field the source does not answer. Use the field ids "
-        "exactly as given."
+        "'Display', RAM under 'Memory'). One source row feeds one field. Leave out any field the source does not answer. "
+        "Use the field ids exactly as given."
     )
     try:
         data = generate_structured(
@@ -390,12 +459,32 @@ def map_values_detailed(
             system="You map product specification data into structured fields.",
         )
     except HTTPException:
-        return values, off
+        return values, off, source_of
     wanted = {f["id"] for f in missing}
+    available = {_norm(i["label"]): i for _g, i in rows}
+    by_value = {_norm(i["value"]): i for _g, i in rows}
+    claimed: set[str] = set()
     for row in data.get("values") or []:
         fid = str((row or {}).get("field_id") or "")
-        if fid in wanted:
-            put(fid, str((row or {}).get("value") or ""))
+        value = str((row or {}).get("value") or "")
+        if fid not in wanted:
+            continue
+        # the row it came from: the label the model named, else the row whose value it copied
+        src = available.get(_norm(str((row or {}).get("source_label") or ""))) or by_value.get(_norm(value))
+        label = src["label"] if src else None
+        if label and _norm(label) in claimed:
+            continue  # a source row feeds one field
+        put(fid, value, label)
+        if label and (fid in values or fid in off):
+            claimed.add(_norm(label))
+    return values, off, source_of
+
+
+def map_values_detailed(
+    db: Session, company_id: Optional[str], specs: SourceSpecs, fields: list[dict]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """(values, off_options) - see map_values_traced."""
+    values, off, _source = map_values_traced(db, company_id, specs, fields)
     return values, off
 
 
@@ -739,9 +828,10 @@ def find_profile_by_specs(db: Session, specs: SourceSpecs) -> Optional[CatalogAt
     return best[1]
 
 
-def _leftover_custom_json(db: Session, profile_id: str, specs: SourceSpecs) -> Optional[str]:
-    """The source rows the profile has NO attribute for, as this product's custom specs - same groups, source order."""
-    names = {_norm(f["name"]) for f in profile_fields(db, profile_id)}
+def _leftover_custom_json(db: Session, profile_id: str, specs: SourceSpecs, used: Optional[set[str]] = None) -> Optional[str]:
+    """The source rows the profile has NO attribute for, as this product's custom specs - same groups, source order.
+    `used`: normalised labels of rows a profile attribute already took under its own name (CPU <- Processor Model)."""
+    names = {_norm(f["name"]) for f in profile_fields(db, profile_id)} | (used or set())
     groups, attrs = [], []
     prev: Optional[str] = ""  # "" = the first group of the source
     for gi, g in enumerate(_clean_specs(specs)):
@@ -808,18 +898,16 @@ def apply_from_source(
             key_added = extend_profile_with_filters(db, profile, unmatched_filters(fields, source_filters))
             if key_added:
                 fields = profile_fields(db, profile.id)
-        fit = profile_fit(db, profile, specs)
-        if fit >= FIT_MIN or created:
-            values, off = map_values_detailed(db, company_id, specs, fields)
-        else:  # the profile is the category's, but this source barely matches it: only exact label matches, no guessing
-            values, off = exact_values(specs, fields), {}
+        # the profile is the product TYPE's (its category): every attribute is answered by the source row that means the same,
+        # whatever that shop calls it - the attribute keeps its name, the value goes in, no second attribute is made
+        values, off, source_of = map_values_traced(db, company_id, specs, fields)
         filterable_off = {fid: v for fid, v in off.items() if next((f for f in fields if f["id"] == fid), {}).get("filterable")}
         added = add_options(db, filterable_off) if filterable_off else 0
         for fid, v in filterable_off.items():
             values[fid] = v
         fill_product(db, product, profile, values, overwrite=replace)
         multi = fill_multi_select(db, product, profile, specs, extra_text=product.name or "")
-        product.custom_specs_json = _leftover_custom_json(db, profile.id, specs)
+        product.custom_specs_json = _leftover_custom_json(db, profile.id, specs, {source_of[fid] for fid in values if fid in source_of})
         db.commit()
         return {"profile": profile.name, "filled": len(values) + multi, "fields": len(fields), "options_added": added, "created": created, "key_feature_added": key_added}
     except Exception:  # noqa: BLE001

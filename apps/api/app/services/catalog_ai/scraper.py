@@ -93,8 +93,9 @@ def _extract_breadcrumb(soup: BeautifulSoup, json_ld: list[dict]) -> list[str]:
     return []
 
 
-def _extract_breadcrumb_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
-    """[{name, url}] of the page's breadcrumb (html .breadcrumb links; the last, current item has no link)."""
+def _extract_breadcrumb_links(soup: BeautifulSoup, base_url: str, json_ld: Optional[list[dict]] = None) -> list[dict]:
+    """[{name, url}] of the page's breadcrumb (html .breadcrumb links; the last, current item has no link). When the html
+    has none, the JSON-LD BreadcrumbList's items are used."""
     node = soup.select_one(".breadcrumb, nav.breadcrumb, [itemtype*=BreadcrumbList]")
     out: list[dict] = []
     if node is not None:
@@ -103,6 +104,23 @@ def _extract_breadcrumb_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
             href = a.get("href") or ""
             if name and href and not href.startswith("#"):
                 out.append({"name": name, "url": urljoin(base_url, href)})
+    if out:
+        return out
+    for block in json_ld or []:
+        nodes = block.get("@graph") if isinstance(block.get("@graph"), list) else [block]
+        for node_ in nodes:
+            if not isinstance(node_, dict) or "BreadcrumbList" not in str(node_.get("@type")):
+                continue
+            for el in node_.get("itemListElement") or []:
+                if not isinstance(el, dict):
+                    continue
+                item = el.get("item")
+                href = item.get("@id") or item.get("url") if isinstance(item, dict) else item
+                name = (item.get("name") if isinstance(item, dict) else None) or el.get("name")
+                if name and isinstance(href, str) and href.startswith(("http", "/")):
+                    out.append({"name": str(name).strip(), "url": urljoin(base_url, href)})
+            if out:
+                return out
     return out
 
 
@@ -133,13 +151,113 @@ def parse_category_filters(html: str) -> list[dict]:
                 title = title[: -len(o)].strip()
         if len(opts) >= 2 and 0 < len(title) <= 60:
             out.append({"title": title, "options": opts[:40]})
+    return out or _generic_filters(soup)
+
+
+_TITLE_SEL = "h1, h2, h3, h4, h5, h6, legend, summary, strong, button, [class*=title], [class*=heading], [class*=head], [class*=name]"
+
+
+def _option_text(box) -> str:
+    """The label of a filter checkbox: its <label for>, the label around it, or the text next to it."""
+    text = ""
+    bid = box.get("id")
+    root = box.find_parent(["html", "body"]) or box
+    if bid:
+        lab = root.find("label", attrs={"for": bid}) if hasattr(root, "find") else None
+        text = lab.get_text(" ", strip=True) if lab else ""
+    if not text:
+        lab = box.find_parent("label")
+        text = lab.get_text(" ", strip=True) if lab else ""
+    if not text:
+        sib = box.find_next_sibling(["label", "span", "a", "div"])
+        text = sib.get_text(" ", strip=True) if sib else ""
+    if not text:
+        text = (box.get("value") or box.get("aria-label") or box.get("title") or "").strip()
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s*[\(\[]\s*\d+\s*[\)\]]\s*$", "", text)  # a trailing product count
+    return text[:100]
+
+
+def _group_title(container, boxes: set) -> str:
+    """The heading of a group of filter options: a heading-like element in the group that is not an option, else the text just
+    before the group (its previous siblings, then the parent's)."""
+    node = container
+    for _level in range(4):
+        if node is None or node.name in ("html", "body", "[document]"):
+            break
+        for el in node.select(_TITLE_SEL):
+            if any(b in boxes for b in el.find_all("input")) or el.find("input", attrs={"type": "checkbox"}):
+                continue
+            txt = re.sub(r"\s+", " ", el.get_text(" ", strip=True)).strip()
+            if 1 < len(txt) <= 60:
+                return txt
+        for sib in list(node.previous_siblings)[:3]:
+            txt = re.sub(r"\s+", " ", sib.get_text(" ", strip=True) if hasattr(sib, "get_text") else str(sib)).strip()
+            if 1 < len(txt) <= 60:
+                return txt
+        node = node.parent
+    return ""
+
+
+def _generic_filters(soup: BeautifulSoup) -> list[dict]:
+    """Filter groups on a category page of unknown markup: runs of checkboxes (each with a label) under a heading.
+    [{title, options}] like parse_category_filters. Availability / brand / price are left out."""
+    boxes = soup.select("input[type=checkbox]")
+    groups: dict[int, tuple] = {}
+    for box in boxes:
+        # the smallest ancestor that holds at least two checkboxes is the group's option list
+        node = box.parent
+        for _level in range(5):
+            if node is None or node.name in ("html", "body", "[document]"):
+                node = None
+                break
+            if len(node.select("input[type=checkbox]")) >= 2:
+                break
+            node = node.parent
+        if node is None:
+            continue
+        groups.setdefault(id(node), (node, []))[1].append(box)
+    out: list[dict] = []
+    seen_titles: set[str] = set()
+    # a container that holds other groups (the whole sidebar) is not a group itself
+    holds_groups: set[int] = set()
+    for node, _members in groups.values():
+        parent = node.parent
+        while parent is not None:
+            holds_groups.add(id(parent))
+            parent = parent.parent
+    for node, members in groups.values():
+        if id(node) in holds_groups:
+            continue
+        opts: list[str] = []
+        for box in members:
+            txt = _option_text(box)
+            if txt and txt not in opts:
+                opts.append(txt)
+        title = _group_title(node, set(members))
+        low = title.lower()
+        if len(opts) < 2 or not (0 < len(title) <= 60) or low in seen_titles:
+            continue
+        if low in _FILTER_SKIP or low.split(" ")[0] in _FILTER_SKIP:
+            continue
+        for o in reversed(opts):
+            if title.endswith(o):
+                title = title[: -len(o)].strip()
+        seen_titles.add(low)
+        out.append({"title": title, "options": opts[:40]})
     return out
 
 
 def fetch_category_filters(url: str, *, timeout: float = 20.0) -> list[dict]:
-    """Filters of a source category page (best effort: [] on any problem)."""
+    """Filters of a source category page (best effort: [] on any problem). A copy the admin's browser read (a shop that blocks
+    the server, Ryans) is used first."""
     try:
+        browser_html = recall_browser_html(url)
+        if browser_html is not None:
+            return parse_category_filters(browser_html)
         resp = httpx.get(url, headers={"User-Agent": USER_AGENT}, follow_redirects=True, timeout=timeout)
+        if is_bot_challenge(resp):
+            return []
         resp.raise_for_status()
         return parse_category_filters(resp.text)
     except Exception:  # noqa: BLE001
@@ -798,7 +916,7 @@ def parse_page(body: bytes | str, final_url: str) -> ScrapedPage:
     json_ld = _extract_json_ld(soup)
     structured = structured_product(soup, json_ld, title, final_url)
     structured["breadcrumb"] = _extract_breadcrumb(soup, json_ld)
-    structured["breadcrumb_links"] = _extract_breadcrumb_links(soup, final_url)
+    structured["breadcrumb_links"] = _extract_breadcrumb_links(soup, final_url, json_ld)
     # The product's own gallery block (found from its main photo), then its declared photos,
     # then whatever else the page shows.
     page_images = _extract_images(soup, final_url)

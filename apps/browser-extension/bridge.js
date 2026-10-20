@@ -49,7 +49,7 @@
       window.postMessage({ source: "againerp-extension", type: "ready", version: VERSION }, location.origin);
       return;
     }
-    if (!["sync-one", "discover-one", "read-html", "connect"].includes(data.type) || !data.requestId || !data.item) return;
+    if (!["sync-one", "discover-one", "read-html", "read-images", "connect"].includes(data.type) || !data.requestId || !data.item) return;
 
     const reply = (payload) =>
       window.postMessage(

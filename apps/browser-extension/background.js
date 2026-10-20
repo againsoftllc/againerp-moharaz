@@ -133,7 +133,12 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     return true;
   }
   if (message && message.type === "read-html") {
-    readHtml(message.item && message.item.url).then(reply, (err) => reply({ ok: false, error: err.message }));
+    const read = message.item && message.item.rendered ? readRenderedHtml : readHtml;
+    read(message.item && message.item.url).then(reply, (err) => reply({ ok: false, error: err.message }));
+    return true;
+  }
+  if (message && message.type === "read-images") {
+    readImages(message.item).then(reply, (err) => reply({ ok: false, error: err.message }));
     return true;
   }
   if (message && message.type === "discover-one") {
@@ -597,6 +602,109 @@ async function readHtml(url) {
     } catch (err) {
       return { ok: false, error: err.message };
     }
+  });
+}
+
+// A page as the browser DRAWS it (after its JavaScript ran): a category page builds its filter sidebar with scripts, so the
+// plain HTML has no filters. Loads the page in a tab and returns the document once the filters (or a settled page) are there.
+async function readRenderedHtml(url) {
+  if (!url) return { ok: false, error: "No page to read" };
+  const host = hostOf(url);
+  if (!(await hasAccess(url))) {
+    await promptAccess(url);
+    return { ok: false, error: accessNeeded(host) };
+  }
+  return withKeepAlive(async () => {
+    try {
+      return await withPage(url, async (tabId) => {
+        await navigate(tabId, url);
+        let html = "";
+        for (let attempt = 0; attempt < 12; attempt++) {
+          await sleep(attempt === 0 ? 2500 : 2000);
+          let state;
+          try {
+            const [injection] = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => ({
+                title: document.title || "",
+                boxes: document.querySelectorAll("input[type=checkbox]").length,
+                html: document.documentElement.outerHTML,
+              }),
+            });
+            state = injection && injection.result;
+          } catch (_) {
+            continue;
+          }
+          if (!state || /just a moment|attention required/i.test(state.title)) continue;
+          html = state.html;
+          if (state.boxes >= 2 && attempt >= 1) break; // the filters have been drawn
+        }
+        if (!html) return { ok: false, error: "The page didn't load" };
+        return { ok: true, html: html.slice(0, 5_500_000), page_url: url };
+      });
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+}
+
+// ── a product's photos (the AI fill on shops that block the server also can't download their images) ──────────
+
+const MAX_RELAY_IMAGES = 12;
+const MAX_RELAY_IMAGE_BYTES = 8_000_000;
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
+
+// Images on the shop's own address are fetched from inside the page's tab (same origin, the bot check already passed);
+// images on another address (a CDN) from the extension itself when it has been allowed there.
+async function readImages(item) {
+  const urls = ((item && item.urls) || []).filter((u) => typeof u === "string" && /^https?:\/\//i.test(u)).slice(0, MAX_RELAY_IMAGES);
+  if (!urls.length) return { ok: false, images: [], error: "No images to read" };
+  const pageHost = hostOf((item && item.pageUrl) || urls[0]);
+  return withKeepAlive(async () => {
+    const images = [];
+    const anchor = pageHost ? anchorTab(pageHost) : null;
+    for (const url of urls) {
+      try {
+        let got = null;
+        if (anchor != null && hostOf(url) === pageHost) {
+          const [injection] = await chrome.scripting.executeScript({
+            target: { tabId: anchor },
+            args: [url, MAX_RELAY_IMAGE_BYTES],
+            func: async (imageUrl, limit) => {
+              try {
+                const response = await fetch(imageUrl, { credentials: "include" });
+                const type = response.headers.get("content-type") || "";
+                if (!response.ok || !type.startsWith("image/")) return { error: `HTTP ${response.status}` };
+                const bytes = new Uint8Array(await response.arrayBuffer());
+                if (!bytes.length || bytes.length > limit) return { error: "empty or too large" };
+                let binary = "";
+                for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+                return { content_type: type.split(";")[0].trim(), data: btoa(binary) };
+              } catch (err) {
+                return { error: err.message };
+              }
+            },
+          });
+          got = injection && injection.result;
+        } else if (await hasAccess(url)) {
+          const response = await fetch(url, { credentials: "include" });
+          const type = response.headers.get("content-type") || "";
+          if (response.ok && type.startsWith("image/")) {
+            const bytes = new Uint8Array(await response.arrayBuffer());
+            if (bytes.length && bytes.length <= MAX_RELAY_IMAGE_BYTES) got = { content_type: type.split(";")[0].trim(), data: bytesToBase64(bytes) };
+          }
+        }
+        if (got && got.data) images.push({ url, content_type: got.content_type, data: got.data });
+      } catch (_) {
+        /* this photo is skipped; the server tries it itself */
+      }
+    }
+    return images.length ? { ok: true, images } : { ok: false, images: [], error: "The browser couldn't read the product photos" };
   });
 }
 

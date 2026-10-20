@@ -1,6 +1,6 @@
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api/client";
-import { isPriceExtensionAvailable, readPageHtmlViaExtension } from "@/lib/browser-extension";
+import { isPriceExtensionAvailable, readImagesViaExtension, readPageHtmlViaExtension } from "@/lib/browser-extension";
 import { useAiChatStore } from "@/lib/store/ai-chat-store";
 import type { Product } from "@/lib/mock-data/products";
 
@@ -17,10 +17,33 @@ export async function startProductAiFill(product: Product, onDone: () => void): 
     const read = await readPageHtmlViaExtension(url);
     if (read.ok) {
       try {
-        await apiFetch("/api/v1/catalog/ai/source-page", {
+        const page = await apiFetch<{ data: { image_urls?: string[]; category_urls?: string[] } }>("/api/v1/catalog/ai/source-page", {
           method: "POST",
           body: JSON.stringify({ url, html: read.html }),
         });
+        // the shop's photos are behind the same bot check: fetch them in this browser too, so the import has the pictures
+        const imageUrls = page.data.image_urls ?? [];
+        if (imageUrls.length) {
+          toast.loading("Reading the product photos through your browser…", { id: toastId });
+          const photos = await readImagesViaExtension(imageUrls, read.pageUrl || url);
+          for (let i = 0; i < photos.images.length; i += 4) {
+            await apiFetch("/api/v1/catalog/ai/source-images", {
+              method: "POST",
+              body: JSON.stringify({ images: photos.images.slice(i, i + 4) }),
+            }).catch(() => undefined);
+          }
+        }
+        // the shop's category pages: their filters are how the product's specification profile is set up, and they are behind
+        // the same bot check (and built by scripts), so the browser reads them as drawn
+        for (const categoryUrl of page.data.category_urls ?? []) {
+          toast.loading("Reading the shop's filters through your browser…", { id: toastId });
+          const category = await readPageHtmlViaExtension(categoryUrl, { rendered: true });
+          if (!category.ok) continue;
+          await apiFetch("/api/v1/catalog/ai/source-page", {
+            method: "POST",
+            body: JSON.stringify({ url: categoryUrl, html: category.html }),
+          }).catch(() => undefined);
+        }
         toast.success("Source page read — starting the AI fill", { id: toastId });
       } catch (err) {
         toast.warning(

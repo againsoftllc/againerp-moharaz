@@ -135,12 +135,46 @@ export async function removePriceUpdateCompetitor(competitorId: string): Promise
   });
 }
 
+/** Ids go in the URL, so a long list is asked for in chunks (one request of thousands of ids is refused by the proxy). */
+const MATCH_IDS_PER_REQUEST = 150;
+
 export async function fetchPriceUpdateMatches(productIds: string[]): Promise<PriceUpdateMatch[]> {
   if (!productIds.length) return [];
-  const res = await apiFetch<{ data: PriceUpdateMatch[] }>(
-    `${BASE}/matches?product_ids=${encodeURIComponent(productIds.join(","))}`,
-  );
-  return res.data;
+  const chunks: string[][] = [];
+  for (let i = 0; i < productIds.length; i += MATCH_IDS_PER_REQUEST) chunks.push(productIds.slice(i, i + MATCH_IDS_PER_REQUEST));
+  const out: PriceUpdateMatch[] = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < chunks.length) {
+      const chunk = chunks[next++];
+      const res = await apiFetch<{ data: PriceUpdateMatch[] }>(`${BASE}/matches?product_ids=${encodeURIComponent(chunk.join(","))}`);
+      out.push(...res.data);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, chunks.length) }, worker));
+  return out;
+}
+
+/**
+ * The saved competitor status of a whole list (all products of a status), page by page - for the Price Compare screens, so a
+ * reload shows the last sync of every product without sending the product ids. `compact` skips rows nothing was ever read for.
+ */
+export async function fetchSavedPriceUpdateMatches(params: {
+  status: string;
+  channel?: string;
+  compact?: boolean;
+}): Promise<PriceUpdateMatch[]> {
+  const PAGE = 5000;
+  const out: PriceUpdateMatch[] = [];
+  for (let offset = 0; offset < 500_000; offset += PAGE) {
+    const q = new URLSearchParams({ status: params.status, limit: String(PAGE), offset: String(offset) });
+    if (params.channel) q.set("channel", params.channel);
+    if (params.compact) q.set("compact", "true");
+    const res = await apiFetch<{ data: PriceUpdateMatch[] }>(`${BASE}/matches/saved?${q}`, { cache: "no-store" });
+    out.push(...res.data);
+    if (res.data.length < PAGE) break;
+  }
+  return out;
 }
 
 export async function setPriceUpdateManualUrl(input: {

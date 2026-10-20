@@ -31,7 +31,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   fetchPriceUpdateCompetitors,
-  fetchPriceUpdateMatches,
+  fetchSavedPriceUpdateMatches,
   fetchPriceUpdatePlugin,
   installPriceUpdatePlugin,
   updatePriceUpdatePlugin,
@@ -209,10 +209,12 @@ function PriceUpdateContent({
   // cost) so a page reload doesn't look like the sync "disappeared". Only the actual Google
   // Search — "Check competitor prices" / the per-cell retry — stays manual-only; that
   // distinction was lost in an earlier pass that made this whole effect manual too.
+  // The saved rows are read for the whole list by its status (a page at a time) - not by sending every product id in a URL, which
+  // failed silently on a few thousand products and left the columns empty after a reload.
+  const savedMatchesParams = { status: draftOnly ? "unlisted" : "published", channel: "catalog", compact: Boolean(draftOnly) };
   useEffect(() => {
-    if (productIds.length === 0) return;
     let cancelled = false;
-    void fetchPriceUpdateMatches(productIds)
+    void fetchSavedPriceUpdateMatches(savedMatchesParams)
       .then((matches) => {
         if (cancelled) return;
         const grouped: Record<string, PriceUpdateMatch[]> = {};
@@ -228,14 +230,14 @@ function PriceUpdateContent({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productIds.join(",")]);
+  }, [savedMatchesParams.status, productIds.length === 0]);
 
   // Manual re-load button — same read, but with a toast, for "did my earlier sync really save?"
   const handleLoadSavedStatus = async () => {
-    if (loadingStatus || productIds.length === 0) return;
+    if (loadingStatus) return;
     setLoadingStatus(true);
     try {
-      const matches = await fetchPriceUpdateMatches(productIds);
+      const matches = await fetchSavedPriceUpdateMatches(savedMatchesParams);
       const grouped: Record<string, PriceUpdateMatch[]> = {};
       for (const m of matches) {
         (grouped[m.product_id] ??= []).push(m);

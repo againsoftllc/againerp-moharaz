@@ -54,6 +54,7 @@ function askExtension(
 /** The raw HTML of a shop page, read in this browser — for the AI fill on shops that block the server (Ryans …). */
 export function readPageHtmlViaExtension(
   url: string,
+  options?: { rendered?: boolean },
 ): Promise<{ ok: boolean; html: string; pageUrl: string; error: string }> {
   return new Promise((resolve) => {
     if (!isPriceExtensionAvailable()) {
@@ -80,7 +81,43 @@ export function readPageHtmlViaExtension(
       });
     }
     window.addEventListener("message", onMessage);
-    window.postMessage({ source: "againerp-page", type: "read-html", requestId, item: { url } }, window.location.origin);
+    window.postMessage(
+      { source: "againerp-page", type: "read-html", requestId, item: { url, rendered: Boolean(options?.rendered) } },
+      window.location.origin,
+    );
+  });
+}
+
+/** The product photos of a shop page, fetched in this browser (shops behind a bot check refuse the server for images too). */
+export function readImagesViaExtension(
+  urls: string[],
+  pageUrl: string,
+): Promise<{ ok: boolean; images: { url: string; content_type: string; data: string }[]; error: string }> {
+  return new Promise((resolve) => {
+    if (!isPriceExtensionAvailable() || urls.length === 0) {
+      resolve({ ok: false, images: [], error: "" });
+      return;
+    }
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const timer = window.setTimeout(() => {
+      window.removeEventListener("message", onMessage);
+      resolve({ ok: false, images: [], error: "The extension took too long" });
+    }, 120_000);
+    function onMessage(event: MessageEvent<Record<string, unknown>>) {
+      if (event.source !== window || event.origin !== window.location.origin) return;
+      const data = event.data;
+      if (!data || data.source !== "againerp-extension" || data.type !== "read-images-result") return;
+      if (data.requestId !== requestId) return;
+      window.clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      resolve({
+        ok: Boolean(data.ok),
+        images: Array.isArray(data.images) ? (data.images as { url: string; content_type: string; data: string }[]) : [],
+        error: typeof data.error === "string" ? data.error : "",
+      });
+    }
+    window.addEventListener("message", onMessage);
+    window.postMessage({ source: "againerp-page", type: "read-images", requestId, item: { urls, pageUrl } }, window.location.origin);
   });
 }
 

@@ -17,6 +17,43 @@ from app.services.media_storage import save_media_bytes
 
 MAX_IMAGE_BYTES = 5_000_000
 FETCH_TIMEOUT = 20.0
+
+# ── images the admin's own browser fetched ──────────────────────────────────────────────────────────────────────
+# Shops behind a bot check (Ryans) refuse the server for their images too, but open fine in a browser. The "Send to AgainERP"
+# extension reads the product's photos and hands their bytes to /catalog/ai/source-images; for a short while the import
+# uses these bytes for that image address instead of asking the shop.
+import time as _time
+
+_BROWSER_IMAGE_TTL = 30 * 60
+_BROWSER_IMAGE_MAX_COUNT = 80
+_BROWSER_IMAGE_MAX_BYTES = 120_000_000
+_browser_images: dict[str, tuple[float, bytes, str]] = {}
+
+
+def _image_key(url: str) -> str:
+    return url.strip().split("#", 1)[0].split("?", 1)[0]
+
+
+def remember_browser_image(url: str, content: bytes, content_type: str) -> None:
+    now = _time.time()
+    for key in [k for k, (exp, _c, _t) in _browser_images.items() if exp < now]:
+        _browser_images.pop(key, None)
+    while _browser_images and (
+        len(_browser_images) >= _BROWSER_IMAGE_MAX_COUNT or sum(len(v[1]) for v in _browser_images.values()) + len(content) > _BROWSER_IMAGE_MAX_BYTES
+    ):
+        _browser_images.pop(next(iter(_browser_images)), None)
+    _browser_images[_image_key(url)] = (now + _BROWSER_IMAGE_TTL, content, content_type)
+
+
+def recall_browser_image(url: str) -> Optional[tuple[bytes, str]]:
+    entry = _browser_images.get(_image_key(url))
+    if not entry:
+        return None
+    if entry[0] < _time.time():
+        _browser_images.pop(_image_key(url), None)
+        return None
+    return entry[1], entry[2]
+
 USER_AGENT = "AgainERP-CatalogBot/1.0 (+https://againerp.com)"
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".avif", ".bmp"}
 
@@ -190,34 +227,38 @@ def _import_single_image(
         if slot is not None and slot.source_url in set(_original_candidates(url)):
             slot._image_reused = True  # type: ignore[attr-defined]
             return slot
-    with httpx.Client(
-        timeout=FETCH_TIMEOUT,
-        follow_redirects=True,
-        headers={"User-Agent": USER_AGENT, "Accept": "image/*"},
-    ) as client:
-        response = None
-        last_error: Exception | None = None
-        # the ORIGINAL first (a resized "-500x500" copy of it is what pages usually link), then the given URL
-        for candidate in (_original_candidates(url) if square else [url]):
-            try:
-                res = client.get(candidate)
-                res.raise_for_status()
-                if not (res.headers.get("content-type") or "image/jpeg").startswith("image/") or not res.content:
-                    raise ValueError("not an image")
-                response, url = res, candidate
-                break
-            except Exception as exc:  # noqa: BLE001 - try the next candidate
-                last_error = exc
-        if response is None:
-            raise last_error or ValueError("Could not fetch the image")
+    from_browser = recall_browser_image(url)  # the admin's browser already fetched it (a shop that blocks the server)
+    if from_browser is not None:
+        content, content_type = from_browser[0][: MAX_IMAGE_BYTES * (4 if square else 1)], from_browser[1]
+    else:
+        with httpx.Client(
+            timeout=FETCH_TIMEOUT,
+            follow_redirects=True,
+            headers={"User-Agent": USER_AGENT, "Accept": "image/*"},
+        ) as client:
+            response = None
+            last_error: Exception | None = None
+            # the ORIGINAL first (a resized "-500x500" copy of it is what pages usually link), then the given URL
+            for candidate in (_original_candidates(url) if square else [url]):
+                try:
+                    res = client.get(candidate)
+                    res.raise_for_status()
+                    if not (res.headers.get("content-type") or "image/jpeg").startswith("image/") or not res.content:
+                        raise ValueError("not an image")
+                    response, url = res, candidate
+                    break
+                except Exception as exc:  # noqa: BLE001 - try the next candidate
+                    last_error = exc
+            if response is None:
+                raise last_error or ValueError("Could not fetch the image")
 
-        content_type = (response.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
-        if not content_type.startswith("image/"):
-            raise ValueError(f"Not an image ({content_type})")
+            content_type = (response.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
+            if not content_type.startswith("image/"):
+                raise ValueError(f"Not an image ({content_type})")
 
-        content = response.content[: MAX_IMAGE_BYTES * (4 if square else 1)]
-        if not content:
-            raise ValueError("Empty image response")
+            content = response.content[: MAX_IMAGE_BYTES * (4 if square else 1)]
+            if not content:
+                raise ValueError("Empty image response")
 
     filename = _filename_from_url(url, content_type)
     ext = Path(filename).suffix.lower()

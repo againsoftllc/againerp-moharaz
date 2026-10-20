@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from typing import Dict, List, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, HttpUrl
@@ -19,12 +22,13 @@ from app.schemas.catalog_ai_import import (
 )
 from app.services.catalog_ai import spec_profile_service
 from app.services.catalog_ai.importer_service import create_product_from_draft, extract_from_url
-from app.services.catalog_ai.scraper import fetch_page, remember_browser_html
+from app.services.catalog_ai.scraper import fetch_page, parse_page, remember_browser_html
 from app.models.catalog_product import CatalogProduct
 from app.services.catalog_media_import import (
     CatalogImportImagesRequest,
     CatalogImportImagesResponse,
     import_catalog_images,
+    remember_browser_image,
 )
 
 router = APIRouter(prefix="/ai", tags=["catalog-ai"])
@@ -210,7 +214,50 @@ def catalog_ai_source_page(
     """The admin's browser (Send to AgainERP extension) read a shop page that blocks the server and sends its HTML.
     The next AI / spec fill of that link reads this copy instead of fetching the shop (kept for 30 minutes)."""
     remember_browser_html(str(payload.url), payload.html)
-    return {"data": {"url": str(payload.url), "bytes": len(payload.html)}}
+    # the page's photo addresses: the browser fetches these too (the shop's images are behind the same bot check)
+    image_urls: list[str] = []
+    category_urls: list[str] = []
+    try:
+        parsed = parse_page(payload.html, str(payload.url))
+        image_urls = parsed.image_urls[:12]
+        # the category pages of the breadcrumb (home left out): their filters are read from the browser's copy too
+        links = [str(l.get("url")) for l in (parsed.structured.get("breadcrumb_links") or []) if l.get("url")]
+        category_urls = [u for u in links if urlparse(u).path.strip("/")][-2:]
+    except Exception:  # noqa: BLE001 - the HTML is still remembered
+        pass
+    return {"data": {"url": str(payload.url), "bytes": len(payload.html), "image_urls": image_urls, "category_urls": category_urls}}
+
+
+class SourceImage(BaseModel):
+    url: HttpUrl
+    content_type: str = Field(default="image/jpeg", max_length=80)
+    data: str = Field(min_length=8, max_length=14_000_000)  # base64
+
+
+class SourceImagesRequest(BaseModel):
+    images: List[SourceImage] = Field(min_length=1, max_length=20)
+
+
+@router.post("/source-images")
+def catalog_ai_source_images(
+    payload: SourceImagesRequest,
+    _: AuthUser = Depends(require_permission("catalog", "write")),
+) -> dict:
+    """The admin's browser fetched a shop's product photos (the shop blocks the server). The next import of those image
+    addresses uses these bytes instead of asking the shop (kept for 30 minutes)."""
+    stored = 0
+    for image in payload.images:
+        if not image.content_type.lower().startswith("image/"):
+            continue
+        try:
+            content = base64.b64decode(image.data, validate=False)
+        except (binascii.Error, ValueError):
+            continue
+        if not content or len(content) > 10_000_000:
+            continue
+        remember_browser_image(str(image.url), content, image.content_type.split(";")[0].strip())
+        stored += 1
+    return {"data": {"stored": stored}}
 
 
 @router.post("/spec-fill", response_model=SpecFillResponse)

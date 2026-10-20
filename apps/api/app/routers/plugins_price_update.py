@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -208,6 +210,22 @@ def delete_price_update_competitor(
     company_id: str = Depends(get_current_company_id),
 ) -> None:
     svc.remove_competitor_site(db, company_id=company_id, competitor_id=competitor_id)
+
+
+@router.get("/matches/saved", response_model=PriceUpdateMatchListResponse)
+def get_saved_price_update_matches(
+    status: Optional[str] = Query(None, pattern="^(draft|published|unlisted|archived)$"),
+    channel: Optional[str] = Query(None, pattern="^(catalog|dropshipping)$"),
+    compact: bool = Query(False, description="Leave out rows nothing was ever read for"),
+    limit: int = Query(5000, ge=1, le=10000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    _user: AuthUser = Depends(get_current_user),
+    company_id: str = Depends(get_current_company_id),
+) -> PriceUpdateMatchListResponse:
+    """Saved competitor status for a whole list (by product status), one page at a time - no product ids in the URL."""
+    rows = svc.list_saved_matches(db, company_id=company_id, status=status, channel=channel, compact=compact, limit=limit, offset=offset)
+    return PriceUpdateMatchListResponse(data=[_match_read(r) for r in rows])
 
 
 @router.get("/matches", response_model=PriceUpdateMatchListResponse)

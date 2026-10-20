@@ -21,6 +21,7 @@ from urllib.parse import quote_plus, urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.catalog_product import CatalogProduct
@@ -1114,6 +1115,38 @@ def set_manual_match(
     db.commit()
     db.refresh(match)
     return match
+
+
+def list_saved_matches(
+    db: Session,
+    *,
+    company_id: str,
+    status: Optional[str] = None,
+    channel: Optional[str] = None,
+    compact: bool = False,
+    limit: int = 5000,
+    offset: int = 0,
+) -> list[PriceUpdateMatch]:
+    """The saved competitor status of every product of one list (a status, e.g. "published"), read straight from the table -
+    a plain page of rows, so the screen does not have to send thousands of product ids in a URL (that failed silently
+    once a list passed ~1,000 products and the screen came back empty after a reload). `compact` leaves out the rows nothing
+    was ever read for (a link saved at import time, never checked): the screen shows those from the product's own source link."""
+    query = (
+        db.query(PriceUpdateMatch)
+        .join(CatalogProduct, CatalogProduct.id == PriceUpdateMatch.product_id)
+        .filter(PriceUpdateMatch.company_id == company_id, CatalogProduct.company_id == company_id)
+    )
+    if status:
+        query = query.filter(CatalogProduct.status == status)
+    if channel == "catalog":
+        query = query.filter(CatalogProduct.dropship_meta_json.is_(None))
+    elif channel == "dropshipping":
+        query = query.filter(CatalogProduct.dropship_meta_json.isnot(None))
+    if compact:
+        query = query.filter(
+            or_(PriceUpdateMatch.status != "not_found", PriceUpdateMatch.last_checked_at.isnot(None), PriceUpdateMatch.matched_url.is_(None))
+        )
+    return query.order_by(PriceUpdateMatch.id).offset(offset).limit(limit).all()
 
 
 def list_matches(db: Session, *, company_id: str, product_ids: list[str]) -> list[PriceUpdateMatch]:
