@@ -518,6 +518,20 @@ def sales_summary_report(
     money = lambda v: str(Decimal(str(v or 0)).quantize(Decimal("0.01")))  # noqa: E731
     order_count = int(rev[0] or 0)
     total = Decimal(str(rev[4] or 0))
+    # credit notes of sales returns issued in the period (the orders above are by order date, the credits by return date)
+    returns_total = Decimal(
+        str(
+            db.query(func.coalesce(func.sum(SalesReturn.credit_amount), 0))
+            .filter(
+                SalesReturn.company_id == company_id,
+                SalesReturn.status == "credited",
+                SalesReturn.return_date >= start,
+                SalesReturn.return_date <= end,
+            )
+            .scalar()
+            or 0
+        )
+    )
     return {
         "data": {
             "period": {"from": start.isoformat(), "to": end.isoformat()},
@@ -527,6 +541,8 @@ def sales_summary_report(
             "tax": money(rev[2]),
             "discount": money(rev[3]),
             "total": money(total),
+            "returns_total": money(returns_total),
+            "net_total": money(total - returns_total),
             "average_order_value": money(total / order_count) if order_count else "0.00",
             "invoiced_orders": int(rev[6] or 0),
             "not_invoiced_orders": order_count - int(rev[6] or 0),

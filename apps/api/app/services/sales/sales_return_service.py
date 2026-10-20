@@ -27,6 +27,11 @@ from app.services.sales.constants import SALES_RETURN_REASONS, SALES_RETURN_STAT
 from app.services.core.sequence_service import get_or_create as get_sequence, next_number as allocate_number
 
 
+# A return for one of these reasons is a faulty / damaged unit: it must not go back into SELLABLE stock, so (unless the staff pick
+# a warehouse) it is received into the company's RMA store.
+DEFECT_REASONS = frozenset({"defective", "damaged_in_transit", "warranty"})
+
+
 @dataclass(frozen=True)
 class SalesReturnLineInput:
     sales_order_line_id: str
@@ -91,6 +96,7 @@ class SalesReturnService:
         notes: Optional[str] = None,
         discount_amount: Decimal = Decimal("0"),
         actor_id: Optional[str] = None,
+        warehouse_id: Optional[str] = None,
     ) -> SalesReturn:
         order = self._require_order(sales_order_id)
         if order.status == "cancelled":
@@ -107,7 +113,7 @@ class SalesReturnService:
             return_number=self._next_return_number(order.company_id),
             sales_order_id=order.id,
             customer_id=order.customer_id,
-            warehouse_id=order.warehouse_id,
+            warehouse_id=self._return_warehouse(order, reason, warehouse_id),
             status="draft",
             reason=reason,
             return_date=return_date or date.today(),
@@ -119,6 +125,7 @@ class SalesReturnService:
 
         subtotal = Decimal("0")
         tax_total = Decimal("0")
+        returned_net = Decimal("0")  # the returned lines' value after their own discount, before any order-level discount
         for line_in in lines:
             if line_in.quantity_returned <= 0:
                 continue
@@ -150,6 +157,7 @@ class SalesReturnService:
             discount_per_unit = so_line.discount_amount / ordered
             net_unit = so_line.unit_price - discount_per_unit
             line_sub = net_unit * qty
+            returned_net += line_sub
             line_discount = max(Decimal("0"), min(line_in.discount_amount, line_sub))
             line_sub_after_discount = line_sub - line_discount
             line_tax = line_sub_after_discount * so_line.tax_rate / Decimal("100")
@@ -173,7 +181,19 @@ class SalesReturnService:
         if subtotal <= 0:
             raise HTTPException(status_code=400, detail="No quantities to return")
 
-        discount = max(Decimal("0"), min(discount_amount, subtotal))
+        # The customer paid for the lines MINUS the order-level discount (a fixed amount or a percent of the order): the units that come
+        # back take their share of it with them, or a paid order would be refunded more than was paid. Shipping is not refunded.
+        order_net = sum(
+            (row.unit_price * Decimal(row.quantity_ordered or 0) - row.discount_amount for row in so_lines.values()),
+            Decimal("0"),
+        )
+        order_share = Decimal("0")
+        if order_net > 0:
+            from app.services.sales.sales_service import SalesService
+
+            header_discount = SalesService.header_discount_amount(order, order_net)
+            order_share = (header_discount * returned_net / order_net).quantize(Decimal("0.01"))
+        discount = max(Decimal("0"), min(discount_amount + order_share, subtotal))
 
         ret.subtotal = subtotal
         ret.discount_amount = discount
@@ -303,7 +323,7 @@ class SalesReturnService:
                 if release > 0:
                     movement_svc.release(
                         item_id=rline.item_id,
-                        warehouse_id=ret.warehouse_id,
+                        warehouse_id=self._require_order(ret.sales_order_id).warehouse_id or ret.warehouse_id,
                         quantity=release,
                         company_id=ret.company_id,
                         source_type=RESERVATION_SOURCE_SALES,
@@ -411,6 +431,29 @@ class SalesReturnService:
                 for l in lines
             ],
         )
+
+    def _return_warehouse(self, order: SalesOrder, reason: str, requested: Optional[str]) -> str:
+        """Where the returned units are received: the warehouse the staff chose, else the RMA store for a faulty / damaged return,
+        else the warehouse the order was sold from."""
+        if requested:
+            wh = self._db.get(InventoryWarehouse, requested)
+            if wh is None or (wh.company_id or "default") != (order.company_id or "default") or not wh.is_active or wh.is_supplier_transit:
+                raise HTTPException(status_code=400, detail="Choose an active warehouse to receive the returned units")
+            return wh.id
+        if reason in DEFECT_REASONS:
+            rma = (
+                self._db.query(InventoryWarehouse)
+                .filter(
+                    InventoryWarehouse.company_id == order.company_id,
+                    InventoryWarehouse.is_rma_store.is_(True),
+                    InventoryWarehouse.is_active.is_(True),
+                )
+                .order_by(InventoryWarehouse.sort_order, InventoryWarehouse.created_at)
+                .first()
+            )
+            if rma is not None:
+                return rma.id
+        return order.warehouse_id
 
     def _order_lines(self, order_id: str) -> list[SalesOrderLine]:
         return self._db.query(SalesOrderLine).filter(SalesOrderLine.sales_order_id == order_id).all()

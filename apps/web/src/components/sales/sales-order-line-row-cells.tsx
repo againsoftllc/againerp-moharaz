@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  LINE_TABLE_ACTION_COL_CLASS,
   type LineDataCol,
 } from "@/components/sales/sales-order-line-table-layout";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
@@ -511,6 +512,33 @@ export function renderSalesOrderLineCell(col: LineDataCol, ctx: RenderLineCellCt
     default:
       return null;
   }
+}
+
+/** The row's fixed right-hand cell: the delete button, always in the same place (see LINE_TABLE_ACTION_COL_CLASS). */
+export function LineActionCell({
+  readOnly,
+  onRemove,
+  compact,
+}: {
+  readOnly?: boolean;
+  onRemove: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <td className={LINE_TABLE_ACTION_COL_CLASS}>
+      {readOnly ? null : (
+        <button
+          type="button"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-none text-muted-foreground/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
+          onClick={onRemove}
+          aria-label="Delete line"
+          title="Delete line"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </td>
+  );
 }
 
 export function LineDeleteOverlay({

@@ -84,6 +84,7 @@ def create_return(
         notes=payload.notes,
         discount_amount=payload.discount_amount,
         actor_id=user.id,
+        warehouse_id=payload.warehouse_id,
     )
     if payload.auto_credit:
         svc.confirm_return(ret.id, actor_id=user.id)

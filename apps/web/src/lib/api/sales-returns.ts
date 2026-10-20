@@ -67,6 +67,8 @@ export type CreateSalesReturnInput = {
   requested_by?: string;
   notes?: string;
   discount_amount?: number;
+  /** Where the units are received. Left out: the RMA store for a defective / warranty / damaged return, else the order's warehouse. */
+  warehouse_id?: string;
   /** Confirm + credit immediately (stock back, credit note posted). */
   auto_credit?: boolean;
   lines: {

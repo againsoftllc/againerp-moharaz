@@ -489,7 +489,8 @@ class SalesDashboardResponse(BaseModel):
 
 class SalesPeriodTotals(BaseModel):
     order_count: int
-    revenue: Decimal
+    revenue: Decimal  # net of sales returns credited in the period
+    returns_total: Decimal = Decimal("0")
     avg_order_value: Decimal
     completed_count: int
     cancelled_count: int

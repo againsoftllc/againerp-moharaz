@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.deps.auth import get_current_company_id, require_permission
@@ -866,7 +867,8 @@ def _list_scope_query(db: Session, company_id: str, status: Optional[str], exclu
         query = query.filter(CatalogProduct.dropship_meta_json.is_(None))
     # Inventory and Website keep separate product lists over the same table.
     if scope == "inventory":
-        query = query.filter(CatalogProduct.in_inventory.is_(True))
+        # an Unlisted product is a website draft (a title and a source link): the Inventory catalog never lists one
+        query = query.filter(CatalogProduct.in_inventory.is_(True), CatalogProduct.status != "unlisted")
     elif scope == "website":
         query = query.filter(CatalogProduct.on_website.is_(True))
     return query
@@ -924,8 +926,15 @@ def list_products(
         False,
         description="Only products that have a selling price (leaves out imported / placeholder rows) - used by document product search",
     ),
+    brand: Optional[str] = Query(None, max_length=200, description="Only products of this brand (name)"),
+    category: Optional[List[str]] = Query(None, description="Only products filed under one of these category names (repeat the parameter)"),
 ) -> ProductListResponse:
     query = _list_scope_query(db, company_id, status, exclude_status, channel, scope)
+    if brand and brand.strip():
+        query = query.filter(func.lower(CatalogProduct.brand) == brand.strip().lower())
+    names = [c.strip().lower() for c in (category or []) if c and c.strip()][:200]
+    if names:
+        query = query.filter(func.lower(CatalogProduct.category).in_(names))
     if sellable:
         query = query.filter(CatalogProduct.price > 0)
     if updated_since:

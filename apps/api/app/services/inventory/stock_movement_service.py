@@ -703,9 +703,18 @@ class StockMovementService:
         from sqlalchemy import func
 
         self._db.flush()
+        from app.models.inventory_warehouse import InventoryWarehouse
+
+        # The product's stock is what can be SOLD: units in the RMA store (returned faulty / under claim) and in the supplier
+        # transit place are not part of it.
         total = (
             self._db.query(func.coalesce(func.sum(InventoryStockLevel.on_hand), 0))
-            .filter(InventoryStockLevel.item_id == item_id)
+            .join(InventoryWarehouse, InventoryWarehouse.id == InventoryStockLevel.warehouse_id)
+            .filter(
+                InventoryStockLevel.item_id == item_id,
+                InventoryWarehouse.is_rma_store.is_(False),
+                InventoryWarehouse.is_supplier_transit.is_(False),
+            )
             .scalar()
         )
         product = (

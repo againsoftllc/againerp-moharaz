@@ -18,6 +18,16 @@ export type FilterSelectOption = {
   label: string;
 };
 
+/** CSS variables of a list-filter menu for a given font size (see globals.css [data-list-filter-menu]). */
+export function menuVars(fontSize?: number): React.CSSProperties | undefined {
+  if (!fontSize) return undefined;
+  return {
+    "--filter-menu-font": `${fontSize}px`,
+    "--filter-menu-row": `${Math.round(fontSize * 2.3)}px`,
+    "--filter-menu-input": `${Math.round(fontSize * 2.4)}px`,
+  } as React.CSSProperties;
+}
+
 type Props = {
   value: string;
   onChange: (value: string) => void;
@@ -34,6 +44,8 @@ type Props = {
   avoidCollisions?: boolean;
   /** The "no filter" value the cross resets to (default: the option whose value is "all" or ""; none -> no cross). */
   clearValue?: string;
+  /** Font size (px) of the open menu - the search box and every option; by default the list-filter size (10px x list zoom). */
+  menuFontSize?: number;
 };
 
 /**
@@ -53,6 +65,7 @@ export function FilterSelect({
   disabled = false,
   avoidCollisions = false,
   clearValue,
+  menuFontSize,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -111,6 +124,11 @@ export function FilterSelect({
         collisionPadding={8}
         className="max-h-72 w-[var(--radix-dropdown-menu-trigger-width)] min-w-[8rem] overflow-hidden p-0"
         data-list-filter-menu=""
+        style={menuVars(menuFontSize)}
+        // Inside a drawer the Dialog locks page scroll (react-remove-scroll) and also blocks the wheel in this portalled menu:
+        // stopping the event here lets the option list scroll
+        onWheel={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
       >
         {showSearch && (
           <div className="border-b border-input p-1" onPointerDown={(e) => e.stopPropagation()}>

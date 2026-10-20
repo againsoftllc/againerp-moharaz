@@ -5,6 +5,7 @@ Every record, form or detail drawer in AgainERP follows this page. It builds on 
 Reference implementation: the Cheque book drawers
 - `apps/web/src/components/finance/cheque-book-detail-drawer.tsx` (open an existing record, a lot of information)
 - `apps/web/src/components/finance/cheque-book-drawer.tsx` (new record, a short form)
+- `apps/web/src/components/sales/sales-order-form-drawer.tsx` (the sales order: Odoo-style top bar and status bar, 80 % default (the busiest drawer), drafts for new and existing orders)
 
 ---
 
@@ -179,4 +180,5 @@ For a "New X" drawer declare the "fresh empty form on open" effect **before** `u
 | Date | Change |
 | --- | --- |
 | 2026-10-20 | Button types: `AgainDrawerButton`, `AgainDrawerSwitch`, `AgainDrawerCloseButton` + the "Button types" section (the sales order drawer's bar is the reference). Brand drawer, New cheque book and the Cheque book detail drawer (Generate = success, Delete Unused = danger, state = switch) use them. |
+| 2026-10-20 | Sales order drawer: Print menu, Odoo status bar (Quotation > Quotation Sent > Sales Order), 60 % default width, draft + scroll position for existing orders, "unsaved changes" note |
 | 2026-10-20 | First version. Drafts now cover editing too; `useDrawerDraft` hook; `AgainDrawerPanel` `defaultWidthRatio`; `AgainDrawerScrollBody` `scrollRef`; cheque book drawers redesigned as the reference. |

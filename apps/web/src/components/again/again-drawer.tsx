@@ -296,13 +296,16 @@ export function AgainDrawerScrollBody({
 export function AgainDrawerControlBar({
   children,
   trailing,
+  className,
 }: {
   children: React.ReactNode;
   /** Right-aligned actions (e.g. Save). */
   trailing?: React.ReactNode;
+  /** e.g. `px-4 sm:px-6` to line the bar up with the drawer's content margin. */
+  className?: string;
 }) {
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border/80 px-3 py-1">
+    <div className={cn("flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border/80 px-3 py-1", className)}>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">{children}</div>
       {trailing ? <div className="ml-auto flex shrink-0 items-center gap-1">{trailing}</div> : null}
     </div>

@@ -1856,6 +1856,8 @@ class SalesService:
             )
             .scalar()
         )
+        # revenue is NET of what was credited back to customers (sales returns)
+        revenue_total = Decimal(str(revenue_total or 0)) - self._returns_credited(company_id, None, None)
         quote_open = (
             self._db.query(SalesQuotation)
             .filter(
@@ -1925,6 +1927,19 @@ class SalesService:
 
     REVENUE_STATUSES = ("confirmed", "processing", "completed")
 
+    def _returns_credited(self, company_id: str, date_from: Optional[date], date_to: Optional[date]) -> Decimal:
+        """Credit notes of sales returns (credited ones) dated within the period (both inclusive; None = open-ended)."""
+        from app.models.sales_return import SalesReturn
+
+        q = self._db.query(func.coalesce(func.sum(SalesReturn.credit_amount), 0)).filter(
+            SalesReturn.company_id == company_id, SalesReturn.status == "credited"
+        )
+        if date_from:
+            q = q.filter(SalesReturn.return_date >= date_from)
+        if date_to:
+            q = q.filter(SalesReturn.return_date <= date_to)
+        return Decimal(str(q.scalar() or 0))
+
     def _period_totals(self, company_id: str, date_from: Optional[date], date_to: Optional[date]) -> dict[str, Any]:
         """Orders placed between the dates (both inclusive; None = open-ended): count, revenue, completed, cancelled."""
         q = self._db.query(SalesOrder).filter(SalesOrder.company_id == company_id)
@@ -1939,11 +1954,14 @@ class SalesService:
         )
         by_status = {status: (int(count or 0), Decimal(str(total or 0))) for status, count, total in rows}
         orders = sum(c for c, _ in by_status.values())
-        revenue = sum((t for s, (_, t) in by_status.items() if s in self.REVENUE_STATUSES), Decimal("0"))
+        gross = sum((t for s, (_, t) in by_status.items() if s in self.REVENUE_STATUSES), Decimal("0"))
         paying = sum(c for s, (c, _) in by_status.items() if s in self.REVENUE_STATUSES)
+        returns_total = self._returns_credited(company_id, date_from, date_to)
+        revenue = gross - returns_total  # net of the credit notes issued in the period
         return {
             "order_count": orders,
             "revenue": revenue,
+            "returns_total": returns_total,
             "avg_order_value": (revenue / paying) if paying else Decimal("0"),
             "completed_count": by_status.get("completed", (0, 0))[0],
             "cancelled_count": by_status.get("cancelled", (0, 0))[0],

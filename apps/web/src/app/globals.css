@@ -631,7 +631,8 @@ body.storefront-site {
    (set by useGridZoom) and use ONE font size for the search box, the rows and the messages - the same as the filter row. */
 [data-list-filter-menu],
 [data-list-filter-menu] *:not(svg):not(path) {
-  font-size: calc(10px * var(--list-zoom, 1)) !important;
+  /* a picker may set --filter-menu-font on its menu (FilterSelect / CategoryCombobox `menuFontSize`) to match its trigger */
+  font-size: var(--filter-menu-font, calc(10px * var(--list-zoom, 1))) !important;
   line-height: 1.35 !important;
 }
 
@@ -641,13 +642,13 @@ body.storefront-site {
 }
 
 [data-list-filter-menu] input {
-  height: calc(24px * var(--list-zoom, 1)) !important;
+  height: var(--filter-menu-input, calc(24px * var(--list-zoom, 1))) !important;
 }
 
 [data-list-filter-menu] [role="menuitem"],
 [data-list-filter-menu] [role="option"],
 [data-list-filter-menu] label {
-  min-height: calc(22px * var(--list-zoom, 1));
+  min-height: var(--filter-menu-row, calc(22px * var(--list-zoom, 1)));
 }
 
 /* Table stays edge-flush; only cell content gets left inset */

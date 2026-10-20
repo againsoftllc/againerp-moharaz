@@ -104,6 +104,7 @@ export function AgainFormNotebook<T extends string>({
   children,
   className,
   contentClassName,
+  tabsClassName,
 }: {
   tabs: AgainNotebookTab<T>[];
   active: T;
@@ -111,10 +112,12 @@ export function AgainFormNotebook<T extends string>({
   children: React.ReactNode;
   className?: string;
   contentClassName?: string;
+  /** The tab strip's own padding, e.g. to start the first tab at the content's left margin. */
+  tabsClassName?: string;
 }) {
   return (
     <div className={cn("again_form_notebook flex min-h-0 flex-col border-t border-border", className)} data-component="again_form_notebook">
-      <div className="flex shrink-0 flex-nowrap gap-0 overflow-x-auto border-b border-border bg-muted/20 [-ms-overflow-style:none] [scrollbar-width:none] dark:bg-muted/10 [&::-webkit-scrollbar]:hidden">
+      <div className={cn("flex shrink-0 flex-nowrap gap-0 overflow-x-auto border-b border-border bg-muted/20 [-ms-overflow-style:none] [scrollbar-width:none] dark:bg-muted/10 [&::-webkit-scrollbar]:hidden", tabsClassName)}>
         {tabs.map((t) => (
           <button
             key={t.id}

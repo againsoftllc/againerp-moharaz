@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FilterSelect } from "@/components/shared/filter-select";
-import { AgainFormField, AgainFormGroupTitle } from "@/components/again/again-form-sheet";
+import { AGAIN_FORM_TITLE_CLASS, AgainFormField, AgainFormGroupTitle } from "@/components/again/again-form-sheet";
 import { useInventoryWarehouses } from "@/lib/api/use-inventory";
 import { createPortal } from "react-dom";
 import {
@@ -104,12 +104,14 @@ import {
   SHIPPING_STATUS_LABELS,
 } from "@/lib/mock-data/orders";
 import {
+  LINE_ACTION_COL_WIDTH,
+  LINE_TABLE_ACTION_HEAD_CLASS,
   LineTableHeaderCell,
   useLineTableLayout,
 } from "@/components/sales/sales-order-line-table-layout";
 import {
   lineCellClassName,
-  LineDeleteOverlay,
+  LineActionCell,
   LineNumericInput,
   renderSalesOrderLineCell,
 } from "@/components/sales/sales-order-line-row-cells";
@@ -492,7 +494,7 @@ function normalizeSalesPaymentMethod(raw: string | null | undefined): string {
 const PAYMENT_META_MARKER_RE = /<!--againerp:payment-->[\s\S]*?<!--\/againerp:payment-->/;
 
 const DRAFT_KEY = "sales-order";
-type SalesOrderDraftPayload = { form: FormState };
+type SalesOrderDraftPayload = { form: FormState; scrollTop?: number };
 
 const SHIPPING_LINE_OPTIONS = [
   {
@@ -621,6 +623,9 @@ type SalesProductOption = {
   stock?: number;
   trackQuantity?: boolean;
   trackSerial?: boolean;
+  /** For the product search bar's Brand / Category filter. */
+  brand?: string;
+  category?: string;
 };
 
 /** Product "Weight" is free text (e.g. "1.5 kg"); pull the first number and treat it as kg. */
@@ -643,8 +648,12 @@ function mapItemsToSalesProducts(
     track_serial?: boolean | null;
     thumbnail?: string | null;
     weight?: string | null;
+    brand?: string | null;
+    category?: string | null;
   }[],
 ): SalesProductOption[] {
+  const brandByItem = new Map<string, string>();
+  const categoryByItem = new Map<string, string>();
   const priceByItem = new Map<string, number>();
   const imageByItem = new Map<string, string>();
   const productIdByItem = new Map<string, string>();
@@ -665,6 +674,8 @@ function mapItemsToSalesProducts(
       if (typeof product.stock === "number") stockByItem.set(product.item_id, product.stock);
       trackByItem.set(product.item_id, product.track_quantity ?? true);
       serialByItem.set(product.item_id, product.track_serial === true);
+      if (product.brand) brandByItem.set(product.item_id, product.brand);
+      if (product.category) categoryByItem.set(product.item_id, product.category);
     }
   }
   return items.map((item) => ({
@@ -682,6 +693,8 @@ function mapItemsToSalesProducts(
     stock: stockByItem.get(item.id),
     trackQuantity: trackByItem.get(item.id),
     trackSerial: serialByItem.get(item.id),
+    brand: brandByItem.get(item.id),
+    category: categoryByItem.get(item.id),
   }));
 }
 
@@ -896,6 +909,35 @@ function statusToStage(status: OrderStatus): StatusStage {
   if (status === "draft") return "quotation";
   if (status === "pending") return "quotation_sent";
   return "sales_order";
+}
+
+const STAGE_STEPS: { id: StatusStage; label: string }[] = [
+  { id: "quotation", label: "Quotation" },
+  { id: "quotation_sent", label: "Quotation Sent" },
+  { id: "sales_order", label: "Sales Order" },
+];
+
+/** Odoo's status bar: Quotation > Quotation Sent > Sales Order, the current step filled; a closed order (cancelled, returned,
+ * refunded, failed) shows its state instead. Hidden on narrow drawers. */
+function SalesStatusSteps({ stage, status }: { stage: StatusStage; status: OrderStatus }) {
+  const closed = status === "cancelled" || status === "returned" || status === "refunded" || status === "failed";
+  if (closed) {
+    return (
+      <span className="hidden h-6 items-center bg-muted px-2 text-[11px] font-medium capitalize text-muted-foreground lg:inline-flex">{status}</span>
+    );
+  }
+  return (
+    <div className="hidden items-center text-[11px] lg:flex" aria-label="Order stage">
+      {STAGE_STEPS.map((step, i) => (
+        <div key={step.id} className="flex items-center">
+          {i > 0 ? <span className="px-1 text-muted-foreground">›</span> : null}
+          <span className={cn("px-2 py-0.5", step.id === stage ? "bg-[#00a09d] font-medium text-white" : "bg-muted text-muted-foreground")}>
+            {step.label}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function localYmd(d: Date): string {
@@ -1570,7 +1612,7 @@ function SortableOrderLineRow({
         isDragging && "relative z-10 bg-muted/50 shadow-sm",
       )}
     >
-      <td className={cn("w-8 pr-1 text-muted-foreground", compact ? "py-1" : "py-1.5")}>
+      <td className={cn("w-4 p-0 text-muted-foreground", compact ? "py-1" : "py-1.5")}>
         {!readOnly ? (
           <button
             type="button"
@@ -1582,7 +1624,7 @@ function SortableOrderLineRow({
             <GripVertical
               className={cn(
                 "cursor-grab opacity-50 group-hover:opacity-100 active:cursor-grabbing",
-                compact ? "h-3.5 w-3.5" : "h-4 w-4",
+                "h-3.5 w-3.5",
               )}
             />
           </button>
@@ -1675,27 +1717,32 @@ function SearchDropdown({
   return createPortal(
     <div
       data-sales-search-dropdown
-      className="overflow-hidden rounded-none border border-border bg-popover text-popover-foreground shadow-xl"
+      className="flex flex-col overflow-hidden rounded-md border border-border/70 bg-popover py-1 text-popover-foreground shadow-2xl"
       style={{
         position: "fixed",
         top: pos.top,
         left: pos.left,
         width: pos.width,
         zIndex: 50,
-        maxHeight: 280,
+        // under the field: as tall as the space below allows (the list scrolls inside), so it never runs off the screen
+        maxHeight: placement === "bottom" ? Math.max(140, Math.min(280, window.innerHeight - pos.top - 8)) : 280,
       }}
       onMouseDown={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <ul className="max-h-[240px] overflow-y-auto py-1">
+      <ul className="group/list max-h-[240px] min-h-0 flex-1 overflow-y-auto px-1">
         {items.length === 0 ? (
           <li className="px-3 py-2 text-[13px] text-muted-foreground">No results</li>
         ) : (
-          items.map((item) => (
+          items.map((item, index) => (
             <li key={item.id}>
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-[13px] hover:bg-accent"
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 rounded-sm px-2.5 py-1.5 text-left text-[13px] hover:bg-accent",
+                  // the first row is the one Enter would pick - highlighted until the pointer moves to another
+                  index === 0 && "bg-accent/70 group-hover/list:bg-transparent group-hover/list:hover:bg-accent",
+                )}
                 onPointerDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -1718,11 +1765,11 @@ function SearchDropdown({
         )}
       </ul>
       {onSearchMore || onAddNew ? (
-        <div className="sticky bottom-0 flex w-full items-center gap-3 border-t border-border bg-popover px-3 py-1.5">
+        <div className="flex w-full flex-col items-start px-1 pt-0.5">
           {onSearchMore ? (
             <button
               type="button"
-              className={cn("text-left", LINK)}
+              className={cn("w-full rounded-sm px-2.5 py-1.5 text-left hover:bg-accent", LINK)}
               onPointerDown={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1735,7 +1782,7 @@ function SearchDropdown({
           {onAddNew ? (
             <button
               type="button"
-              className={cn("ml-auto text-right", LINK)}
+              className={cn("w-full rounded-sm px-2.5 py-1.5 text-left hover:bg-accent", LINK)}
               onPointerDown={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -2171,6 +2218,15 @@ export function SalesOrderFormDrawer({
   >("lines");
   const [form, setForm] = useState<FormState>(emptySalesOrderForm);
   const [restoredDraftAt, setRestoredDraftAt] = useState<string | null>(null);
+  // docs/drawercommon.md: one draft per record ("sales-order" for a new one, "sales-order:<id>" for an existing order) that
+  // keeps the form AND the scroll position, so a drawer closed by accident comes back where the user was
+  const draftKeyFor = (m: typeof mode, id?: string | null) => (m === "create" ? DRAFT_KEY : id ? `${DRAFT_KEY}:${id}` : null);
+  const clearCurrentDraft = () => {
+    const key = draftKeyFor(mode, order?.id);
+    if (key) clearDraft(key);
+  };
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+  const pendingScrollRef = useRef<number | null>(null);
   const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({});
   const [returnLineDiscounts, setReturnLineDiscounts] = useState<
     Record<string, { value: number; type: "fixed" | "percent" }>
@@ -2178,6 +2234,7 @@ export function SalesOrderFormDrawer({
   const [returnDiscount, setReturnDiscount] = useState<number | null>(null);
   const [returnDiscountType, setReturnDiscountType] = useState<"fixed" | "percent">("fixed");
   const [returnReason, setReturnReason] = useState<SalesReturnReason>("customer_changed_mind");
+  const [returnWarehouseId, setReturnWarehouseId] = useState(""); // "" = automatic (see the Return details note)
   const [returnNotes, setReturnNotes] = useState("");
   /** Serials ticked for a partial return, per order line id. */
   const [returnSerials, setReturnSerials] = useState<Record<string, string[]>>({});
@@ -2201,7 +2258,8 @@ export function SalesOrderFormDrawer({
   // Drag-to-resize widths — the variant picker overlay stays a bit narrower
   // than the sales drawer it sits on.
   const { width: drawerWidth, handleProps: drawerResizeHandle } = useDrawerResize({
-    defaultWidth: typeof window !== "undefined" ? Math.round(window.innerWidth * 0.7) : 880,
+    defaultWidth: 880,
+    defaultWidthRatio: 0.8, // the sales order is the busiest drawer: it opens at 80 % of the screen (others: 60 %)
     minWidth: 480,
     maxWidthRatio: 0.95,
     storageKey: "againerp:sales-order-drawer-width",
@@ -2253,7 +2311,9 @@ export function SalesOrderFormDrawer({
   const walkInDefaultAppliedRef = useRef(false);
   const [deliveryAddrOpen, setDeliveryAddrOpen] = useState(false);
 
-  const getCustomerAnchor = useCallback(() => customerAnchorRef.current, []);
+  // the dropdown opens straight under the search line (not under the address / contact lines below it)
+  const customerFieldRef = useRef<HTMLDivElement | null>(null);
+  const getCustomerAnchor = useCallback(() => customerFieldRef.current ?? customerAnchorRef.current, []);
   const getStatusAnchor = useCallback(() => statusAnchorRef.current, []);
 
   const setRootEl = useCallback((el: HTMLDivElement | null) => {
@@ -2304,19 +2364,26 @@ export function SalesOrderFormDrawer({
       apiFetch<{
         data: {
           id: string;
+          sku: string;
+          name: string;
+          barcode?: string | null;
           item_id?: string | null;
           price: string;
           thumbnail?: string | null;
           weight?: string | null;
+          brand?: string | null;
+          category?: string | null;
         }[];
-      }>("/api/v1/catalog/products?per_page=200"),
+      }>("/api/v1/catalog/products?per_page=200&sellable=true&exclude_status=unlisted"),
     ])
       .then(([itemsRes, productsRes]) => {
-        if (!itemsRes.data?.length) {
-          setCatalogProducts([]);
-          return;
-        }
-        setCatalogProducts(mapItemsToSalesProducts(itemsRes.data, productsRes.data ?? []));
+        const sellable = productsRes.data ?? [];
+        const fromSellable = mapItemsToSalesProducts(
+          sellable.filter((p) => p.item_id).map((p) => ({ id: p.item_id as string, sku: p.sku, name: p.name, barcode: p.barcode ?? null })),
+          sellable,
+        );
+        const plain = mapItemsToSalesProducts(itemsRes.data ?? [], sellable);
+        setCatalogProducts([...fromSellable, ...plain.filter((p) => !fromSellable.some((f) => f.id === p.id))]);
       })
       .catch(() => {
         setCatalogProducts([]);
@@ -2338,10 +2405,14 @@ export function SalesOrderFormDrawer({
     setViewProductName(null);
     if (order) {
       const f = orderToForm(order);
-      setForm(f);
+      const editDraft = order.id ? readDraft<SalesOrderDraftPayload>(`${DRAFT_KEY}:${order.id}`) : null;
+      const shown = editDraft ? { ...f, ...editDraft.values.form } : f;
+      setForm(shown);
       loadedFormSigRef.current = formSaveSignature(f);
-      setCustomerQuery(f.customerName);
-      setStatusQuery(ORDER_STATUS_LABELS[f.status] ?? f.status);
+      setRestoredDraftAt(editDraft?.savedAt ?? null);
+      pendingScrollRef.current = editDraft?.values.scrollTop ?? null;
+      setCustomerQuery(shown.customerName);
+      setStatusQuery(ORDER_STATUS_LABELS[shown.status] ?? shown.status);
       setPayDraftMethod(f.paymentMethods[0] || "Cash");
       walkInDefaultAppliedRef.current = true;
       const hasTax =
@@ -2359,6 +2430,7 @@ export function SalesOrderFormDrawer({
       setForm(f);
       loadedFormSigRef.current = null;
       setRestoredDraftAt(draft?.savedAt ?? null);
+      pendingScrollRef.current = draft?.values.scrollTop ?? null;
       setCustomerQuery(f.customerName);
       setStatusQuery(ORDER_STATUS_LABELS.draft);
       setPayDraftMethod("Cash");
@@ -2501,19 +2573,28 @@ export function SalesOrderFormDrawer({
       const qty = Number(returnQuantities[li.id] || 0) || 0;
       const disc = returnLineDiscounts[li.id];
       const lineDiscAmt = disc ? lineDiscountAmount(qty, li.unitPrice, disc.value, disc.type) : 0;
-      const subtotal = Math.max(0, qty * li.unitPrice - lineDiscAmt);
-      const taxRate =
-        li.quantity > 0 && li.unitPrice > 0 ? (li.tax / (li.quantity * li.unitPrice)) * 100 : 0;
-      return { subtotal, tax: (subtotal * taxRate) / 100 };
+      // the order line's own discount goes back with the units (per unit: line discount / ordered quantity)
+      const ownDiscPerUnit = li.quantity > 0 ? (li.discount || 0) / li.quantity : 0;
+      const net = Math.max(0, qty * (li.unitPrice - ownDiscPerUnit));
+      const subtotal = Math.max(0, net - lineDiscAmt);
+      // the line's tax rate: its tax over its value AFTER the line's own discount (what the tax was charged on)
+      const taxBase = li.quantity * li.unitPrice - (li.discount || 0);
+      const taxRate = taxBase > 0 ? (li.tax / taxBase) * 100 : 0;
+      return { subtotal, net, tax: (subtotal * taxRate) / 100 };
     });
   }, [order?.items, returnQuantities, returnLineDiscounts]);
   const draftReturnSubtotal = draftReturnLines.reduce((s, r) => s + r.subtotal, 0);
   const draftReturnTax = draftReturnLines.reduce((s, r) => s + r.tax, 0);
-  const draftReturnDiscount = resolveOrderDiscountAmount(
-    returnDiscount,
-    returnDiscountType,
-    draftReturnSubtotal,
-  );
+  // the returned share of the order-level discount (the customer paid the lines MINUS that discount)
+  const draftReturnOrderShare = useMemo(() => {
+    const sellLines = (order?.items ?? []).filter((li) => !li.displayType || li.displayType === "product");
+    const orderNet = sellLines.reduce((s, li) => s + Math.max(0, li.quantity * li.unitPrice - (li.discount || 0)), 0);
+    if (orderNet <= 0 || discountAmount <= 0) return 0;
+    const returnedNet = draftReturnLines.reduce((s, r) => s + r.net, 0);
+    return roundMoney((discountAmount * returnedNet) / orderNet);
+  }, [order?.items, draftReturnLines, discountAmount]);
+  const draftReturnDiscount =
+    resolveOrderDiscountAmount(returnDiscount, returnDiscountType, draftReturnSubtotal) + draftReturnOrderShare;
   const returnedSubtotal = savedReturnedSubtotal + draftReturnSubtotal;
   const returnedDiscount = savedReturnedDiscount + draftReturnDiscount;
   const returnedTax = savedReturnedTax + draftReturnTax;
@@ -2810,6 +2891,8 @@ export function SalesOrderFormDrawer({
   const customerDisplayEmail = selectedIsWalkIn
     ? ""
     : form.customerEmail || customerPreviewContact.email || selectedCustomer?.email || "";
+  // the company the contact belongs to (a person that works for a company), shown under the name
+  const customerCompanyName = (selectedCustomer?.parentCompany ?? "").trim();
   const customerPhoneVerified = Boolean(selectedCustomer?.phoneVerified);
   const customerEmailVerified = Boolean(selectedCustomer?.emailVerified);
 
@@ -3082,11 +3165,13 @@ export function SalesOrderFormDrawer({
         track_serial?: boolean | null;
         thumbnail?: string | null;
         weight?: string | null;
+        brand?: string | null;
+        category?: string | null;
       };
       // Two asks: the products that have a selling price (the ones the shop really sells, found first) and the plain match,
       // which still lets a free / unpriced item be found by its SKU or name.
       void Promise.all([
-        apiFetch<{ data: SearchProduct[] }>(`/api/v1/catalog/products?per_page=60&sellable=true&q=${enc}`),
+        apiFetch<{ data: SearchProduct[] }>(`/api/v1/catalog/products?per_page=60&sellable=true&exclude_status=unlisted&q=${enc}`),
         apiFetch<{ data: { id: string; sku: string; name: string; barcode?: string | null }[] }>(`/api/v1/items?per_page=40&q=${enc}`),
       ])
         .then(([sellableRes, itemsRes]) => {
@@ -3108,6 +3193,47 @@ export function SalesOrderFormDrawer({
         })
         .catch(() => undefined);
     }, 250);
+  }, []);
+
+  // The Brand / Category filter of the product search bar: the products of that brand / category come from the database (the
+  // list loaded here is only a slice of the catalog), then the bar filters them.
+  const filterSeq = useRef(0);
+  const loadProductsForFilter = useCallback((filter: { brand: string; categories: string[] }) => {
+    const seq = ++filterSeq.current;
+    const params = new URLSearchParams({ per_page: "200", sellable: "true", exclude_status: "unlisted" });
+    if (filter.brand) params.set("brand", filter.brand);
+    for (const name of filter.categories) params.append("category", name);
+    type FilteredProduct = {
+      id: string;
+      sku: string;
+      name: string;
+      barcode?: string | null;
+      item_id?: string | null;
+      price: string;
+      purchase_price?: string | null;
+      stock?: number | null;
+      track_quantity?: boolean | null;
+      track_serial?: boolean | null;
+      thumbnail?: string | null;
+      weight?: string | null;
+      brand?: string | null;
+      category?: string | null;
+    };
+    void apiFetch<{ data: FilteredProduct[] }>(`/api/v1/catalog/products?${params}`)
+      .then((res) => {
+        if (seq !== filterSeq.current) return;
+        const rows = res.data ?? [];
+        const found = mapItemsToSalesProducts(
+          rows.filter((p) => p.item_id).map((p) => ({ id: p.item_id as string, sku: p.sku, name: p.name, barcode: p.barcode ?? null })),
+          rows,
+        );
+        if (!found.length) return;
+        setCatalogProducts((prev) => {
+          const foundIds = new Set(found.map((p) => p.id));
+          return [...found, ...prev.filter((p) => !foundIds.has(p.id))].slice(0, 1200);
+        });
+      })
+      .catch(() => undefined);
   }, []);
 
   const handleProductCreated = async (saved?: Product) => {
@@ -3835,7 +3961,7 @@ export function SalesOrderFormDrawer({
           onSave(next);
           onSaved?.(next);
         }
-        if (mode === "create") clearDraft(DRAFT_KEY);
+        clearCurrentDraft();
         toast.success(message);
         if (close) onOpenChange(false);
       } catch (err) {
@@ -4131,15 +4257,33 @@ export function SalesOrderFormDrawer({
     );
   };
 
+  // typed but not saved: a new order with anything in it, or an existing order that differs from what was loaded
+  const formDirty = useMemo(() => {
+    if (!open) return false;
+    if (mode === "create") {
+      return (
+        form.lines.some((l) => l.name.trim() || l.sku.trim() || l.description.trim()) ||
+        (!!form.customerId && !isWalkInCustomer({ id: form.customerId, name: form.customerName })) ||
+        form.notes.trim().length > 0
+      );
+    }
+    return loadedFormSigRef.current != null && formSaveSignature(form) !== loadedFormSigRef.current;
+  }, [open, mode, form]);
+
   const saveDraftIfDirty = () => {
-    if (mode !== "create") return;
-    const dirty =
-      form.lines.some((l) => l.name.trim() || l.sku.trim() || l.description.trim()) ||
-      (!!form.customerId && !isWalkInCustomer({ id: form.customerId, name: form.customerName })) ||
-      form.notes.trim().length > 0;
-    if (!dirty) return;
-    writeDraft<SalesOrderDraftPayload>(DRAFT_KEY, { form });
+    const key = draftKeyFor(mode, order?.id);
+    if (!key || !formDirty) return;
+    writeDraft<SalesOrderDraftPayload>(key, { form, scrollTop: bodyScrollRef.current?.scrollTop ?? 0 });
   };
+
+  // a restored draft: go back to where the user was
+  useEffect(() => {
+    if (!open || pendingScrollRef.current == null) return;
+    const top = pendingScrollRef.current;
+    pendingScrollRef.current = null;
+    const timer = window.setTimeout(() => bodyScrollRef.current?.scrollTo({ top }), 120);
+    return () => window.clearTimeout(timer);
+  }, [open, restoredDraftAt]);
 
   const toastedDraftRef = useRef<string | null>(null);
   useEffect(() => {
@@ -4149,15 +4293,22 @@ export function SalesOrderFormDrawer({
       action: {
         label: "Discard",
         onClick: () => {
-          clearDraft(DRAFT_KEY);
-          setForm({
-            ...emptySalesOrderForm(initialKind ?? "quotation"),
-            salesperson: currentAdminUser?.name || OTHER_INFO_DEFAULTS.salesperson,
-          });
+          clearCurrentDraft();
+          if (mode === "create" || !order) {
+            setForm({
+              ...emptySalesOrderForm(initialKind ?? "quotation"),
+              salesperson: currentAdminUser?.name || OTHER_INFO_DEFAULTS.salesperson,
+            });
+          } else {
+            const saved = orderToForm(order); // an existing order goes back to what was saved
+            setForm(saved);
+            setCustomerQuery(saved.customerName);
+          }
           setRestoredDraftAt(null);
         },
       },
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, restoredDraftAt, initialKind, currentAdminUser]);
 
   const handleSaveAndPrint = () => {
@@ -4199,7 +4350,7 @@ export function SalesOrderFormDrawer({
           onSaved?.(next);
         }
         if (!skipSave) {
-          if (mode === "create") clearDraft(DRAFT_KEY);
+          clearCurrentDraft();
           toast.success(saveMessage(saved.orderNumber));
         }
 
@@ -4271,7 +4422,7 @@ export function SalesOrderFormDrawer({
           onSaved?.(next);
         }
         if (!skipSave) {
-          if (mode === "create") clearDraft(DRAFT_KEY);
+          clearCurrentDraft();
           toast.success(saveMessage(saved.orderNumber));
         }
 
@@ -4352,7 +4503,13 @@ export function SalesOrderFormDrawer({
 
   return (
     <>
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) saveDraftIfDirty();
+        onOpenChange(next);
+      }}
+    >
       <SheetContent
         title="Sales order"
         side="right"
@@ -4368,7 +4525,7 @@ export function SalesOrderFormDrawer({
       >
         <DrawerResizeHandle {...drawerResizeHandle} />
         <div ref={setRootEl} className="relative flex h-full min-h-0 flex-col bg-background">
-          <AgainDrawerControlBar>
+          <AgainDrawerControlBar className="px-4 sm:px-6">
             {canEditOrder ? (
               <button
                 type="button"
@@ -4384,34 +4541,19 @@ export function SalesOrderFormDrawer({
               </button>
             ) : null}
             {canEditOrder ? (
-              <button
-                type="button"
-                className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]", TOOLBAR_DISABLED)}
-                disabled={saving}
-                onClick={handleSaveAndPrint}
-              >
-                Print
-              </button>
-            ) : null}
-            {canEditOrder ? (
-              <button
-                type="button"
-                className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]", TOOLBAR_DISABLED)}
-                disabled={saving}
-                onClick={() => handlePrintPacking("packing-slip")}
-              >
-                Packing Slip
-              </button>
-            ) : null}
-            {canEditOrder ? (
-              <button
-                type="button"
-                className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]", TOOLBAR_DISABLED)}
-                disabled={saving}
-                onClick={() => handlePrintPacking("delivery-note")}
-              >
-                Delivery Note
-              </button>
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]", TOOLBAR_DISABLED)} disabled={saving}>
+                    Print
+                    <ChevronDown className="ml-1 inline h-3 w-3" aria-hidden />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-[160px] rounded-none">
+                  <DropdownMenuItem onSelect={handleSaveAndPrint}>Print order</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handlePrintPacking("packing-slip")}>Packing slip</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => handlePrintPacking("delivery-note")}>Delivery note</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : null}
             {canEditOrder && saveConfirms ? (
               <button
@@ -4442,7 +4584,10 @@ export function SalesOrderFormDrawer({
               type="button"
               className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]", TOOLBAR_DISABLED)}
               disabled={saving}
-              onClick={() => onOpenChange(false)}
+              onClick={() => {
+                if (canEditOrder) clearCurrentDraft();
+                onOpenChange(false);
+              }}
             >
               {canEditOrder ? "Discard" : "Close"}
             </button>
@@ -4491,18 +4636,28 @@ export function SalesOrderFormDrawer({
                 ))}
               </div>
             ) : null}
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-2">
+              <SalesStatusSteps stage={stage} status={form.status} />
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6 rounded-none"
                 aria-label="Close"
-                onClick={() => onOpenChange(false)}
+                onClick={() => {
+                  saveDraftIfDirty();
+                  onOpenChange(false);
+                }}
               >
                 <X className="h-3.5 w-3.5" />
               </Button>
             </div>
           </AgainDrawerControlBar>
+
+          {formDirty && canEditOrder ? (
+            <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-1 text-[11px] text-amber-700 dark:text-amber-300 sm:px-6">
+              Unsaved changes. If you close this drawer they are kept as a draft and come back when you open it again.
+            </div>
+          ) : null}
 
           {isLockableOrder &&
           (editRequest?.status === "pending" || editApprovedForMe || editLocked) ? (
@@ -4624,21 +4779,13 @@ export function SalesOrderFormDrawer({
             </div>
           ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <AgainDrawerScrollBody className="bg-white px-4 py-4 pt-0 dark:bg-muted/20 sm:px-6">
+          <AgainDrawerScrollBody scrollRef={bodyScrollRef} className="bg-white px-4 py-4 pt-0 dark:bg-muted/20 sm:px-6">
             <div className="-mx-4 sm:-mx-6">
-              <div className="border-b border-border bg-background px-4 py-3 sm:px-6">
-                <div className="flex flex-wrap items-center gap-3">
-                  <div
-                    className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-none border border-border/80 bg-[#00a09d] text-white"
-                    aria-hidden
-                  >
-                    <FileText className="h-5 w-5" strokeWidth={1.75} />
-                  </div>
-                  <div className="relative min-w-0 flex-1" ref={customerAnchorRef}>
+              <div className="@container border-b border-border bg-background px-4 py-4 sm:px-6">
                     <div className="flex min-w-0 items-center gap-2">
-                      <p className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+                      <h2 className={cn(AGAIN_FORM_TITLE_CLASS, "min-w-0 flex-1 truncate")}>
                         {isExistingOrder ? form.orderNumber : titleLabel}
-                      </p>
+                      </h2>
                       {isExistingOrder && order?.websiteStatus ? (
                         <label
                           className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
@@ -4673,80 +4820,29 @@ export function SalesOrderFormDrawer({
                         </label>
                       ) : null}
                     </div>
+                <div className="mt-4 grid gap-x-10 gap-y-4 @xl:grid-cols-2">
+                  {/* left: the customer, with the invoice address under the name (Odoo sales order form) */}
+                  <div className="grid grid-cols-[6.75rem_minmax(0,1fr)] items-start gap-x-2">
+                    <span className="pt-0.5 text-[13px] font-semibold text-muted-foreground">Customer</span>
+                    <div className="relative min-w-0" ref={customerAnchorRef}>
+                    {/* Odoo form: the customer is a teal link with its address under it; the change / clear buttons show on hover */}
                     {readOnly ? (
                       form.customerName ? (
-                        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px]">
-                          <button
-                            type="button"
-                            onClick={form.customerId ? openPartnerDrawer : undefined}
-                            className={cn(
-                              "shrink-0 truncate text-left font-medium text-foreground",
-                              form.customerId && "hover:text-[#00a09d] hover:underline",
-                            )}
-                          >
-                            {form.customerName}
-                          </button>
-                          {customerDisplayPhone || customerDisplayEmail ? (
-                            <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5 text-muted-foreground">
-                              {customerDisplayPhone ? (
-                                <span className="inline-flex min-w-0 items-center gap-0.5">
-                                  <span className="truncate">{customerDisplayPhone}</span>
-                                  {customerPhoneVerified ? (
-                                    <BadgeCheck
-                                      className="h-3.5 w-3.5 shrink-0 text-[#00a09d]"
-                                      aria-label="Phone verified"
-                                    />
-                                  ) : null}
-                                </span>
-                              ) : null}
-                              {customerDisplayPhone && customerDisplayEmail ? (
-                                <span className="text-border" aria-hidden>
-                                  ·
-                                </span>
-                              ) : null}
-                              {customerDisplayEmail ? (
-                                <span className="inline-flex min-w-0 items-center gap-0.5">
-                                  <span className="truncate">{customerDisplayEmail}</span>
-                                  {customerEmailVerified ? (
-                                    <BadgeCheck
-                                      className="h-3.5 w-3.5 shrink-0 text-[#00a09d]"
-                                      aria-label="Email verified"
-                                    />
-                                  ) : null}
-                                </span>
-                              ) : null}
-                            </span>
-                          ) : null}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={form.customerId ? openPartnerDrawer : undefined}
+                          className={cn(
+                            "block max-w-full truncate py-1 text-left text-[13px] font-medium text-[#00a09d]",
+                            form.customerId && "hover:underline",
+                          )}
+                        >
+                          {form.customerName}
+                        </button>
                       ) : (
-                        <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
-                          No customer
-                        </p>
+                        <p className="py-1 text-[13px] text-muted-foreground">No customer</p>
                       )
                     ) : form.customerId && !customerOpen ? (
-                      <div className="mt-0.5 flex min-w-0 items-center gap-0.5">
-                        <button
-                          type="button"
-                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-none text-muted-foreground hover:bg-[#00a09d]/10 hover:text-[#00a09d]"
-                          aria-label="Search customers"
-                          aria-expanded={customerOpen}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            setCustomerOpen(true);
-                            setCustomerQuery(form.customerName);
-                          }}
-                        >
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={clearCustomer}
-                          title="Change customer"
-                          aria-label="Change customer"
-                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
+                      <div className="group/cust flex min-w-0 items-center gap-1 border-b border-transparent hover:border-border/60">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -4754,70 +4850,42 @@ export function SalesOrderFormDrawer({
                             e.stopPropagation();
                             openPartnerDrawer();
                           }}
-                          className="inline-flex min-w-0 flex-1 items-center gap-x-2 truncate text-left text-[12px] font-medium text-foreground hover:text-[#00a09d] hover:underline"
+                          className="min-w-0 truncate py-1 text-left text-[13px] font-medium text-[#00a09d] hover:underline"
                           title="Open customer"
                         >
-                          <span className="shrink-0 truncate">{form.customerName}</span>
-                          {customerDisplayPhone || customerDisplayEmail ? (
-                            <span className="inline-flex min-w-0 items-center gap-x-1.5 truncate font-normal text-muted-foreground">
-                              {customerDisplayPhone ? (
-                                <span className="inline-flex min-w-0 items-center gap-0.5">
-                                  <span className="truncate">{customerDisplayPhone}</span>
-                                  {customerPhoneVerified ? (
-                                    <BadgeCheck
-                                      className="h-3.5 w-3.5 shrink-0 text-[#00a09d]"
-                                      aria-label="Phone verified"
-                                    />
-                                  ) : null}
-                                </span>
-                              ) : null}
-                              {customerDisplayPhone && customerDisplayEmail ? (
-                                <span className="text-border" aria-hidden>
-                                  ·
-                                </span>
-                              ) : null}
-                              {customerDisplayEmail ? (
-                                <span className="inline-flex min-w-0 items-center gap-0.5">
-                                  <span className="truncate">{customerDisplayEmail}</span>
-                                  {customerEmailVerified ? (
-                                    <BadgeCheck
-                                      className="h-3.5 w-3.5 shrink-0 text-[#00a09d]"
-                                      aria-label="Email verified"
-                                    />
-                                  ) : null}
-                                </span>
-                              ) : null}
-                            </span>
-                          ) : null}
+                          {form.customerName}
                         </button>
-                        <button
-                          type="button"
-                          onClick={openPartnerCreate}
-                          title="Add customer"
-                          className="inline-flex h-6 w-[108px] shrink-0 items-center justify-center gap-1 rounded-none border border-[#00a09d]/35 bg-[#00a09d]/10 px-2 text-[11px] font-semibold text-[#00a09d] hover:bg-[#00a09d] hover:text-white"
-                        >
-                          <Plus className="h-3 w-3" />
-                          Add customer
-                        </button>
+                        <span className="ml-auto flex shrink-0 items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover/cust:opacity-100">
+                          <button
+                            type="button"
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground"
+                            aria-label="Search customers"
+                            title="Choose another customer"
+                            aria-expanded={customerOpen}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setCustomerOpen(true);
+                              setCustomerQuery(form.customerName);
+                            }}
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={clearCustomer}
+                            title="Remove customer"
+                            aria-label="Change customer"
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
                       </div>
                     ) : (
-                      <div className="mt-0.5 flex min-w-0 items-center gap-0.5">
-                        <button
-                          type="button"
-                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-none text-muted-foreground hover:bg-[#00a09d]/10 hover:text-[#00a09d]"
-                          aria-label="Search customers"
-                          aria-expanded={customerOpen}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            if (customerOpen) setCustomerOpen(false);
-                            else {
-                              setCustomerOpen(true);
-                              if (form.customerId) setCustomerQuery(form.customerName);
-                            }
-                          }}
-                        >
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        </button>
+                      <div
+                        ref={customerFieldRef}
+                        className={cn("flex min-w-0 items-center gap-1 border-b focus-within:border-[#00a09d]", customerOpen ? "border-[#00a09d]" : "border-border/60")}
+                      >
                         <input
                           value={customerOpen ? customerQuery : form.customerName || customerQuery || ""}
                           onChange={(e) => {
@@ -4833,16 +4901,32 @@ export function SalesOrderFormDrawer({
                               setCustomerQuery(form.customerName);
                             }
                           }}
-                          placeholder="Search customer..."
-                          className="h-6 min-w-0 flex-1 bg-transparent text-[12px] font-medium text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground"
+                          placeholder="Type to find a customer..."
+                          className="h-8 min-w-0 flex-1 bg-transparent text-[13px] font-medium text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground"
                           autoFocus={customerOpen}
                         />
+                        <button
+                          type="button"
+                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground"
+                          aria-label="Search customers"
+                          aria-expanded={customerOpen}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            if (customerOpen) setCustomerOpen(false);
+                            else {
+                              setCustomerOpen(true);
+                              if (form.customerId) setCustomerQuery(form.customerName);
+                            }
+                          }}
+                        >
+                          <span aria-hidden className="h-0 w-0 border-x-[4px] border-t-[5px] border-x-transparent border-t-[#00a09d]" />
+                        </button>
                         <button
                           type="button"
                           onClick={openPartnerCreate}
                           title="Add customer"
                           aria-label="Add customer"
-                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-none bg-[#00a09d]/10 text-[#00a09d] hover:bg-[#00a09d] hover:text-white"
+                          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-none text-[#00a09d] hover:bg-[#00a09d]/10"
                         >
                           <Plus className="h-3.5 w-3.5" />
                         </button>
@@ -4850,6 +4934,7 @@ export function SalesOrderFormDrawer({
                     )}
                     <SearchDropdown
                       open={!readOnly && customerOpen}
+                      placement="bottom" // always straight under the field, never flipped above it
                       getAnchor={getCustomerAnchor}
                       portalContainer={portalHost}
                       items={customerResults}
@@ -4908,6 +4993,112 @@ export function SalesOrderFormDrawer({
                         </>
                       )}
                     />
+                      {form.customerName && (customerCompanyName || customerDisplayPhone || customerDisplayEmail) ? (
+                        <div className="mt-1.5 space-y-0.5 text-[13px] leading-snug text-foreground">
+                          {customerCompanyName ? <p className="truncate">{customerCompanyName}</p> : null}
+                          {customerDisplayPhone ? (
+                            <p className="flex items-center gap-1">
+                              {customerDisplayPhone}
+                              {customerPhoneVerified ? <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-[#00a09d]" aria-label="Phone verified" /> : null}
+                            </p>
+                          ) : null}
+                          {customerDisplayEmail ? (
+                            <p className="flex min-w-0 items-center gap-1">
+                              <span className="truncate">{customerDisplayEmail}</span>
+                              {customerEmailVerified ? <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-[#00a09d]" aria-label="Email verified" /> : null}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {(() => {
+                        const a = form.invoiceAddress;
+                        const lines = [
+                          a.street,
+                          a.street2,
+                          [a.city, a.state, a.zip].filter((p) => p && p.trim()).join(" "),
+                          a.country,
+                        ].filter((l): l is string => Boolean(l && l.trim()));
+                        return lines.length && form.customerName ? (
+                          <div className="mt-1.5 space-y-0.5 text-[13px] leading-snug text-foreground">
+                            {lines.map((line, i) => (
+                              <p key={i}>{line}</p>
+                            ))}
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  </div>
+                  {/* right: order date, payment terms, promised delivery */}
+                  <div className="again-odoo-form min-w-0">
+                    <AgainFormField label="Order Date">
+                      <input
+                        type="date"
+                        value={form.orderDate}
+                        disabled={readOnly}
+                        onChange={(e) => patch("orderDate", e.target.value)}
+                        className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                      />
+                    </AgainFormField>
+                    <AgainFormField label="Payment Terms">
+                      {(() => {
+                        const payTerm = parsePayTerm(form.paymentTerms);
+                        return (
+                          <div className="flex h-8 items-stretch gap-3">
+                            <input
+                              value={payTerm.number}
+                              disabled={readOnly}
+                              onChange={(e) => patch("paymentTerms", formatPayTerm(e.target.value.replace(/[^\d]/g, ""), payTerm.unit))}
+                              placeholder="0"
+                              aria-label="Payment terms number"
+                              className="h-8 w-16 shrink-0 bg-transparent px-1 text-[13px] tabular-nums outline-none disabled:opacity-60"
+                            />
+                            <select
+                              value={payTerm.unit}
+                              disabled={readOnly}
+                              onChange={(e) => patch("paymentTerms", formatPayTerm(payTerm.number, e.target.value as "days" | "months"))}
+                              aria-label="Payment terms unit"
+                              className="h-8 min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                            >
+                              <option value="days">Days</option>
+                              <option value="months">Months</option>
+                            </select>
+                          </div>
+                        );
+                      })()}
+                    </AgainFormField>
+                    {stage === "quotation" || stage === "quotation_sent" ? (
+                      <AgainFormField label="Expiration">
+                        <input
+                          type="date"
+                          value={form.expiration?.slice(0, 10) ?? ""}
+                          disabled={readOnly}
+                          onChange={(e) => patch("expiration", e.target.value)}
+                          className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                        />
+                      </AgainFormField>
+                    ) : (
+                      <AgainFormField label="Promised Delivery">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            type="datetime-local"
+                            value={(form.deliveryDate ?? "").slice(0, 16)}
+                            disabled={readOnly}
+                            onChange={(e) => patch("deliveryDate", e.target.value ? `${e.target.value}:00` : "")}
+                            className="h-8 min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                          />
+                          <span
+                            className={cn(
+                              "inline-flex shrink-0 items-center px-2 py-0.5 text-[11px] font-semibold",
+                              form.shippingStatus === "delivered"
+                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                : "bg-sky-500/15 text-sky-600 dark:text-sky-400",
+                            )}
+                          >
+                            {form.shippingStatus === "delivered" ? "Delivered" : "Not Delivered"}
+                          </span>
+                        </div>
+                      </AgainFormField>
+                    )}
                   </div>
                 </div>
               </div>
@@ -4937,6 +5128,7 @@ export function SalesOrderFormDrawer({
                 active={tab}
                 onChange={setTab}
                 className="border-t-0"
+                tabsClassName="pl-1.5 sm:pl-3.5"
                 contentClassName="bg-transparent px-4 py-4 dark:bg-transparent sm:px-6"
               >
             {tab === "lines" ? (
@@ -4947,6 +5139,7 @@ export function SalesOrderFormDrawer({
                       items={catalogProducts}
                       portalHost={portalHost}
                       onQueryChange={searchProductsOnServer}
+                      onFilterChange={loadProductsForFilter}
                       onPick={(item, scan) => pickProductFromSearch(item, scan)}
                       onAddNew={() => {
                         const empty = form.lines.find(
@@ -4990,13 +5183,56 @@ export function SalesOrderFormDrawer({
                   </div>
                 ) : null}
                 <div className="relative">
-                  {!readOnly ? (
-                    <div className="pointer-events-none absolute right-0 top-1.5 z-20">
-                      <DropdownMenu modal={false}>
+                <div className="overflow-x-auto">
+                  <DndContext
+                    sensors={lineDragSensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleLineDragEnd}
+                  >
+                  <table
+                    className="w-full min-w-[640px] border-collapse text-[13px]"
+                    style={{ tableLayout: "fixed" }}
+                  >
+                    <colgroup>
+                      <col style={{ width: 16 }} />
+                      {visibleLineCols.map((col) =>
+                        col === "product" ? <col key={col} /> : <col key={col} style={{ width: lineColWidths[col] }} />,
+                      )}
+                      <col style={{ width: LINE_ACTION_COL_WIDTH }} />
+                    </colgroup>
+                    <thead>
+                      <tr className="border-b border-border/80 text-left">
+                        <th className="w-4 py-2" aria-label="Reorder" />
+                        {visibleLineCols.map((col) => (
+                          <LineTableHeaderCell
+                            key={col}
+                            col={col}
+                            width={lineColWidths[col]}
+                            align={
+                              col === "quantity" ||
+                              col === "unitPrice" ||
+                              col === "discount" ||
+                              col === "taxes" ||
+                              col === "taxIncl" ||
+                              col === "amount" ||
+                              col === "leadTime"
+                                ? "right"
+                                : "left"
+                            }
+                            readOnly={readOnly}
+                            dragCol={dragLineCol}
+                            onDragColChange={setDragLineCol}
+                            onMoveColumn={moveLineColumn}
+                            onResizeStart={startLineColResize}
+                          />
+                        ))}
+                        <th className={cn(LINE_TABLE_ACTION_HEAD_CLASS, "py-1")}>
+                          {!readOnly ? (
+<DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild>
                           <button
                             type="button"
-                            className="pointer-events-auto inline-flex rounded border border-border/80 bg-white/95 p-1 text-muted-foreground shadow-sm hover:text-foreground dark:bg-muted/50"
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-foreground"
                             aria-label="Optional columns"
                           >
                             <Settings2 className="h-3.5 w-3.5" />
@@ -5053,50 +5289,8 @@ export function SalesOrderFormDrawer({
                           ))}
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    </div>
-                  ) : null}
-                <div className="overflow-x-auto">
-                  <DndContext
-                    sensors={lineDragSensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleLineDragEnd}
-                  >
-                  <table
-                    className="w-full min-w-[640px] border-collapse text-[13px]"
-                    style={{ tableLayout: "fixed" }}
-                  >
-                    <colgroup>
-                      <col style={{ width: 32 }} />
-                      {visibleLineCols.map((col) => (
-                        <col key={col} style={{ width: lineColWidths[col] }} />
-                      ))}
-                    </colgroup>
-                    <thead>
-                      <tr className="border-b border-border/80 text-left">
-                        <th className="w-8 py-2" aria-label="Reorder" />
-                        {visibleLineCols.map((col) => (
-                          <LineTableHeaderCell
-                            key={col}
-                            col={col}
-                            width={lineColWidths[col]}
-                            align={
-                              col === "quantity" ||
-                              col === "unitPrice" ||
-                              col === "discount" ||
-                              col === "taxes" ||
-                              col === "taxIncl" ||
-                              col === "amount" ||
-                              col === "leadTime"
-                                ? "right"
-                                : "left"
-                            }
-                            readOnly={readOnly}
-                            dragCol={dragLineCol}
-                            onDragColChange={setDragLineCol}
-                            onMoveColumn={moveLineColumn}
-                            onResizeStart={startLineColResize}
-                          />
-                        ))}
+                          ) : null}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5147,11 +5341,8 @@ export function SalesOrderFormDrawer({
                                           autoFocus={!line.name}
                                         />
                                       )}
-                                      <LineDeleteOverlay
-                                        readOnly={readOnly}
-                                        onRemove={() => removeLine(line.id)}
-                                      />
                                     </td>
+                                    <LineActionCell readOnly={readOnly} onRemove={() => removeLine(line.id)} />
                                   </SortableOrderLineRow>
                                 );
                               }
@@ -5228,15 +5419,9 @@ export function SalesOrderFormDrawer({
                                           onRemove={(serial) => removeSerialFromLine(line.id, serial)}
                                         />
                                       ) : null}
-                                      {colIdx === visibleLineCols.length - 1 ? (
-                                        <LineDeleteOverlay
-                                          readOnly={readOnly}
-                                          compact={asVariantChild}
-                                          onRemove={() => removeLine(line.id)}
-                                        />
-                                      ) : null}
                                     </td>
                                   ))}
+                                  <LineActionCell readOnly={readOnly} compact={asVariantChild} onRemove={() => removeLine(line.id)} />
                                 </SortableOrderLineRow>
                               );
                             };
@@ -5248,7 +5433,7 @@ export function SalesOrderFormDrawer({
                             return (
                               <Fragment key={group.key}>
                                 <tr className="border-b border-border/60 bg-muted/30">
-                                  <td className="w-8 py-1.5" />
+                                  <td className="w-4 py-1.5" />
                                   {visibleLineCols.map((col) => (
                                     <td key={col} className={lineCellClassName(col)}>
                                       {col === "product" ? (
@@ -5268,6 +5453,7 @@ export function SalesOrderFormDrawer({
                                       ) : null}
                                     </td>
                                   ))}
+                                  <td className="w-6 bg-muted/30" />
                                 </tr>
                                 {group.lines.map((line) => renderLine(line, true))}
                               </Fragment>
@@ -5279,6 +5465,8 @@ export function SalesOrderFormDrawer({
                   </DndContext>
                 </div>
                 </div>
+                {/* room under the last line: the totals card floats over the bottom right, the list scrolls clear of it */}
+                <div className="h-36" aria-hidden />
               </div>
             ) : null}
 
@@ -5779,15 +5967,6 @@ export function SalesOrderFormDrawer({
                       className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
                     />
                   </AgainFormField>
-                  <AgainFormField label="Order Date">
-                    <input
-                      type="date"
-                      value={form.orderDate}
-                      disabled={readOnly}
-                      onChange={(e) => patch("orderDate", e.target.value)}
-                      className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
-                    />
-                  </AgainFormField>
                   <AgainFormField label="Warehouse">
                     <FilterSelect
                       value={form.warehouseId}
@@ -5818,33 +5997,6 @@ export function SalesOrderFormDrawer({
                     </select>
                   </AgainFormField>
                   <AgainFormGroupTitle className="@xl:col-span-2">Payment</AgainFormGroupTitle>
-                  <AgainFormField label="Pay term">
-                    {(() => {
-                      const payTerm = parsePayTerm(form.paymentTerms);
-                      return (
-                        <div className="flex h-8 items-stretch gap-3">
-                          <input
-                            value={payTerm.number}
-                            disabled={readOnly}
-                            onChange={(e) => patch("paymentTerms", formatPayTerm(e.target.value.replace(/[^\d]/g, ""), payTerm.unit))}
-                            placeholder="0"
-                            aria-label="Pay term number"
-                            className="h-8 w-16 shrink-0 bg-transparent px-1 text-[13px] tabular-nums outline-none disabled:opacity-60"
-                          />
-                          <select
-                            value={payTerm.unit}
-                            disabled={readOnly}
-                            onChange={(e) => patch("paymentTerms", formatPayTerm(payTerm.number, e.target.value as "days" | "months"))}
-                            aria-label="Pay term unit"
-                            className="h-8 min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
-                          >
-                            <option value="days">Days</option>
-                            <option value="months">Months</option>
-                          </select>
-                        </div>
-                      );
-                    })()}
-                  </AgainFormField>
                   <AgainFormField label="Invoice scheme">
                     <FilterSelect
                       value={form.invoiceScheme}
@@ -5908,10 +6060,8 @@ export function SalesOrderFormDrawer({
                     const already = (li.quantityReturned ?? 0) + (pendingReturnedByLine[li.id] ?? 0);
                     const maxQty = Math.max(0, delivered - already);
                     const qty = Math.min(maxQty, Number(returnQuantities[li.id] || 0) || 0);
-                    const taxRate =
-                      li.quantity > 0 && li.unitPrice > 0
-                        ? (li.tax / (li.quantity * li.unitPrice)) * 100
-                        : 0;
+                    const taxBase = li.quantity * li.unitPrice - (li.discount || 0);
+                    const taxRate = taxBase > 0 ? (li.tax / taxBase) * 100 : 0;
                     const lineDiscount = returnLineDiscounts[li.id] ?? { value: 0, type: "fixed" as const };
                     const lineDiscountAmt = lineDiscountAmount(
                       qty,
@@ -5919,7 +6069,9 @@ export function SalesOrderFormDrawer({
                       lineDiscount.value,
                       lineDiscount.type,
                     );
-                    const subtotal = Math.max(0, qty * li.unitPrice - lineDiscountAmt);
+                    // net of the order line's own discount, like the credit note the server posts
+                    const ownDiscPerUnit = li.quantity > 0 ? (li.discount || 0) / li.quantity : 0;
+                    const subtotal = Math.max(0, qty * (li.unitPrice - ownDiscPerUnit) - lineDiscountAmt);
                     const lineSerials = (li.serialNumbers ?? []).filter((s) => !returnedSerials.has(s));
                     // Partial return of a serial-tracked line: the API needs to know which units.
                     const pickSerials = lineSerials.length > 0 && qty > 0 && qty < li.quantity;
@@ -5967,6 +6119,7 @@ export function SalesOrderFormDrawer({
                       const created = await createSalesReturn({
                         sales_order_id: order.id,
                         reason: returnReason,
+                        ...(returnWarehouseId ? { warehouse_id: returnWarehouseId } : {}),
                         notes: returnNotes.trim() || undefined,
                         discount_amount: returnDiscountAmount > 0 ? returnDiscountAmount : undefined,
                         auto_credit: true,
@@ -5986,6 +6139,7 @@ export function SalesOrderFormDrawer({
                       setReturnLineDiscounts({});
                       setReturnSerials({});
                       setReturnNotes("");
+                      setReturnWarehouseId("");
                       setReturnDiscount(null);
                       setReturnDiscountType("fixed");
                       const res = await fetchSalesReturns({ sales_order_id: order.id });
@@ -6008,36 +6162,50 @@ export function SalesOrderFormDrawer({
                           <SectionTitle>Return lines</SectionTitle>
                         </div>
                         {rows.length > 0 ? (
-                          <table className="w-full border-collapse text-[13px]">
+                          <table className="w-full border-collapse text-[13px]" style={{ tableLayout: "fixed" }}>
+                            <colgroup>
+                              <col style={{ width: 16 }} />
+                              <col />
+                              <col style={{ width: 84 }} />
+                              <col style={{ width: 72 }} />
+                              <col style={{ width: 84 }} />
+                              <col style={{ width: 96 }} />
+                              <col style={{ width: 90 }} />
+                              <col style={{ width: 108 }} />
+                              <col style={{ width: 24 }} />
+                            </colgroup>
                             <thead>
                               <tr className="border-b border-border/80 text-left">
-                                <th className="py-2 pr-2 text-[11px] font-semibold text-muted-foreground">
+                                <th className="w-4 py-2" aria-hidden />
+                                <th className="py-2 pr-3 text-[11px] font-semibold text-foreground">
                                   Product
                                 </th>
-                                <th className="px-2 py-2 text-right text-[11px] font-semibold text-muted-foreground">
+                                <th className="py-2 pr-3 text-right text-[11px] font-semibold text-foreground">
                                   Return Qty
                                 </th>
-                                <th className="px-2 py-2 text-right text-[11px] font-semibold text-muted-foreground">
+                                <th className="py-2 pr-3 text-right text-[11px] font-semibold text-foreground">
                                   Returned
                                 </th>
-                                <th className="px-2 py-2 text-right text-[11px] font-semibold text-muted-foreground">
+                                <th className="py-2 pr-3 text-right text-[11px] font-semibold text-foreground">
                                   Quantity
                                 </th>
-                                <th className="px-2 py-2 text-right text-[11px] font-semibold text-muted-foreground">
+                                <th className="py-2 pr-3 text-right text-[11px] font-semibold text-foreground">
                                   Unit Price
                                 </th>
-                                <th className="px-2 py-2 text-right text-[11px] font-semibold text-muted-foreground">
+                                <th className="py-2 pr-3 text-right text-[11px] font-semibold text-foreground">
                                   Disc
                                 </th>
-                                <th className="py-2 pl-2 text-right text-[11px] font-semibold text-muted-foreground">
+                                <th className="py-2 pr-3 text-right text-[11px] font-semibold text-foreground">
                                   Amount
                                 </th>
+                                <th className="w-6 py-2" aria-hidden />
                               </tr>
                             </thead>
                             <tbody>
                               {rows.map((r) => (
-                                <tr key={r.line.id} className="border-b border-border/40">
-                                  <td className="py-2 pr-2 text-foreground">
+                                <tr key={r.line.id} className="border-b border-border/50">
+                                  <td className="w-4 p-0" aria-hidden />
+                                  <td className="py-1.5 pr-3 text-foreground">
                                     {r.line.name}
                                     {r.pickSerials ? (
                                       <div
@@ -6088,7 +6256,7 @@ export function SalesOrderFormDrawer({
                                       </div>
                                     ) : null}
                                   </td>
-                                  <td className="px-2 py-2 text-right">
+                                  <td className="py-1.5 pr-3 text-right">
                                     {readOnly ? (
                                       <span className="tabular-nums">{r.qty}</span>
                                     ) : (
@@ -6103,13 +6271,13 @@ export function SalesOrderFormDrawer({
                                             [r.line.id]: String(clamped),
                                           }));
                                         }}
-                                        className="h-7 w-14 rounded-none border border-input bg-background px-1.5 text-right text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                                        className="h-8 w-full border-b border-border/50 bg-transparent px-1 text-right text-[13px] outline-none focus:border-[#00a09d] disabled:opacity-50"
                                       />
                                     )}
                                   </td>
                                   <td
                                     className={cn(
-                                      "px-2 py-2 text-right tabular-nums",
+                                      "py-1.5 pr-3 text-right tabular-nums",
                                       r.already > 0 ? "font-medium text-foreground" : "text-muted-foreground",
                                     )}
                                     title={r.maxQty === 0 ? "Fully returned" : `${r.maxQty} still returnable`}
@@ -6119,14 +6287,14 @@ export function SalesOrderFormDrawer({
                                       <span className="ml-1 text-[10px] text-muted-foreground">(all)</span>
                                     ) : null}
                                   </td>
-                                  <td className="px-2 py-2 text-right">
-                                    <div className="inline-flex w-14 min-w-0 items-stretch gap-0.5 opacity-60">
+                                  <td className="py-1.5 pr-3 text-right">
+                                    <div className="flex w-full min-w-0 items-stretch gap-0.5 opacity-60">
                                       <input
                                         type="text"
                                         readOnly
                                         tabIndex={-1}
                                         value={r.line.quantity}
-                                        className="h-7 w-full min-w-0 rounded-none border border-input bg-background px-1.5 text-right text-[13px] outline-none"
+                                        className="h-8 w-full min-w-0 border-b border-border/50 bg-transparent px-1 text-right text-[13px] outline-none"
                                       />
                                       <div className="flex shrink-0 flex-col self-stretch border-b border-border/50">
                                         <span className="flex h-1/2 min-h-[12px] w-4 items-center justify-center text-muted-foreground">
@@ -6138,10 +6306,10 @@ export function SalesOrderFormDrawer({
                                       </div>
                                     </div>
                                   </td>
-                                  <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                                  <td className="py-1.5 pr-3 text-right tabular-nums text-muted-foreground">
                                     {formatCurrency(r.line.unitPrice)}
                                   </td>
-                                  <td className="px-2 py-2 text-right">
+                                  <td className="py-1.5 pr-3 text-right">
                                     {readOnly ? (
                                       <span className="tabular-nums">
                                         {r.lineDiscount.type === "percent"
@@ -6222,9 +6390,10 @@ export function SalesOrderFormDrawer({
                                       </div>
                                     )}
                                   </td>
-                                  <td className="py-2 pl-2 text-right tabular-nums font-medium">
+                                  <td className="py-1.5 pr-3 text-right tabular-nums font-medium">
                                     {formatCurrency(r.subtotal)}
                                   </td>
+                                  <td className="w-6 p-0" aria-hidden />
                                 </tr>
                               ))}
                             </tbody>
@@ -6253,6 +6422,28 @@ export function SalesOrderFormDrawer({
                               <option value="damaged_in_transit">Damaged in transit</option>
                               <option value="other">Other</option>
                             </select>
+                          </AgainFormField>
+                          <AgainFormField
+                            label="Return to"
+                            hint={
+                              returnWarehouseId
+                                ? undefined
+                                : ["defective", "warranty", "damaged_in_transit"].includes(returnReason)
+                                  ? "Automatic: a faulty / damaged unit goes to the RMA store - it does not come back as sellable stock."
+                                  : `Automatic: back into ${warehouses.find((w) => w.id === form.warehouseId)?.name ?? "the warehouse this order was sold from"}.`
+                            }
+                          >
+                            <FilterSelect
+                              value={returnWarehouseId}
+                              onChange={setReturnWarehouseId}
+                              width="w-full"
+                              ariaLabel="Warehouse that receives the returned units"
+                              disabled={readOnly}
+                              options={[
+                                { value: "", label: "Automatic" },
+                                ...warehouses.map((w) => ({ value: w.id, label: `${w.code} \u2014 ${w.name}` })),
+                              ]}
+                            />
                           </AgainFormField>
                           <AgainFormField label="Notes">
                             <input
@@ -6398,151 +6589,16 @@ export function SalesOrderFormDrawer({
             </div>
           </AgainDrawerScrollBody>
 
-          <div className="relative z-20 shrink-0 border-t border-border bg-background">
-            <div className="flex items-center justify-between gap-4 px-4 py-2 sm:px-6">
-              <div className="relative z-10 flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1">
-                {!readOnly && !totalsMinimized ? (
-                  <>
-                    {featureFlags.optionLineSections ? (
-                      <>
-                        <button
-                          type="button"
-                          className={LINK}
-                          onClick={() => {
-                            setTab("lines");
-                            addSection();
-                          }}
-                        >
-                          Add a section
-                        </button>
-                        <button
-                          type="button"
-                          className={LINK}
-                          onClick={() => {
-                            setTab("lines");
-                            addNote();
-                          }}
-                        >
-                          Add a note
-                        </button>
-                      </>
-                    ) : null}
-                    {featureFlags.optionDiscounts && form.orderDiscount == null ? (
-                      <button
-                        type="button"
-                        className={LINK}
-                        onClick={() =>
-                          setForm((f) => ({
-                            ...f,
-                            orderDiscount: 0,
-                            orderDiscountType: "fixed",
-                          }))
-                        }
-                      >
-                        Add discount
-                      </button>
-                    ) : null}
-                    {featureFlags.optionShippingCharge &&
-                    featureFlags.tabShipping &&
-                    form.orderShippingCharge == null ? (
-                      <button
-                        type="button"
-                        className={LINK}
-                        onClick={() => {
-                          const line =
-                            SHIPPING_LINE_OPTIONS.find((o) => o.id === form.shippingLineId) ??
-                            SHIPPING_LINE_OPTIONS[0];
-                          patch(
-                            "orderShippingCharge",
-                            line.id === "pickup"
-                              ? 0
-                              : line.usesEstimate
-                                ? shippingSummary.shippingTotal || 0
-                                : 0,
-                          );
-                          setTab("shipping");
-                        }}
-                      >
-                        Add shipping
-                      </button>
-                    ) : null}
+          {/* totals box: in the flow, right-aligned, above the footer line (the footer links are below it) */}
+          {/* totals card: fixed in place like a popup, above the footer line, at the right - a long product list scrolls UNDER it
+              (the wrapper has no height, so it takes no room from the list) */}
+          <div className="pointer-events-none relative z-30 h-0 shrink-0">
+            <div className="pointer-events-auto absolute bottom-2 right-4 w-[min(100%,260px)] sm:right-6">
+            {totalsMinimized ? (
+<div className="relative ml-auto w-[min(100%,260px)] border border-border bg-background px-3 py-2.5 text-[12px] shadow-md">
                     <button
                       type="button"
-                      className={LINK}
-                      onClick={() =>
-                        setForm((f) => ({
-                          ...f,
-                          additionalExpenses: [
-                            ...f.additionalExpenses,
-                            { id: `exp_${Date.now()}`, title: "", amount: 0 },
-                          ],
-                        }))
-                      }
-                    >
-                      Add Additional Expense
-                    </button>
-                    {salesTaxesEnabled && !orderTaxesVisible ? (
-                      <button
-                        type="button"
-                        className={LINK}
-                        onClick={() => {
-                          setOrderTaxesVisible(true);
-                          setLineColumns((cols) => ({ ...cols, taxes: true }));
-                          setForm((f) => ({
-                            ...f,
-                            lines: f.lines.map((l) => {
-                              if (l.kind !== "product") return l;
-                              const rate = l.taxRate > 0 ? l.taxRate : companyTaxRate;
-                              return {
-                                ...l,
-                                taxRate: rate,
-                                tax: calcLineTax(
-                                  l.quantity,
-                                  l.unitPrice,
-                                  rate,
-                                  lineDiscountAmount(
-                                    l.quantity,
-                                    l.unitPrice,
-                                    l.discount,
-                                    l.discountType,
-                                  ),
-                                ),
-                              };
-                            }),
-                          }));
-                        }}
-                      >
-                        Add taxes
-                      </button>
-                    ) : null}
-                    {!readOnly && draftReturnSubtotal > 0 && returnDiscount == null ? (
-                      <button
-                        type="button"
-                        className={LINK}
-                        onClick={() => setReturnDiscount(0)}
-                      >
-                        Add Return Discount
-                      </button>
-                    ) : null}
-                    {featureFlags.tabPayment && paymentAmount <= 0 ? (
-                      <button
-                        type="button"
-                        className={LINK}
-                        onClick={() => setTab("payment")}
-                      >
-                        Add payment
-                      </button>
-                    ) : null}
-                  </>
-                ) : null}
-              </div>
-
-              <div className="relative z-10 flex shrink-0 items-end gap-2">
-                {totalsMinimized ? (
-                  <div className="relative min-w-[168px] border border-border bg-background px-2.5 pb-2 pt-6 text-[12px] shadow-sm">
-                    <button
-                      type="button"
-                      className="absolute left-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-none border border-border/80 bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      className="absolute -left-2.5 -top-2.5 z-10 inline-flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
                       aria-label="Expand totals"
                       title="Expand totals"
                       onClick={() => setTotalsMinimized(false)}
@@ -6574,19 +6630,11 @@ export function SalesOrderFormDrawer({
                       </div>
                     ) : null}
                   </div>
-                ) : (
-                  <div className="invisible min-w-[240px]" aria-hidden>
-                    <div className="h-8" />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {!totalsMinimized ? (
-              <div className="absolute bottom-2 right-4 z-30 w-[min(100%,260px)] border border-border bg-background shadow-md dark:bg-background sm:right-6">
+            ) : (
+                          <div className="relative ml-auto w-[min(100%,260px)] border border-border bg-background shadow-md dark:bg-background">
                 <button
                   type="button"
-                  className="absolute left-1.5 top-1.5 z-10 inline-flex h-5 w-5 items-center justify-center rounded-none border border-border/80 bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="absolute -left-2.5 -top-2.5 z-10 inline-flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
                   aria-label="Minimize totals"
                   title="Minimize totals"
                   onClick={() => setTotalsMinimized(true)}
@@ -6594,7 +6642,7 @@ export function SalesOrderFormDrawer({
                   <Minus className="h-3 w-3" />
                 </button>
 
-                <div className="space-y-1.5 px-3 pb-2.5 pt-7 text-[12px]">
+                <div className="space-y-1.5 px-3 py-2.5 text-[12px]">
                   <div className="flex items-center justify-between gap-4 text-muted-foreground">
                     <span>Sub total</span>
                     <span className="tabular-nums text-foreground">
@@ -6992,7 +7040,152 @@ export function SalesOrderFormDrawer({
                   ) : null}
                 </div>
               </div>
-            ) : null}
+            
+            )}
+            </div>
+          </div>
+
+          <div className="relative z-20 shrink-0 border-t border-border bg-background">
+            <div className="flex items-center justify-between gap-4 px-4 py-2 sm:px-6">
+              <div className="relative z-10 flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1">
+                {!readOnly ? (
+                  <>
+                    {featureFlags.optionLineSections ? (
+                      <>
+                        <button
+                          type="button"
+                          className={LINK}
+                          onClick={() => {
+                            setTab("lines");
+                            addSection();
+                          }}
+                        >
+                          Add a section
+                        </button>
+                        <button
+                          type="button"
+                          className={LINK}
+                          onClick={() => {
+                            setTab("lines");
+                            addNote();
+                          }}
+                        >
+                          Add a note
+                        </button>
+                      </>
+                    ) : null}
+                    {featureFlags.optionDiscounts && form.orderDiscount == null ? (
+                      <button
+                        type="button"
+                        className={LINK}
+                        onClick={() =>
+                          setForm((f) => ({
+                            ...f,
+                            orderDiscount: 0,
+                            orderDiscountType: "fixed",
+                          }))
+                        }
+                      >
+                        Add discount
+                      </button>
+                    ) : null}
+                    {featureFlags.optionShippingCharge &&
+                    featureFlags.tabShipping &&
+                    form.orderShippingCharge == null ? (
+                      <button
+                        type="button"
+                        className={LINK}
+                        onClick={() => {
+                          const line =
+                            SHIPPING_LINE_OPTIONS.find((o) => o.id === form.shippingLineId) ??
+                            SHIPPING_LINE_OPTIONS[0];
+                          patch(
+                            "orderShippingCharge",
+                            line.id === "pickup"
+                              ? 0
+                              : line.usesEstimate
+                                ? shippingSummary.shippingTotal || 0
+                                : 0,
+                          );
+                          setTab("shipping");
+                        }}
+                      >
+                        Add shipping
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={LINK}
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          additionalExpenses: [
+                            ...f.additionalExpenses,
+                            { id: `exp_${Date.now()}`, title: "", amount: 0 },
+                          ],
+                        }))
+                      }
+                    >
+                      Add Additional Expense
+                    </button>
+                    {salesTaxesEnabled && !orderTaxesVisible ? (
+                      <button
+                        type="button"
+                        className={LINK}
+                        onClick={() => {
+                          setOrderTaxesVisible(true);
+                          setLineColumns((cols) => ({ ...cols, taxes: true }));
+                          setForm((f) => ({
+                            ...f,
+                            lines: f.lines.map((l) => {
+                              if (l.kind !== "product") return l;
+                              const rate = l.taxRate > 0 ? l.taxRate : companyTaxRate;
+                              return {
+                                ...l,
+                                taxRate: rate,
+                                tax: calcLineTax(
+                                  l.quantity,
+                                  l.unitPrice,
+                                  rate,
+                                  lineDiscountAmount(
+                                    l.quantity,
+                                    l.unitPrice,
+                                    l.discount,
+                                    l.discountType,
+                                  ),
+                                ),
+                              };
+                            }),
+                          }));
+                        }}
+                      >
+                        Add taxes
+                      </button>
+                    ) : null}
+                    {!readOnly && draftReturnSubtotal > 0 && returnDiscount == null ? (
+                      <button
+                        type="button"
+                        className={LINK}
+                        onClick={() => setReturnDiscount(0)}
+                      >
+                        Add Return Discount
+                      </button>
+                    ) : null}
+                    {featureFlags.tabPayment && paymentAmount <= 0 ? (
+                      <button
+                        type="button"
+                        className={LINK}
+                        onClick={() => setTab("payment")}
+                      >
+                        Add payment
+                      </button>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+
+            </div>
+
           </div>
           </div>
           )}

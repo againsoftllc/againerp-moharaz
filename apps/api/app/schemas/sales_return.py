@@ -88,6 +88,8 @@ class SalesReturnCreate(BaseModel):
     requested_by: Optional[str] = Field(default=None, max_length=100)
     notes: Optional[str] = None
     discount_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    # Where the units are received. Left out: the RMA store for a faulty / damaged return, else the order's own warehouse.
+    warehouse_id: Optional[str] = Field(default=None, max_length=36)
     lines: List[SalesReturnLineCreate] = Field(min_length=1)
     # Confirm and credit in the same request: stock comes back and the credit
     # note posts immediately (the Sales drawer's Return tab uses this).

@@ -41,16 +41,18 @@ const DEFAULT_ORDER: LineDataCol[] = [
   "taxIncl",
 ];
 
+// Each column opens as wide as its content needs and no wider; the Product column has no fixed width - it takes whatever is
+// left (see the colgroup in the order drawer), so the number columns stay together instead of being spread across the table.
 const DEFAULT_WIDTHS: Record<LineDataCol, number> = {
-  variant: 140,
-  product: 300,
-  leadTime: 100,
-  quantity: 72,
-  unitPrice: 60,
-  discount: 148,
-  taxes: 96,
-  taxIncl: 112,
-  amount: 60,
+  variant: 130,
+  product: 300, // only the minimum counts (MIN_WIDTHS): the column itself is flexible
+  leadTime: 90,
+  quantity: 84,
+  unitPrice: 96,
+  discount: 90,
+  taxes: 84,
+  taxIncl: 100,
+  amount: 108,
 };
 
 const MIN_WIDTHS: Record<LineDataCol, number> = {
@@ -65,14 +67,13 @@ const MIN_WIDTHS: Record<LineDataCol, number> = {
   amount: 52,
 };
 
-/** Sticky right column (settings / delete) — matches Again drawer field sheet background. */
-export const LINE_TABLE_ACTION_COL_CLASS =
-  "sticky right-0 z-10 border-l border-border/40 bg-[#eceff3] dark:bg-muted/20";
+/** The fixed right column of the lines table - the columns menu in the header, the delete button in every row. It is as narrow as
+ * its button (width below), stays in view when the table scrolls sideways, and never sits on top of a data column. */
+export const LINE_ACTION_COL_WIDTH = 24;
 
-export const LINE_TABLE_ACTION_HEAD_CLASS = cn(
-  LINE_TABLE_ACTION_COL_CLASS,
-  "z-20",
-);
+export const LINE_TABLE_ACTION_COL_CLASS = "sticky right-0 z-10 w-6 min-w-6 max-w-6 bg-transparent p-0 text-center align-middle";
+
+export const LINE_TABLE_ACTION_HEAD_CLASS = cn(LINE_TABLE_ACTION_COL_CLASS, "z-20");
 
 export type LineColumnVisibility = {
   variant: boolean;
@@ -178,7 +179,7 @@ export function LineTableHeaderCell({
 
   return (
     <th
-      style={{ width, minWidth: width, maxWidth: width }}
+      style={col === "product" ? { minWidth: MIN_WIDTHS.product } : { width, minWidth: width, maxWidth: width }}
       className={cn(
         "relative py-2 pr-3 text-[11px] font-semibold text-foreground",
         align === "right" && "text-right",
@@ -213,7 +214,7 @@ export function LineTableHeaderCell({
       >
         {label}
       </span>
-      {!readOnly ? (
+      {!readOnly && col !== "product" ? (
         <div
           role="separator"
           aria-orientation="vertical"

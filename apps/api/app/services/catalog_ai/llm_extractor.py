@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.schemas.catalog_ai_import import ProductDraft
+from app.services.catalog_ai.page_distiller import _key, _tokens, grounded
 from app.services.catalog_ai.scraper import ScrapedPage
 
 
@@ -217,7 +218,9 @@ def _build_prompt(page: ScrapedPage, context: Optional[CatalogContext] = None) -
     # the machine-readable product data is already given below in `structured`; JSON-LD would repeat it
     json_ld_excerpt = "(see the product data above)" if page.structured else (str(page.json_ld)[:3000] if page.json_ld else "(none found)")
     slim = bool(_skip_fields(page, context))
-    page_text = page.text[:10000] if slim else page.text
+    # the page read line by line with its structure (tables as rows, "label: value", bullets) beats one flattened, cut-off line
+    page_text = page.view if page.view else page.text
+    page_text = page_text[:10000] if slim else page_text
     hint = " ".join([page.title or "", " ".join(page.structured.get("breadcrumb") or []) if page.structured else "", page.text[:1500]])
     structured = {k: (str(v) if k == "price" else v) for k, v in (page.structured or {}).items()}
     structured_text = json.dumps(structured, ensure_ascii=False, default=str)[:5000] if structured else "(none found)"
@@ -238,7 +241,7 @@ JSON-LD structured data found on page (may be partial or absent):
 Candidate image URLs found on page (pick the real product photos, skip logos/icons/banners/tracking pixels):
 {images_list}
 
-Visible page text (truncated):
+Page content - the whole page source written out in reading order, structure kept: '#' headings, 'label | value' table rows, 'label: value' rows, '- ' bullet items (menus, footers and other products were left out):
 {page_text}
 {_context_block(context, hint)}
 Call {EXTRACT_TOOL_NAME} with the product data. Leave fields out entirely if genuinely not present on the page — do not invent data. `description` and `short_description` must be copied VERBATIM from the page text above — the exact same wording the page uses, not your own summary or rewrite of it. For images, return only URLs copied exactly from the candidate list above — the list has already been de-duplicated, so treat each URL as a distinct photo. Only fill 'variants' when the page genuinely offers multiple selectable options for this same product; a single-option product should have no variants at all."""
@@ -273,7 +276,25 @@ def _finalize(data: dict, page: ScrapedPage) -> ProductDraft:
             r"^\s*(key features|highlights|overview|features)\s*:?\s*\n", "", short, flags=re.I
         ).strip() or short
     data["source_url"] = page.url
+    _ground(data, page)
     return ProductDraft.model_validate(data)
+
+
+def _ground(data: dict, page: ScrapedPage) -> None:
+    """Whatever the model returned must be on the page: a specification value that appears nowhere in the page source (and
+    its declared data) is dropped - never an invented spec - and images are only the page's own candidates."""
+    source = " ".join([page.view or page.text or "", json.dumps(page.structured or {}, ensure_ascii=False, default=str), page.title or ""])
+    hay_key, hay_tokens = _key(source), _tokens(source)
+    groups = []
+    for g in data.get("specifications") or []:
+        items = [i for i in (g.get("items") or []) if grounded(str(i.get("value") or ""), hay_key, hay_tokens)]
+        if items:
+            groups.append({**g, "items": items})
+    if "specifications" in data:
+        data["specifications"] = groups
+    if data.get("images"):
+        allowed = set(page.image_urls) | {u for u in (page.structured or {}).get("images", []) if isinstance(u, str)}
+        data["images"] = [u for u in data["images"] if u in allowed]
 
 
 def _extract_with_openai(page: ScrapedPage, api_key: str, context: Optional[CatalogContext] = None) -> ProductDraft:

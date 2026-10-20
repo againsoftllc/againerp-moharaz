@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight, List, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { menuVars } from "@/components/shared/filter-select";
 import { getCategoryAncestorNames } from "@/lib/category-utils";
 import {
   buildCategoryTree,
@@ -27,6 +28,8 @@ type SingleProps = {
   chips?: boolean;
   /** A list filter bar picker: its menu follows the list zoom and the filter font size (globals.css [data-list-filter-menu]). */
   listFilter?: boolean;
+  /** Font size (px) of the open menu (with `listFilter`): match the trigger's. */
+  menuFontSize?: number;
 };
 
 type MultiProps = {
@@ -41,6 +44,7 @@ type MultiProps = {
   inline?: boolean;
   chips?: boolean;
   listFilter?: boolean;
+  menuFontSize?: number;
 };
 
 type Props = SingleProps | MultiProps;
@@ -66,6 +70,7 @@ export function CategoryCombobox(props: Props) {
     inline = false,
     chips = true,
     listFilter = false,
+    menuFontSize,
   } = props;
 
   const [open, setOpen] = useState(autoOpen);
@@ -429,6 +434,8 @@ export function CategoryCombobox(props: Props) {
               ref={menuRef}
               data-portal-popover=""
               data-list-filter-menu={listFilter ? "" : undefined}
+              onWheel={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
               className="z-[9999] rounded-none border border-border bg-popover text-popover-foreground shadow-md"
               style={{
                 position: menuPos.fixed ? "fixed" : "absolute",
@@ -437,6 +444,7 @@ export function CategoryCombobox(props: Props) {
                 width: menuPos.width,
                 pointerEvents: "auto",
                 visibility: placed ? "visible" : "hidden",
+                ...(listFilter ? menuVars(menuFontSize) : undefined),
               }}
             >
               <div className="flex items-center border-b border-border px-1.5 py-1">

@@ -4,8 +4,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ListFilter, Plus, Search, X } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { FilterSelect } from "@/components/shared/filter-select";
-import { CategoryTreeFilter, categoryNamesWithDescendants } from "@/components/categories/category-tree-filter";
+import { categoryNamesWithDescendants } from "@/components/categories/category-tree-filter";
+import { CategoryCombobox } from "@/components/categories/category-combobox";
 import { useCatalogCategories } from "@/lib/api/use-catalog-categories";
+import { useCatalogBrands } from "@/lib/api/use-catalog-brands";
 import { SearchDropdown } from "@/components/again/again-search-dropdown";
 
 import { findItemByScan, scanProductCode, type ScanProductHit } from "@/lib/api/product-scan";
@@ -99,6 +101,7 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
   onPick,
   onAddNew,
   onQueryChange,
+  onFilterChange,
 }: {
   items: T[];
   portalHost: HTMLElement | null;
@@ -108,12 +111,16 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
   onAddNew?: () => void;
   /** told what is typed (e.g. to search the server for products not loaded yet) */
   onQueryChange?: (query: string) => void;
+  /** told the chosen brand / categories (a category with its sub-categories) so the screen can load THOSE products from the
+   * database - the loaded list is only a slice of the catalog */
+  onFilterChange?: (filter: { brand: string; categories: string[] }) => void;
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [brand, setBrand] = useState("");
-  const [category, setCategory] = useState("");
+  // the categories ticked in the tree (ids); a ticked parent also lists the products of its sub-categories
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const wrapRef = useRef<HTMLDivElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -126,37 +133,53 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
   const scanHit = query.trim().length >= 2 ? scanFound : null;
   const scanQueryRef = useRef("");
 
+  // the brand list is the catalog's own (database), not just the brands of the few products loaded on this screen
+  const { brands: catalogBrands } = useCatalogBrands({ channel: "catalog" });
   const brands = useMemo(() => {
     const set = new Set<string>();
+    // only a screen that loads the filtered products from the database (onFilterChange) can use the whole brand list
+    for (const b of onFilterChange ? catalogBrands : []) {
+      const value = b.name?.trim();
+      if (value) set.add(value);
+    }
     for (const item of items) {
       const value = item.brand?.trim();
       if (value) set.add(value);
     }
     return [...set].sort((a, b) => a.localeCompare(b));
-  }, [items]);
-
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of items) {
-      const value = item.category?.trim();
-      if (value) set.add(value);
-    }
-    return [...set].sort((a, b) => a.localeCompare(b));
-  }, [items]);
+  }, [items, catalogBrands, onFilterChange]);
 
   const { categories: categoryTree } = useCatalogCategories({ channel: "catalog" });
+  const categoryLabels = useMemo(
+    () => categoryIds.map((id) => categoryTree.find((c) => c.id === id)?.name).filter((n): n is string => Boolean(n)),
+    [categoryIds, categoryTree],
+  );
+  const category = categoryLabels.join(", ");
+  /** The ticked categories and their sub-categories, by name (what a product carries). */
+  const categoryNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const label of categoryLabels) for (const n of categoryNamesWithDescendants(label, categoryTree)) names.add(n);
+    return names;
+  }, [categoryLabels, categoryTree]);
 
   const filteredItems = useMemo(() => {
-    // a parent category also lists items filed under its sub-categories
-    const wanted = category ? categoryNamesWithDescendants(category, categoryTree) : null;
+    const wanted = categoryNames.size ? categoryNames : null;
     return items.filter((item) => {
       if (brand && (item.brand ?? "") !== brand) return false;
       if (wanted && !wanted.has(item.category ?? "")) return false;
       return true;
     });
-  }, [items, brand, category, categoryTree]);
+  }, [items, brand, categoryNames]);
 
-  const hasFilter = Boolean(brand || category);
+  const hasFilter = Boolean(brand || categoryIds.length);
+  const onFilterChangeRef = useRef(onFilterChange);
+  useLayoutEffect(() => {
+    onFilterChangeRef.current = onFilterChange;
+  }, [onFilterChange]);
+  useEffect(() => {
+    if (!brand && categoryNames.size === 0) return;
+    onFilterChangeRef.current?.({ brand, categories: [...categoryNames] });
+  }, [brand, categoryNames]);
   /** Opening the filter panel closes the results list and the other way round, so the two never overlap. */
   const toggleFilter = () => {
     setFilterOpen((next) => {
@@ -217,7 +240,8 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
       const target = event.target as Element | null;
       if (!target) return;
       if (wrapRef.current?.contains(target)) return;
-      if (target.closest("[data-radix-popper-content-wrapper], [role='listbox']")) return;
+      // the category picker's menu is portalled out of this panel (data-portal-popover): a click in it is not "outside"
+      if (target.closest("[data-radix-popper-content-wrapper], [role='listbox'], [data-portal-popover]")) return;
       setFilterOpen(false);
     }
     document.addEventListener("pointerdown", onDoc, true);
@@ -226,49 +250,6 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
 
   return (
     <div ref={wrapRef} className="@container relative flex min-w-0 flex-1 items-stretch gap-0">
-      <div className="relative shrink-0">
-        <button
-          type="button"
-          className={cn(
-            "inline-flex h-9 shrink-0 items-center gap-1.5 border border-r-0 border-input px-3 text-[13px] font-medium",
-            hasFilter
-              ? "bg-[#00a09d] text-white hover:bg-[#00c4bf]"
-              : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
-            filterOpen && !hasFilter && "bg-muted text-foreground",
-          )}
-          aria-label={
-            hasFilter
-              ? `Filters active (${[brand, category].filter(Boolean).join(", ")})`
-              : "Filter by brand or category"
-          }
-          aria-expanded={filterOpen}
-          title={hasFilter ? "Filters applied — click to edit" : "Filter by brand or category"}
-          onClick={toggleFilter}
-        >
-          <ListFilter className="h-4 w-4 shrink-0" />
-          <span className="max-w-[140px] truncate">
-            {hasFilter ? [brand, category].filter(Boolean).join(", ") : "Filter"}
-          </span>
-          <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 opacity-70 transition-transform", filterOpen && "rotate-180")} />
-        </button>
-        {hasFilter ? (
-          <button
-            type="button"
-            className="absolute -right-px -top-px z-10 inline-flex h-4 w-4 items-center justify-center border border-border bg-background text-foreground hover:bg-destructive hover:text-white"
-            aria-label="Clear filters"
-            title="Clear filters"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              setBrand("");
-              setCategory("");
-              setFilterOpen(false);
-            }}
-          >
-            <X className="h-2.5 w-2.5" strokeWidth={2.5} />
-          </button>
-        ) : null}
-      </div>
       <div
         ref={searchBoxRef}
         className="flex h-9 min-w-0 flex-1 items-center border border-input bg-background"
@@ -285,7 +266,7 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
         {category ? (
           <span className="ml-1.5 inline-flex h-5 max-w-[10rem] shrink-0 items-center gap-1 bg-[#00a09d]/10 px-1.5 text-[11px] text-[#00807e] dark:text-[#4fd1ce]" title={`Category: ${category}`}>
             <span className="truncate">Category: {category}</span>
-            <button type="button" className="shrink-0 hover:text-destructive" aria-label="Clear category filter" onMouseDown={(e) => e.preventDefault()} onClick={() => setCategory("")}>
+            <button type="button" className="shrink-0 hover:text-destructive" aria-label="Clear category filter" onMouseDown={(e) => e.preventDefault()} onClick={() => setCategoryIds([])}>
               <X className="h-3 w-3" />
             </button>
           </span>
@@ -344,8 +325,51 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
           </button>
         ) : null}
       </div>
+      <div className="relative w-[30%] min-w-[200px] shrink-0">
+        <button
+          type="button"
+          className={cn(
+            "inline-flex h-9 w-full shrink-0 items-center gap-1.5 border border-l-0 border-input px-3 text-[13px] font-medium",
+            hasFilter
+              ? "bg-[#00a09d] text-white hover:bg-[#00c4bf]"
+              : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
+            filterOpen && !hasFilter && "bg-muted text-foreground",
+          )}
+          aria-label={
+            hasFilter
+              ? `Filters active (${[brand, category].filter(Boolean).join(", ")})`
+              : "Filter by brand or category"
+          }
+          aria-expanded={filterOpen}
+          title={hasFilter ? "Filters applied — click to edit" : "Filter by brand or category"}
+          onClick={toggleFilter}
+        >
+          <ListFilter className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-left">
+            {hasFilter ? [brand, category].filter(Boolean).join(", ") : "Filter"}
+          </span>
+          <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 opacity-70 transition-transform", filterOpen && "rotate-180")} />
+        </button>
+        {hasFilter ? (
+          <button
+            type="button"
+            className="absolute -right-px -top-px z-10 inline-flex h-4 w-4 items-center justify-center border border-border bg-background text-foreground hover:bg-destructive hover:text-white"
+            aria-label="Clear filters"
+            title="Clear filters"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setBrand("");
+              setCategoryIds([]);
+              setFilterOpen(false);
+            }}
+          >
+            <X className="h-2.5 w-2.5" strokeWidth={2.5} />
+          </button>
+        ) : null}
+      </div>
       {filterOpen ? (
-        <div className="absolute inset-x-0 top-full z-[300] mt-0.5 border border-border bg-popover text-popover-foreground shadow-lg">
+        <div className="absolute right-0 top-full z-[300] mt-0.5 w-[30%] min-w-[240px] border border-border bg-popover text-popover-foreground shadow-lg">
           <div className="flex items-center justify-between border-b border-border/80 px-3 py-1.5">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Filter products</p>
             {hasFilter ? (
@@ -354,20 +378,38 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
                 className="text-[12px] text-[#00a09d] hover:underline"
                 onClick={() => {
                   setBrand("");
-                  setCategory("");
+                  setCategoryIds([]);
                 }}
               >
                 Clear filters
               </button>
             ) : null}
           </div>
-          <div className="grid gap-x-4 gap-y-2 p-3 @sm:grid-cols-2">
-            <div className="min-w-0 space-y-1">
-              <p className="text-[11px] text-muted-foreground">Brand</p>
+          <div className="flex flex-col gap-5 px-4 py-4">
+            <div className="min-w-0 space-y-1.5">
+              <p className="text-[12px] font-medium text-muted-foreground">Category</p>
+              {/* the same picker as the Products list filter: a tree with check boxes, several categories, search */}
+              <CategoryCombobox
+                multiple
+                categories={categoryTree}
+                values={categoryIds}
+                onChange={setCategoryIds}
+                placeholder="All categories"
+                chips={false}
+                listFilter
+                className="w-full [&>button]:h-8 [&>button]:text-[14px]" /* the picker draws its own 12px trigger: same height and font as Brand */
+                menuFontSize={14}
+              />
+            </div>
+            <div className="min-w-0 space-y-1.5">
+              <p className="text-[12px] font-medium text-muted-foreground">Brand</p>
               <FilterSelect
                 value={brand}
                 onChange={setBrand}
                 width="w-full"
+                className={cn("h-8 text-[14px]", !brand && "text-muted-foreground")}
+                menuFontSize={14}
+                avoidCollisions
                 ariaLabel="Brand"
                 placeholder="All brands"
                 options={[
@@ -375,31 +417,6 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
                   ...brands.map((value) => ({ value, label: value })),
                 ]}
               />
-            </div>
-            <div className="min-w-0 space-y-1">
-              <p className="text-[11px] text-muted-foreground">Category</p>
-              {categoryTree.length > 0 ? (
-                <CategoryTreeFilter
-                  categories={categoryTree}
-                  value={category}
-                  onChange={setCategory}
-                  allValue=""
-                  width="w-full"
-                  avoidCollisions
-                />
-              ) : (
-                <FilterSelect
-                  value={category}
-                  onChange={setCategory}
-                  width="w-full"
-                  ariaLabel="Category"
-                  placeholder="All categories"
-                  options={[
-                    { value: "", label: "All categories" },
-                    ...categories.map((value) => ({ value, label: value })),
-                  ]}
-                />
-              )}
             </div>
           </div>
         </div>

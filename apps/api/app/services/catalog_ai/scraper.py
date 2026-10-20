@@ -13,6 +13,7 @@ from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
+from app.services.catalog_ai.page_distiller import distill_page
 
 from app.services.catalog_ai.structured_data import is_junk_image, structured_product
 from fastapi import HTTPException
@@ -57,6 +58,9 @@ class ScrapedPage:
     # structured_data.structured_product(): name, price, currency, brand, sku, mpn, images,
     # description. The only source on JavaScript-built stores.
     structured: dict = field(default_factory=dict)
+    # The whole page source written out line by line with its structure kept (headings, table rows, "label: value" rows, bullet
+    # lists) and without chrome / other products - what the AI reads on ANY shop (page_distiller). "" when the page has none.
+    view: str = ""
 
 
 def _extract_json_ld(soup: BeautifulSoup) -> list[dict]:
@@ -931,6 +935,10 @@ def parse_page(body: bytes | str, final_url: str) -> ScrapedPage:
     spec_groups = _extract_spec_groups(soup, spec_info)
     spec_info["ids"] = {**(spec_info.get("ids") or {}), **_summary_ids(soup)}  # before _extract_text, which strips chrome tags in place
     highlights = _extract_highlights(soup)
+    try:
+        view = distill_page(soup)  # before _extract_text, which strips chrome tags in place
+    except Exception:  # noqa: BLE001 - the flat text below is the fallback
+        view = ""
     text = _extract_text(soup)
 
     return ScrapedPage(
@@ -946,4 +954,5 @@ def parse_page(body: bytes | str, final_url: str) -> ScrapedPage:
         source_ids=dict(spec_info.get("ids") or {}),
         highlights=highlights,
         structured=structured,
+        view=view if len(view) >= 300 else "",
     )
