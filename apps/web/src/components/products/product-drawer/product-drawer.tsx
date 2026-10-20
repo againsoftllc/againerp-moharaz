@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Pencil, X } from "lucide-react";
 import {
-  AGAIN_DRAWER_PRIMARY_BTN,
-  AGAIN_DRAWER_PRIMARY_COLOR,
+  AgainDrawerButton,
+  AgainDrawerCloseButton,
   AgainDrawerControlBar,
   AgainDrawerLayout,
   AgainDrawerPanel,
@@ -12,7 +11,6 @@ import {
 } from "@/components/again/again-drawer";
 import { AgainFormNotebook, type AgainNotebookTab } from "@/components/again/again-form-sheet-layout";
 import { GridChipBadge } from "@/components/shared/grid-chip-badge";
-import { Button } from "@/components/ui/button";
 import { fetchCatalogProductDetail, type ProductDetail } from "@/lib/api/catalog-products";
 import { fetchProductReport, type ApiProductReport } from "@/lib/api/inventory";
 import { usePermission } from "@/lib/auth/permissions";
@@ -194,24 +192,12 @@ function ProductDrawerBody({
 
   return (
     <div data-testid="product-drawer" className="flex h-full min-h-0 flex-col">
-      <AgainDrawerControlBar>
+      <AgainDrawerControlBar trailing={<AgainDrawerCloseButton onClick={onClose} />}>
         {onEdit && product ? (
-          <button
-            type="button"
-            className={cn(AGAIN_DRAWER_PRIMARY_BTN, "inline-flex h-6 items-center gap-1 px-2 text-[11px]")}
-            style={{ backgroundColor: AGAIN_DRAWER_PRIMARY_COLOR }}
-            onClick={() => onEdit(product)}
-            data-testid="product-drawer-edit"
-          >
-            <Pencil className="h-3 w-3" />
+          <AgainDrawerButton variant="primary" onClick={() => onEdit(product)} data-testid="product-drawer-edit">
             Edit
-          </button>
+          </AgainDrawerButton>
         ) : null}
-        <div className="ml-auto">
-          <Button variant="ghost" size="icon" className="h-6 w-6 rounded-none" aria-label="Close" onClick={onClose}>
-            <X className="h-3.5 w-3.5" />
-          </Button>
-        </div>
       </AgainDrawerControlBar>
 
       <div className="shrink-0 border-b border-border px-4 py-3" data-testid="product-drawer-header">
@@ -241,7 +227,8 @@ function ProductDrawerBody({
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <h2
-                    className="min-w-0 truncate text-[15px] font-semibold text-foreground"
+                    className="min-w-0 truncate text-[20px] font-bold leading-tight tracking-tight text-foreground"
+                    title={product.name}
                     data-testid="product-drawer-name"
                   >
                     {product.name}
@@ -266,22 +253,20 @@ function ProductDrawerBody({
                     {product.sku || "—"}
                   </span>
                 </p>
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="text-muted-foreground">On hand</span>
-                    <span className="font-semibold tabular-nums text-foreground" data-testid="product-drawer-stock">
+                {/* Odoo smart-stat boxes: the figure on top, what it is underneath. */}
+                <div className="mt-2 flex flex-wrap items-stretch gap-2">
+                  <div className="min-w-[5.5rem] border border-border/80 bg-background px-3 py-1">
+                    <p className="text-[15px] font-semibold leading-tight tabular-nums text-foreground" data-testid="product-drawer-stock">
                       {formatQuantity(onHand)}
-                    </span>
-                  </span>
-                  <span className="text-border" aria-hidden="true">
-                    |
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="text-muted-foreground">Price</span>
-                    <span className="font-semibold tabular-nums text-foreground" data-testid="product-drawer-price">
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">On hand</p>
+                  </div>
+                  <div className="min-w-[5.5rem] border border-border/80 bg-background px-3 py-1">
+                    <p className="text-[15px] font-semibold leading-tight tabular-nums text-foreground" data-testid="product-drawer-price">
                       {formatCurrency(product.price)}
-                    </span>
-                  </span>
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">Price</p>
+                  </div>
                 </div>
               </div>
               <GridChipBadge className={STATUS_TONE[product.status]} title={STATUS_LABEL[product.status]}>

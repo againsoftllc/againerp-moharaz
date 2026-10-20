@@ -45,6 +45,10 @@ class InventoryWarehouse(Base):
     locations_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Holds returned units under claim (RMA): not sellable stock, and the place an approved complaint stocks into.
+    is_rma_store: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Where an RMA unit sits while it is out with a supplier (Supplier / In Transit): never sellable stock.
+    is_supplier_transit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,

@@ -11,6 +11,7 @@ class BrandBase(BaseModel):
     slug: str = Field(min_length=1, max_length=255)
     sort_order: int = Field(default=0, ge=0)
     is_active: bool = True
+    status: Optional[str] = Field(default=None, pattern="^(draft|published|unlisted|archived)$")
     description: Optional[str] = None
     website: Optional[str] = None
     meta_title: Optional[str] = None
@@ -32,6 +33,7 @@ class BrandUpdate(BaseModel):
     slug: Optional[str] = Field(default=None, min_length=1, max_length=255)
     sort_order: Optional[int] = Field(default=None, ge=0)
     is_active: Optional[bool] = None
+    status: Optional[str] = Field(default=None, pattern="^(draft|published|unlisted|archived)$")
     description: Optional[str] = None
     website: Optional[str] = None
     meta_title: Optional[str] = None
@@ -49,6 +51,8 @@ class BrandRead(BrandBase):
     id: str
     company_id: str
     product_count: int = 0
+    status: str = "published"
+    updated_by_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

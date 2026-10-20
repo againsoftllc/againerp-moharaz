@@ -5,7 +5,7 @@
 
 Every admin list that looks like Customers is this family. Visual and paging changes must land in the **shared shell**, not one page at a time.
 
-Living UI rules: `docs/ERP-UI-COMMON.md`. This file is the **inventory** of which pages and drawers use the family.
+Living UI rules: [`docs/common/datatablecommon.md`](./common/datatablecommon.md) (the datatable standard) and `docs/ERP-UI-COMMON.md` (global rules). This file is the **inventory** of which pages and drawers use the family, and the table of behaviours every list shares.
 
 ---
 

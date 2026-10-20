@@ -9,6 +9,9 @@
  * successful create.
  */
 
+import * as React from "react";
+import { toast } from "sonner";
+
 export type DraftEnvelope<T> = { savedAt: string; values: T };
 
 function storageKey(key: string) {
@@ -59,4 +62,64 @@ export function draftAgeLabel(savedAt: string): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
+}
+
+type UseDrawerDraftOptions<T> = {
+  /** One entry per drawer + record: "cheque-book:new", "cheque-book:<id>". Falsy = no draft (nothing to save yet). */
+  key: string | null | undefined;
+  /** The drawer is open and the record it shows has loaded. */
+  ready: boolean;
+  /** The user typed something that is not saved yet. */
+  dirty: boolean;
+  /** What to keep: the form values and, for "continue where I was", the scroll position. */
+  getValues: () => T;
+  /** Put a saved draft back on screen. */
+  restore: (values: T) => void;
+  /** Called when the user chooses Discard on the "restored" toast (reload the saved record into the form). */
+  onDiscard?: () => void;
+  /** Wording of the toast: "Restored unsaved {label} draft from …". */
+  label: string;
+};
+
+/**
+ * docs/common/drawercommon.md - a drawer that closes by accident (outside click, Esc, the X) keeps what was typed and, the next time
+ * it opens for the same record, puts it back. `saveDraftIfDirty` goes into the drawer's close path, `clear` after a real save
+ * or an explicit Discard. Works for "New X" and for editing an existing record (one key per record).
+ */
+export function useDrawerDraft<T>({ key, ready, dirty, getValues, restore, onDiscard, label }: UseDrawerDraftOptions<T>) {
+  const latest = React.useRef({ getValues, restore, onDiscard, dirty, key });
+  latest.current = { getValues, restore, onDiscard, dirty, key };
+  const restoredFor = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (!ready || !key) {
+      restoredFor.current = null;
+      return;
+    }
+    if (restoredFor.current === key) return;
+    restoredFor.current = key;
+    const draft = readDraft<T>(key);
+    if (!draft) return;
+    latest.current.restore(draft.values);
+    toast.info(`Restored unsaved ${label} draft from ${draftAgeLabel(draft.savedAt)}`, {
+      action: {
+        label: "Discard",
+        onClick: () => {
+          clearDraft(key);
+          latest.current.onDiscard?.();
+        },
+      },
+    });
+  }, [ready, key, label]);
+
+  const saveDraftIfDirty = React.useCallback(() => {
+    const { key: k, dirty: d, getValues: get } = latest.current;
+    if (k && d) writeDraft<T>(k, get());
+  }, []);
+
+  const clear = React.useCallback(() => {
+    if (latest.current.key) clearDraft(latest.current.key);
+  }, []);
+
+  return { saveDraftIfDirty, clear };
 }

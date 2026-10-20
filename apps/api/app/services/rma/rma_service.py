@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from app.models.auth_user import AuthUser
 from app.models.catalog_product import CatalogProduct
 from app.models.commerce_customer import CommerceCustomer
 from app.models.commerce_order import CommerceOrder
@@ -30,6 +31,7 @@ from app.services.rma import warranty as warranty_rules
 from app.services.rma.constants import (
     BILL_STATUSES,
     CHARGE_KINDS,
+    DECISION_ONLY_STATUSES,
     FUNCTIONAL_RESULTS,
     PHYSICAL_CONDITIONS,
     QC_RESULTS,
@@ -72,6 +74,18 @@ class TicketIntake:
     tracking_number: Optional[str] = None
     internal_notes: Optional[str] = None
     claim_group_id: Optional[str] = None
+    # Complaint intake (docs/RMA.md Stage A)
+    assigned_to_user_id: Optional[str] = None
+    promised_delivery_date: Optional[date] = None
+    charge_estimate: Decimal = Decimal("0")
+    diagnosis_required: bool = False
+    diagnosis_report: Optional[str] = None
+    # Manual supplier choice — only honoured with `can_override` and a reason, and only when the trace found nothing.
+    supplier_id: Optional[str] = None
+    supplier_override_reason: Optional[str] = None
+    can_override: bool = False
+    # False for a remote request: the unit is not here yet, so it is stocked when it is marked received.
+    unit_received: bool = True
 
 
 # --------------------------------------------------------------- numbering
@@ -352,7 +366,7 @@ def search_orders(db: Session, query: str, *, limit: int = 20) -> list[dict]:
             hits[key] = hit
             return
         # Prefer the more specific match (serial > order number > phone).
-        rank = {"serial": 3, "order_number": 2, "phone": 1}
+        rank = {"serial": 3, "invoice": 2, "order_number": 2, "phone": 1}
         if rank.get(hit["matched_by"], 0) >= rank.get(existing["matched_by"], 0):
             if hit.get("matched_serial") and not existing.get("matched_serial"):
                 existing["matched_serial"] = hit["matched_serial"]
@@ -378,6 +392,27 @@ def search_orders(db: Session, query: str, *, limit: int = 20) -> list[dict]:
     )
     for sales in sales_by_number:
         put(_sales_order_hit(db, sales, matched_by="order_number"))
+
+    # Invoice number: the sales order's own invoice, and a POS receipt's invoice.
+    from app.models.pos import PosReceipt
+
+    sales_by_invoice = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.invoice_number.ilike(like), SalesOrder.deleted_at.is_(None))
+        .order_by(SalesOrder.order_date.desc())
+        .limit(limit)
+        .all()
+    )
+    pos_invoice_orders = (
+        db.query(SalesOrder)
+        .join(PosReceipt, PosReceipt.sales_order_id == SalesOrder.id)
+        .filter(PosReceipt.invoice_number.ilike(like), SalesOrder.deleted_at.is_(None))
+        .order_by(SalesOrder.order_date.desc())
+        .limit(limit)
+        .all()
+    )
+    for sales in {s.id: s for s in [*sales_by_invoice, *pos_invoice_orders]}.values():
+        put(_sales_order_hit(db, sales, matched_by="invoice"))
 
     if looks_like_phone(q):
         suffix = normalize_phone_digits(q)
@@ -452,7 +487,7 @@ def search_orders(db: Session, query: str, *, limit: int = 20) -> list[dict]:
                 )
             )
 
-    ranked = {"serial": 3, "order_number": 2, "phone": 1}
+    ranked = {"serial": 3, "invoice": 2, "order_number": 2, "phone": 1}
     result = sorted(
         hits.values(),
         key=lambda hit: (ranked.get(hit["matched_by"], 0), hit["order_number"] or ""),
@@ -572,10 +607,54 @@ def create_ticket(db: Session, intake: TicketIntake) -> RmaTicket:
         tracking_number=intake.tracking_number,
         internal_notes=intake.internal_notes,
         order_source="sales" if order is not None and not isinstance(order, CommerceOrder) else "commerce",
+        assigned_to_user_id=intake.assigned_to_user_id,
+        promised_delivery_date=intake.promised_delivery_date,
+        charge_estimate=intake.charge_estimate or ZERO,
+        diagnosis_required=intake.diagnosis_required,
+        diagnosis_report=intake.diagnosis_report,
+        # A remote request has not arrived yet: its stock is posted when it is marked received.
+        unit_received=intake.unit_received and intake.start_status != "awaiting_return",
     )
+    if intake.assigned_to_user_id:
+        assignee = db.get(AuthUser, intake.assigned_to_user_id)
+        if assignee is None or assignee.company_id != intake.company_id:
+            raise HTTPException(status_code=400, detail="The assigned staff member was not found.")
+        ticket.assigned_to = assignee.name or assignee.username
     db.add(ticket)
     db.flush()
+
+    from app.services.rma import complaint_service
+
+    if not ticket.item_id:
+        ticket.item_id = complaint_service.resolve_item_id(db, ticket)
+    # Supplier / purchase invoice, resolved from the serial. A manual supplier is an authorized exception.
+    trace = complaint_service.trace_purchase(db, ticket.serial_number, intake.company_id)
+    complaint_service.apply_trace(ticket, trace)
+    if intake.supplier_id and trace["source"] != "traced":
+        if not intake.can_override:
+            raise HTTPException(
+                status_code=403,
+                detail="Choosing the supplier by hand needs the RMA override permission.",
+            )
+        complaint_service.set_supplier_manually(
+            db, ticket, supplier_id=intake.supplier_id, reason=intake.supplier_override_reason or "", actor=intake.created_by
+        )
+    ticket.prior_rma_count = len(
+        complaint_service.prior_tickets(
+            db,
+            intake.company_id,
+            serial_number=ticket.serial_number,
+            item_id=ticket.item_id,
+            customer_id=ticket.customer_id,
+            exclude_id=ticket.id,
+            limit=50,
+        )
+    )
     _record_status(db, ticket, None, ticket.status, intake.created_by, "Claim opened")
+    complaint_service.record_activity(
+        db, ticket, "created", actor=intake.created_by, new_value=ticket.status,
+        details={"serial": ticket.serial_number, "order": ticket.order_number},
+    )
 
     # Only a sold unit can legitimately move to in_service — a serial that is
     # still in_stock (never sold), or already replaced/scrapped, has nothing to
@@ -611,10 +690,18 @@ def list_tickets(
     rma_type: Optional[str] = None,
     item_id: Optional[str] = None,
     search: Optional[str] = None,
+    queue: Optional[str] = None,
     limit: int = 200,
     offset: int = 0,
 ) -> tuple[Sequence[RmaTicket], int]:
     query = db.query(RmaTicket).filter(RmaTicket.company_id == company_id)
+    if queue:
+        from app.services.rma import queue_service
+
+        try:
+            query = queue_service.apply_queue(query, db, queue)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     if status:
         query = query.filter(RmaTicket.status == status)
     if item_id:
@@ -712,9 +799,16 @@ def change_status(
     *,
     actor: Optional[str] = None,
     note: Optional[str] = None,
+    _allow_decision: bool = False,
+    _via_claim: bool = False,
 ) -> RmaTicket:
     if to_status not in RMA_STATUSES:
         raise HTTPException(status_code=400, detail=f"Unknown status: {to_status}")
+    if ticket.status == "pending_approval" and to_status in DECISION_ONLY_STATUSES and not _allow_decision:
+        raise HTTPException(
+            status_code=400,
+            detail="Approve, reject or send back a complaint with the Complaint approval action, which records who decided and why.",
+        )
     allowed = RMA_STATUS_TRANSITIONS.get(ticket.status, frozenset())
     if to_status not in allowed:
         raise HTTPException(
@@ -723,6 +817,24 @@ def change_status(
                 f"Cannot move an RMA from {ticket.status} to {to_status}. "
                 f"Allowed: {', '.join(sorted(allowed)) or 'none — this stage is final'}."
             ),
+        )
+
+    if to_status == "sent_to_supplier" and ticket.custody_state == "in_rma_store" and not _via_claim:
+        raise HTTPException(
+            status_code=400,
+            detail="This unit is in the RMA store. Send it to the supplier with a supplier claim (create, approve and dispatch it), which moves the stock.",
+        )
+
+    if to_status == "delivered" and ticket.custody_state in {"in_rma_store", "replacement_received", "with_supplier"} and not _via_claim:
+        raise HTTPException(
+            status_code=400,
+            detail="This unit is held in stock. Hand it over with a customer delivery, which takes it out of the RMA store and records any payment.",
+        )
+
+    if to_status == "returned_from_supplier" and ticket.custody_state == "with_supplier" and not _via_claim:
+        raise HTTPException(
+            status_code=400,
+            detail="This unit is with the supplier. Record what came back with a supplier receipt, which stocks it into the RMA store.",
         )
 
     if to_status == "sent_to_supplier":
@@ -738,13 +850,67 @@ def change_status(
                 detail="Record the supplier job before marking the unit sent to a supplier.",
             )
 
+    from app.services.rma import complaint_service
+
+    if to_status in {"rejected", "cancelled"}:
+        _guard_before_withdrawing(db, ticket, to_status)
+        # The RMA's own unpaid invoice stops billing the customer (mirror journal), then the unit goes back to the customer:
+        # any intake stock is taken back out through the ledger's reversal.
+        _void_unpaid_invoice(db, ticket)
+        complaint_service.reverse_intake_stock(db, ticket, actor=actor, reason=note or to_status)
+
     previous = ticket.status
     ticket.status = to_status
     if to_status in {"closed", "rejected", "cancelled"}:
         ticket.closed_at = datetime.utcnow()
     _record_status(db, ticket, previous, to_status, actor, note)
+    if to_status == "received":
+        ticket.unit_received = True
+        # An approved complaint's unit is stocked into the RMA store the moment it is physically received (once).
+        if ticket.complaint_decision == "approved":
+            complaint_service.post_intake_stock(db, ticket, actor=actor)
     _release_serial(db, ticket, to_status)
+    complaint_service.record_activity(
+        db, ticket, "status_changed", actor=actor, old_value=previous, new_value=to_status, details={"note": note}
+    )
     return ticket
+
+
+def _void_unpaid_invoice(db: Session, ticket: RmaTicket) -> None:
+    if not ticket.receivable_id:
+        return
+    from app.services.finance.finance_service import FinanceService
+
+    receivable = FinanceService(db).void_rma_receivable(ticket.id)
+    if receivable is not None and receivable.status == "void":
+        ticket.bill_status = "not_billed"
+        ticket.is_billable = False
+
+
+def _guard_before_withdrawing(db: Session, ticket: RmaTicket, to_status: str) -> None:
+    """Rejecting or cancelling an RMA must not strand stock or documents: no silent deletion, only reversals and finished paper."""
+    from app.services.rma import queue_service
+
+    verb = "cancelled" if to_status == "cancelled" else "rejected"
+    if ticket.custody_state == "delivered":
+        raise HTTPException(status_code=400, detail=f"The unit was already delivered to the customer, so this RMA cannot be {verb}.")
+    if ticket.custody_state == "with_supplier":
+        raise HTTPException(
+            status_code=400,
+            detail=f"The unit is with the supplier, so this RMA cannot be {verb}. Receive it back first (supplier receipt), then reverse the stock steps.",
+        )
+    open_docs = queue_service.open_documents(db, ticket)
+    if open_docs:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Finish or cancel these first: {', '.join(open_docs)}.",
+        )
+    receivable = db.get(FinanceReceivable, ticket.receivable_id) if ticket.receivable_id else None
+    if receivable is not None and receivable.status != "void" and Decimal(str(receivable.amount_paid or 0)) > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{receivable.invoice_number} already has payments on it. Reverse those settlements first, then the RMA can be {verb}.",
+        )
 
 
 # Statuses where the unit stops being the workshop's problem, and what that
@@ -1003,7 +1169,14 @@ def dashboard(db: Session, company_id: str) -> dict:
     open_count = sum(
         1 for r in rows if r.status not in {"closed", "rejected", "cancelled", "delivered"}
     )
+    from app.services.rma import queue_service
+
+    q = queue_service.queues(db, company_id)["counts"]
     return {
+        "overdue_count": q["overdue"],
+        "supplier_pending_count": q["supplier_pending"],
+        "supplier_late_count": q["supplier_late"],
+        "repeat_count": q["repeat"],
         "total": len(rows),
         "open_count": open_count,
         "at_supplier_count": sum(
@@ -1092,6 +1265,14 @@ def create_service_from_rma(
 ) -> RmaTicket:
     if ticket.status in {"draft", "pending_approval", "approved", "awaiting_return"}:
         raise HTTPException(status_code=400, detail="Receive the unit before opening a service job")
+    if ticket.status in {"sent_to_supplier", "at_supplier", "delivered", "closed", "rejected", "cancelled"} or ticket.custody_state in {
+        "with_supplier",
+        "delivered",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="A service job can only be opened while the unit is in the shop (not with the supplier, delivered, closed or cancelled).",
+        )
     if ticket.service_job_id:
         raise HTTPException(status_code=409, detail="A service job is already linked to this RMA")
     if not ticket.customer_name and not ticket.customer_id:
@@ -1202,8 +1383,13 @@ def issue_replacement(
 
     from app.services.inventory.constants import MOVEMENT_RMA_REPLACEMENT
     from app.services.inventory.stock_movement_service import MovementInput, StockMovementService
+    from app.services.rma import complaint_service
 
-    StockMovementService(db).apply_movement(
+    # One replacement per claim: a second call finds the recorded event and posts nothing.
+    complaint_service.lock_ticket(db, ticket)
+    if complaint_service.stock_event(db, ticket.id, "replacement") is not None:
+        raise HTTPException(status_code=409, detail="A replacement was already issued for this claim.")
+    movement = StockMovementService(db).apply_movement(
         MovementInput(
             item_id=item_id,
             warehouse_id=warehouse_id,
@@ -1215,6 +1401,19 @@ def issue_replacement(
             created_by=actor,
             source_type="rma",
             source_id=ticket.id,
+            source_line_id="replacement",
+        )
+    )
+    db.add(
+        complaint_service.RmaStockEvent(
+            rma_id=ticket.id,
+            event_key="replacement",
+            movement_id=movement.id,
+            movement_type=MOVEMENT_RMA_REPLACEMENT,
+            warehouse_id=warehouse_id,
+            quantity=quantity,
+            note=f"Replacement {item.sku}",
+            created_by=actor,
         )
     )
     ticket.replacement_item_id = item_id
@@ -1236,23 +1435,33 @@ def release_to_stock(
 ) -> RmaTicket:
     if not ticket.item_id:
         raise HTTPException(status_code=400, detail="This claim has no inventory item to restock")
-    from app.services.inventory.constants import MOVEMENT_CUSTOMER_RETURN
-    from app.services.inventory.stock_movement_service import MovementInput, StockMovementService
-
-    StockMovementService(db).apply_movement(
-        MovementInput(
-            item_id=ticket.item_id,
-            warehouse_id=warehouse_id,
-            movement_type=MOVEMENT_CUSTOMER_RETURN,
-            quantity=ticket.quantity or 1,
-            company_id=ticket.company_id,
-            reference=ticket.rma_number,
-            notes="QC resellable — returned to stock",
-            created_by=actor,
-            source_type="rma",
-            source_id=ticket.id,
-        )
+    from app.services.inventory.constants import (
+        MOVEMENT_CUSTOMER_RETURN,
+        MOVEMENT_TRANSFER_IN,
+        MOVEMENT_TRANSFER_OUT,
     )
+    from app.services.rma import complaint_service
+
+    qty = ticket.quantity or 1
+    intake = complaint_service.stock_event(db, ticket.id, "intake")
+    in_store = intake is not None and intake.reversed_at is None and intake.warehouse_id
+    if in_store:
+        # The unit sits in the RMA store: it moves from there to the sellable warehouse, it is not new stock.
+        if warehouse_id == intake.warehouse_id:
+            raise HTTPException(status_code=400, detail="Choose a sellable warehouse, not the RMA store.")
+        legs = [
+            complaint_service.StockLeg(intake.warehouse_id, MOVEMENT_TRANSFER_OUT, qty, "QC resellable — out of the RMA store"),
+            complaint_service.StockLeg(warehouse_id, MOVEMENT_TRANSFER_IN, qty, "QC resellable — returned to stock"),
+        ]
+    else:
+        legs = [complaint_service.StockLeg(warehouse_id, MOVEMENT_CUSTOMER_RETURN, qty, "QC resellable — returned to stock")]
+    _, posted = complaint_service.post_stock_event(
+        db, ticket, "restock", legs, custody_state=None, actor=actor, note="Returned to sellable stock"
+    )
+    if not posted:
+        raise HTTPException(status_code=409, detail="This unit was already returned to stock.")
+    if in_store:
+        ticket.custody_state = None
     ticket.qc_result = ticket.qc_result or "resellable"
     ticket.resolution_type = "resellable"
     ticket.resolution_status = "completed"
@@ -1268,27 +1477,24 @@ def scrap_unit(db: Session, ticket: RmaTicket, *, actor: Optional[str] = None) -
         row = serial_service.find_by_number(db, ticket.serial_number, company_id=ticket.company_id)
         if row is not None and row.rma_id == ticket.id:
             serial_service.release_from_rma(db, row, "scrapped")
-    if ticket.item_id and ticket.warehouse_id:
-        from app.services.inventory.constants import MOVEMENT_SCRAP
-        from app.services.inventory.stock_movement_service import MovementInput, StockMovementService
+    from app.services.inventory.constants import MOVEMENT_SCRAP
+    from app.services.rma import complaint_service
 
-        try:
-            StockMovementService(db).apply_movement(
-                MovementInput(
-                    item_id=ticket.item_id,
-                    warehouse_id=ticket.warehouse_id,
-                    movement_type=MOVEMENT_SCRAP,
-                    quantity=ticket.quantity or 1,
-                    company_id=ticket.company_id,
-                    reference=ticket.rma_number,
-                    notes="RMA scrap",
-                    created_by=actor,
-                    source_type="rma",
-                    source_id=ticket.id,
-                )
-            )
-        except HTTPException:
-            pass
+    # Only stock that was really received into the RMA store can be written off; a stock error is not swallowed.
+    intake = complaint_service.stock_event(db, ticket.id, "intake")
+    if intake is not None and intake.reversed_at is None and intake.warehouse_id:
+        _, posted = complaint_service.post_stock_event(
+            db,
+            ticket,
+            "scrap",
+            [complaint_service.StockLeg(intake.warehouse_id, MOVEMENT_SCRAP, ticket.quantity or 1, "RMA scrap")],
+            custody_state=None,
+            actor=actor,
+            note="Scrapped from the RMA store",
+        )
+        if not posted:
+            raise HTTPException(status_code=409, detail="This unit was already scrapped.")
+        ticket.custody_state = None
     ticket.resolution_type = "scrap"
     ticket.qc_result = "scrap"
     ticket.resolution_status = "completed"

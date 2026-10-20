@@ -14,6 +14,8 @@ In Again drawers (partner/customer, customer groups, sales nested drawers, etc.)
 
 ## Action buttons
 
+In the control bar use `AgainDrawerButton` (`primary` / `action` / `success` / `danger`), `AgainDrawerSwitch` and `AgainDrawerCloseButton` from the same file - see `docs/common/drawercommon.md`, "Button types". The constants below are for places the component cannot be used.
+
 Use shared constants from `apps/web/src/components/again/again-drawer.tsx`:
 
 - `AGAIN_DRAWER_PRIMARY_BTN` — Save / Confirm (purple via `AGAIN_DRAWER_PRIMARY_COLOR`)

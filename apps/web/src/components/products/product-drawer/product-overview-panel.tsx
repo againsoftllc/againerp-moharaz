@@ -52,12 +52,12 @@ export function ProductOverviewPanel({
       : TRACKING_LABEL.none;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2" data-testid="product-drawer-overview">
+    <div className="@container"><div className="grid gap-x-10 gap-y-6 @xl:grid-cols-2" data-testid="product-drawer-overview">
       <FactList
         title="Product"
         facts={[
           { label: "Name", value: product.name },
-          { label: "SKU", value: <span className="font-mono text-[11px]">{product.sku || "—"}</span> },
+          { label: "SKU", value: <span className="font-mono text-[12px]">{product.sku || "—"}</span> },
           { label: "Model", value: product.model || "—" },
           { label: "Category", value: product.category || "—" },
           { label: "Brand", value: product.brand || "—" },
@@ -122,6 +122,6 @@ export function ProductOverviewPanel({
           facts={[{ label: "Short description", value: product.shortDescription }]}
         />
       ) : null}
-    </div>
+    </div></div>
   );
 }

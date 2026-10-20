@@ -46,11 +46,15 @@ import {
   fetchSalesOrder,
   persistSalesOrder,
 } from "@/lib/api/sales";
+import { usePermission } from "@/lib/auth/permissions";
 import {
+  CUSTODY_LABEL,
+  fetchRmaStores,
   RMA_STATUS_LABEL,
   RMA_STATUS_TONE,
   WARRANTY_LABEL,
   WARRANTY_TONE,
+  type RmaStore,
   type RmaStatus,
   type RmaTicket,
   type WarrantyStatus,
@@ -59,8 +63,16 @@ import { RMA_STAGES, stageOfStatus } from "@/lib/rma/stages";
 
 
 
-type FilterState = { search: string; stage: string; status: string; warranty: string };
-const DEFAULT_FILTERS: FilterState = { search: "", stage: "all", status: "all", warranty: "all" };
+type FilterState = { search: string; stage: string; status: string; warranty: string; queue: string };
+const DEFAULT_FILTERS: FilterState = { search: "", stage: "all", status: "all", warranty: "all", queue: "all" };
+
+/** Work queues (docs/RMA.md Phase 5): the list is filtered by the API (`?queue=`), so the grid and the dashboard count the same RMAs. */
+const QUEUE_OPTIONS = [
+  { value: "all", label: "All work" },
+  { value: "overdue", label: "Overdue" },
+  { value: "supplier_pending", label: "Supplier pending" },
+  { value: "repeat", label: "Repeat RMA" },
+];
 
 /** The four steps of a return — plus claims that are finished. */
 const STAGE_OPTIONS = [
@@ -74,15 +86,19 @@ const stageLabelOf = (status: string) =>
 
 const DEFAULT_VISIBLE = {
   rmaNumber: true,
+  complaintDate: true,
   customer: true,
   product: true,
   serial: true,
   orderNumber: false,
   warranty: true,
   stage: true,
+  custody: false,
   status: false,
   age: true,
-  assigned: false,
+  assigned: true,
+  store: true,
+  delivery: true,
   supplier: true,
   total: true,
   bill: true,
@@ -90,21 +106,25 @@ const DEFAULT_VISIBLE = {
 
 const COLUMN_LABELS: Record<keyof typeof DEFAULT_VISIBLE, string> = {
   rmaNumber: "RMA",
+  complaintDate: "Complaint date",
   customer: "Customer",
   product: "Product",
   serial: "Serial",
   orderNumber: "Order",
   warranty: "Warranty",
   stage: "Stage",
+  custody: "Stock state",
   status: "Detail status",
   age: "Age",
-  assigned: "Assigned",
+  assigned: "Assigned to",
+  store: "RMA store",
+  delivery: "Approx. delivery",
   supplier: "Supplier",
   total: "Charges",
   bill: "Billing",
 };
 
-const DEFAULT_VISIBLE_FILTERS = { search: true, stage: true, status: false, warranty: true };
+const DEFAULT_VISIBLE_FILTERS = { search: true, stage: true, status: false, warranty: true, queue: true };
 
 function ageInDays(iso: string): number {
   const then = new Date(iso).getTime();
@@ -127,10 +147,14 @@ export const RmaGrid = forwardRef<
     claimId?: string | null;
     /** Opens with this stage already picked in the Stage filter (from the dashboard cards). */
     initialStage?: string | null;
+    /** Opens with a work queue picked (from the dashboard's attention panels). */
+    initialQueue?: string | null;
     onOpenClaim?: (id: string) => void;
     onCloseClaim?: () => void;
     onChanged?: () => void;
     onFilterCountChange?: (count: number) => void;
+    /** The work queue dropdown changed; the page reloads the list with that queue. */
+    onQueueChange?: (queue: string) => void;
     headerLeftActions?: ReactNode;
     className?: string;
   }
@@ -140,10 +164,12 @@ export const RmaGrid = forwardRef<
     loading = false,
     claimId = null,
     initialStage = null,
+    initialQueue = null,
     onOpenClaim,
     onCloseClaim,
     onChanged,
     onFilterCountChange,
+    onQueueChange,
     headerLeftActions,
     className,
   },
@@ -151,12 +177,28 @@ export const RmaGrid = forwardRef<
 ) {
   const router = useRouter();
   const canWrite = useAdminCanWrite();
+  // Customer charge / due only for people who may see finance figures.
+  const canSeeMoney = usePermission("finance", "read");
+  const [stores, setStores] = useState<RmaStore[]>([]);
+  useEffect(() => {
+    void fetchRmaStores()
+      .then(setStores)
+      .catch(() => setStores([]));
+  }, []);
+  const storeName = useCallback((id?: string | null) => stores.find((s) => s.id === id)?.name ?? "", [stores]);
   const gridApiRef = useRef<GridApi<RmaTicket> | null>(null);
 
-  const [filters, setFilters] = useState<FilterState>({ ...DEFAULT_FILTERS, stage: initialStage ?? "all" });
+  const [filters, setFilters] = useState<FilterState>({ ...DEFAULT_FILTERS, stage: initialStage ?? "all", queue: initialQueue ?? "all" });
   useEffect(() => {
     setFilters((f) => ({ ...f, stage: initialStage ?? "all" }));
   }, [initialStage]);
+  useEffect(() => {
+    setFilters((f) => ({ ...f, queue: initialQueue ?? "all" }));
+  }, [initialQueue]);
+  const resetAll = useCallback(() => {
+    setFilters(DEFAULT_FILTERS);
+    onQueueChange?.("all");
+  }, [onQueueChange]);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [columnSheetOpen, setColumnSheetOpen] = useState(false);
   const [intakeOpen, setIntakeOpen] = useState(false);
@@ -182,7 +224,7 @@ export const RmaGrid = forwardRef<
     openIntake: () => setIntakeOpen(true),
     openFilters: () => setFilterSheetOpen(true),
     openColumns: () => setColumnSheetOpen(true),
-    resetFilters: () => setFilters(DEFAULT_FILTERS),
+    resetFilters: () => resetAll(),
   }));
 
   const openCustomerDrawer = useCallback((row: RmaTicket) => {
@@ -224,7 +266,7 @@ export const RmaGrid = forwardRef<
     return tickets.filter((t) => {
       if (
         q &&
-        !`${t.rma_number} ${t.customer_name} ${t.sku} ${t.product_name} ${t.serial_number ?? ""} ${t.order_number ?? ""}`
+        !`${t.rma_number} ${t.customer_name} ${t.sku} ${t.product_name} ${t.serial_number ?? ""} ${t.order_number ?? ""} ${t.supplier_name ?? ""} ${t.assigned_to ?? ""}`
           .toLowerCase()
           .includes(q)
       )
@@ -242,6 +284,7 @@ export const RmaGrid = forwardRef<
     if (filters.stage !== "all") n += 1;
     if (filters.status !== "all") n += 1;
     if (filters.warranty !== "all") n += 1;
+    if (filters.queue !== "all") n += 1;
     return n;
   }, [filters]);
 
@@ -326,6 +369,15 @@ export const RmaGrid = forwardRef<
               {p.data.rma_number}
             </button>
           ) : null,
+      },
+      {
+        colId: "complaintDate",
+        field: "received_at",
+        headerName: COLUMN_LABELS.complaintDate,
+        hide: !resolvedCols.complaintDate,
+        width: 120,
+        minWidth: 100,
+        valueFormatter: (p) => (p.value ? String(p.value).slice(0, 10) : ""),
       },
       {
         colId: "customer",
@@ -425,6 +477,22 @@ export const RmaGrid = forwardRef<
         },
       },
       {
+        colId: "custody",
+        headerName: COLUMN_LABELS.custody,
+        hide: !resolvedCols.custody,
+        width: 160,
+        minWidth: 120,
+        valueGetter: (p) => (p.data?.custody_state ? CUSTODY_LABEL[p.data.custody_state] : ""),
+        cellRenderer: (p: ICellRendererParams<RmaTicket>) =>
+          p.value ? (
+            <Badge variant="outline" className="max-w-full truncate rounded-none border-[#00a09d]/40 bg-[#00a09d]/10 text-[10px] leading-4 text-[#00a09d]">
+              {p.value}
+            </Badge>
+          ) : (
+            <span className="text-[11px] text-muted-foreground">—</span>
+          ),
+      },
+      {
         colId: "status",
         field: "status",
         headerName: COLUMN_LABELS.status,
@@ -465,17 +533,47 @@ export const RmaGrid = forwardRef<
         minWidth: 100,
       },
       {
+        colId: "store",
+        headerName: COLUMN_LABELS.store,
+        hide: !resolvedCols.store,
+        width: 130,
+        minWidth: 100,
+        valueGetter: (p) => storeName(p.data?.warehouse_id),
+      },
+      {
+        colId: "delivery",
+        field: "promised_delivery_date",
+        headerName: COLUMN_LABELS.delivery,
+        hide: !resolvedCols.delivery,
+        width: 150,
+        minWidth: 110,
+        valueFormatter: (p) => p.value ?? "",
+        cellRenderer: (p: ICellRendererParams<RmaTicket>) => {
+          const late = p.data?.overdue_days ?? 0;
+          return (
+            <span className="flex items-center gap-1.5 truncate">
+              <span>{p.value ?? ""}</span>
+              {late > 0 ? <span className="shrink-0 border border-red-500/40 bg-red-500/10 px-1 text-[10px] font-medium leading-4 text-red-600 dark:text-red-400">{late}d late</span> : null}
+            </span>
+          );
+        },
+      },
+      {
         colId: "supplier",
         headerName: COLUMN_LABELS.supplier,
         hide: !resolvedCols.supplier,
         width: 160,
         minWidth: 120,
-        valueGetter: (p) => p.data?.supplier_job?.supplier_name ?? "",
+        valueGetter: (p) => p.data?.supplier_job?.supplier_name ?? p.data?.supplier_name ?? "",
         cellRenderer: (p: ICellRendererParams<RmaTicket>) =>
           p.data?.supplier_job ? (
             <GridRefLink className="truncate text-[11px]" title={p.data.supplier_job.supplier_name} onClick={() => openSupplierDrawer(p.data!)}>
               {p.data.supplier_job.supplier_name}
             </GridRefLink>
+          ) : p.data?.supplier_name ? (
+            <span className="truncate text-[11px]" title={p.data.supplier_name}>
+              {p.data.supplier_name}
+            </span>
           ) : (
             <span className="text-[11px] text-muted-foreground">—</span>
           ),
@@ -484,7 +582,7 @@ export const RmaGrid = forwardRef<
         colId: "total",
         field: "total",
         headerName: COLUMN_LABELS.total,
-        hide: !resolvedCols.total,
+        hide: !resolvedCols.total || !canSeeMoney,
         width: 120,
         minWidth: 100,
         type: "numericColumn",
@@ -496,7 +594,7 @@ export const RmaGrid = forwardRef<
         colId: "bill",
         field: "bill_status",
         headerName: COLUMN_LABELS.bill,
-        hide: !resolvedCols.bill,
+        hide: !resolvedCols.bill || !canSeeMoney,
         width: 110,
         minWidth: 90,
         cellRenderer: (p: ICellRendererParams<RmaTicket>) => {
@@ -524,7 +622,7 @@ export const RmaGrid = forwardRef<
         },
       },
     ],
-    [resolvedCols, canWrite, RmaRowMenu, onOpenClaim, openCustomerDrawer, openOrderDrawer, openSupplierDrawer],
+    [resolvedCols, canWrite, canSeeMoney, storeName, RmaRowMenu, onOpenClaim, openCustomerDrawer, openOrderDrawer, openSupplierDrawer],
   );
 
   const exportSelected = useCallback(() => {
@@ -574,6 +672,19 @@ export const RmaGrid = forwardRef<
               className="w-[220px] shrink-0 rounded-none"
             />
           )}
+          {resolvedVisibleFilters.queue && (
+            <FilterSelect
+              value={filters.queue}
+              onChange={(queue) => {
+                setFilters((f) => ({ ...f, queue }));
+                onQueueChange?.(queue);
+              }}
+              width="w-[150px]"
+              className="shrink-0"
+              ariaLabel="Work queue"
+              options={QUEUE_OPTIONS}
+            />
+          )}
           {resolvedVisibleFilters.stage && (
             <FilterSelect
               value={filters.stage}
@@ -620,7 +731,7 @@ export const RmaGrid = forwardRef<
               variant="ghost"
               size="sm"
               className="h-7 shrink-0 rounded-none text-xs"
-              onClick={() => setFilters(DEFAULT_FILTERS)}
+              onClick={resetAll}
             >
               Clear
             </Button>
@@ -650,7 +761,7 @@ export const RmaGrid = forwardRef<
       }
       emptyTitle="No warranty claims match your filters"
       emptyHint="Receive a claim, or clear the filters"
-      onResetFilters={() => setFilters(DEFAULT_FILTERS)}
+      onResetFilters={resetAll}
       onOpenColumns={() => setColumnSheetOpen(true)}
       onRowClicked={(row) => onOpenClaim?.(row.id)}
       apiRef={gridApiRef}
@@ -721,7 +832,7 @@ export const RmaGrid = forwardRef<
             variant="outline"
             size="sm"
             className="mt-3 h-7 rounded-none text-xs"
-            onClick={() => setFilters(DEFAULT_FILTERS)}
+            onClick={resetAll}
           >
             Reset filters
           </Button>

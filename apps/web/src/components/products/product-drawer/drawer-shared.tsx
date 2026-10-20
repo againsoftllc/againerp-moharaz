@@ -62,7 +62,11 @@ export function PanelMessage({
   );
 }
 
-/** Overview / Stock read-only field pairs. */
+/**
+ * Overview / Stock read-only field pairs, laid out like an Odoo form group: a small uppercase group title with a rule under
+ * it, then label / value rows (label column left, value beside it, one quiet divider per row). Same type scale as the Again
+ * form sheet (13 px, label medium, value regular) so a record reads the same whether it is open or being edited.
+ */
 export function FactList({
   title,
   facts,
@@ -74,18 +78,16 @@ export function FactList({
 }) {
   return (
     <section data-testid={testId}>
-      <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">{title}</p>
-      <dl className="divide-y divide-border/60 border border-border/60 bg-card">
+      <h3 className="mb-1 border-b border-border/80 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      <dl>
         {facts.map((fact) => (
           <div
             key={fact.label}
             data-fact={fact.label}
-            className="flex items-center justify-between gap-3 px-3 py-1.5 text-[12px]"
+            className="grid grid-cols-[minmax(6.5rem,9rem)_minmax(0,1fr)] items-baseline gap-x-3 border-b border-border/40 py-[5px] text-[13px] leading-[1.35] last:border-b-0"
           >
-            <dt className="text-muted-foreground">{fact.label}</dt>
-            <dd className={cn("min-w-0 truncate text-right font-medium", fact.numeric && "tabular-nums")}>
-              {fact.value}
-            </dd>
+            <dt className="font-medium text-foreground">{fact.label}</dt>
+            <dd className={cn("min-w-0 break-words text-foreground", fact.numeric && "tabular-nums")}>{fact.value}</dd>
           </div>
         ))}
       </dl>

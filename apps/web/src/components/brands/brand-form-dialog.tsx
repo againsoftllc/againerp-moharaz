@@ -1,19 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import * as SwitchPrimitive from "@radix-ui/react-switch";
-import { cn } from "@/lib/utils";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { AgaincartClassicEditor } from "@/components/products/againcart-classic-editor";
-import { MediaField } from "@/components/media/media-field";
 import { SlugInput } from "@/components/ui/slug-input";
-import type { Brand } from "@/lib/mock-data/brands";
+import { MediaField } from "@/components/media/media-field";
+import { AgaincartClassicEditor } from "@/components/products/againcart-classic-editor";
+import { ActivityTriggerButton } from "@/components/activity/activity-trigger-button";
+import {
+  AGAIN_DRAWER_FIELD_SHEET_CLASS,
+  AgainDrawerButton,
+  AgainDrawerCloseButton,
+  AgainDrawerControlBar,
+  AgainDrawerLayout,
+  AgainDrawerPanel,
+  AgainDrawerScrollBody,
+} from "@/components/again/again-drawer";
+import { AGAIN_FORM_RECORD_TITLE_CLASS } from "@/components/again/again-form-sheet";
+import { brandStatusOf, type Brand, type BrandStatus } from "@/lib/mock-data/brands";
+import { useDrawerDraft } from "@/lib/hooks/use-drawer-draft";
 import { validateSlug } from "@/lib/url-slug/validate-slug";
-import { toast } from "sonner";
 
 type Props = {
   open: boolean;
@@ -21,8 +31,53 @@ type Props = {
   mode?: "create" | "edit";
   brand?: Brand | null;
   onSave: (data: Partial<Brand>) => void;
+  /** Not used any more — the drawer saves with its Save button (kept so older callers still compile). */
   onLiveChange?: (data: Partial<Brand> & { id: string }) => void;
 };
+
+type Form = {
+  name: string;
+  slug: string;
+  websiteUrl: string;
+  status: BrandStatus;
+  description: string;
+  logoUrl?: string;
+  bannerUrl?: string;
+  logoMediaId?: string;
+  bannerMediaId?: string;
+  metaTitle: string;
+  metaDescription: string;
+  metaKeywords: string;
+};
+
+const EMPTY: Form = {
+  name: "",
+  slug: "",
+  websiteUrl: "",
+  status: "published",
+  description: "",
+  metaTitle: "",
+  metaDescription: "",
+  metaKeywords: "",
+};
+
+function toForm(brand?: Brand | null): Form {
+  if (!brand) return EMPTY;
+  return {
+    name: brand.name ?? "",
+    slug: brand.slug ?? "",
+    websiteUrl: brand.websiteUrl ?? "",
+    status: brandStatusOf(brand),
+    description: brand.description ?? "",
+    logoUrl: brand.logoUrl,
+    bannerUrl: brand.bannerUrl,
+    logoMediaId: brand.logoMediaId,
+    bannerMediaId: brand.bannerMediaId,
+    metaTitle: brand.metaTitle ?? "",
+    metaDescription: brand.metaDescription ?? "",
+    metaKeywords: brand.metaKeywords ?? "",
+  };
+}
 
 function slugifyName(name: string): string {
   const slug = name
@@ -33,253 +88,304 @@ function slugifyName(name: string): string {
   return slug || "brand";
 }
 
-export function BrandFormDialog({
-  open,
-  onOpenChange,
-  mode = "create",
-  brand,
-  onSave,
-  onLiveChange,
-}: Props) {
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [websiteUrl, setWebsiteUrl] = useState("");
-  const [description, setDescription] = useState("");
-  const [active, setActive] = useState(true);
-  const [logoUrl, setLogoUrl] = useState<string | undefined>();
-  const [bannerUrl, setBannerUrl] = useState<string | undefined>();
-  const [logoMediaId, setLogoMediaId] = useState<string | undefined>();
-  const [bannerMediaId, setBannerMediaId] = useState<string | undefined>();
-  /* true once the user manually edits the slug field */
+const STATUS_HINT: Record<BrandStatus, string> = {
+  published: "Published — the brand shows on the website.",
+  draft: "Draft — still being worked on. Not shown on the website.",
+  unlisted: "Unlisted — kept in the catalog but hidden from the website.",
+  archived: "Archived — switched off. Not shown on the website.",
+};
+
+/**
+ * Add / edit a brand in the common drawer (docs/common/drawercommon.md): Save / Discard on top, drag the left edge to resize,
+ * a half-typed form is kept as a draft when the drawer is closed by accident. Same fields and Status words as the product form.
+ */
+export function BrandFormDialog({ open, onOpenChange, mode = "create", brand, onSave }: Props) {
+  const editing = mode === "edit" && !!brand?.id;
+  const [form, setForm] = useState<Form>(() => toForm(brand));
+  const [base, setBase] = useState<Form>(() => toForm(brand));
+  /* true once the user edits the slug by hand — until then it follows the name */
   const slugManuallyEdited = useRef(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pendingScroll = useRef<number | null>(null);
+  const patch = (changes: Partial<Form>) => setForm((current) => ({ ...current, ...changes }));
 
+  // a fresh form every time it opens — declared before the draft hook so a saved draft is put back after this reset
   useEffect(() => {
-    if (open) {
-      setName(brand?.name ?? "");
-      setSlug(brand?.slug ?? "");
-      setWebsiteUrl(brand?.websiteUrl ?? "");
-      setDescription(brand?.description ?? "");
-      setActive(brand?.active ?? true);
-      setLogoUrl(brand?.logoUrl);
-      setBannerUrl(brand?.bannerUrl);
-      setLogoMediaId(brand?.logoMediaId);
-      setBannerMediaId(brand?.bannerMediaId);
-      slugManuallyEdited.current = !!brand?.slug;
-    }
-  }, [open, brand]);
+    if (!open) return;
+    const next = toForm(brand);
+    setForm(next);
+    setBase(next);
+    slugManuallyEdited.current = !!brand?.slug;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset when it opens or another brand is picked, not when the list reloads
+  }, [open, brand?.id]);
 
-  const pushLiveChange = useCallback(
-    (next: { active?: boolean }) => {
-      if (mode === "edit" && brand?.id && onLiveChange) {
-        onLiveChange({
-          id: brand.id,
-          active: next.active ?? active,
-        });
-      }
+  const dirty = JSON.stringify(form) !== JSON.stringify(base);
+  const { saveDraftIfDirty, clear: clearDraft } = useDrawerDraft<{ form: Form; scrollTop: number }>({
+    key: editing ? `brand:${brand!.id}` : "brand:new",
+    ready: open,
+    dirty,
+    getValues: () => ({ form, scrollTop: scrollRef.current?.scrollTop ?? 0 }),
+    restore: (values) => {
+      setForm({ ...base, ...values.form });
+      slugManuallyEdited.current = true;
+      pendingScroll.current = values.scrollTop;
     },
-    [brand, active, mode, onLiveChange],
-  );
+    onDiscard: () => setForm(base),
+    label: "brand",
+  });
+
+  // put the scroll position back after a draft is restored
+  useEffect(() => {
+    if (pendingScroll.current == null) return;
+    const top = pendingScroll.current;
+    pendingScroll.current = null;
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top }));
+  }, [form]);
+
+  // every dismissal (outside click, Esc, the X) goes through here and keeps what was typed
+  const handleOpenChange = (next: boolean) => {
+    if (!next) saveDraftIfDirty();
+    onOpenChange(next);
+  };
 
   const handleNameChange = (value: string) => {
-    setName(value);
-    if (!slugManuallyEdited.current) {
-      setSlug(slugifyName(value));
-    }
+    patch({ name: value, ...(slugManuallyEdited.current ? {} : { slug: slugifyName(value) }) });
   };
 
   const handleSlugChange = (value: string) => {
     slugManuallyEdited.current = true;
-    setSlug(value);
+    patch({ slug: value });
   };
 
-  const handleActiveChange = (value: boolean) => {
-    setActive(value);
-    pushLiveChange({ active: value });
+  /** Discard: put the saved values back (a new brand goes back to empty) and forget the draft. */
+  const discard = () => {
+    clearDraft();
+    setForm(base);
+    slugManuallyEdited.current = !!brand?.slug;
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const finalSlug = slug.trim() || slugifyName(name);
+  const cancel = () => {
+    clearDraft();
+    onOpenChange(false);
+  };
+
+  const submit = () => {
+    if (!form.name.trim()) {
+      toast.error("Brand name is required");
+      return;
+    }
+    const finalSlug = form.slug.trim() || slugifyName(form.name);
     const slugValidation = validateSlug(finalSlug, brand?.id ? { id: brand.id } : undefined);
     if (finalSlug && !slugValidation.isValid) {
       toast.error(slugValidation.message ?? "Invalid slug");
       return;
     }
-    const fd = new FormData(e.currentTarget);
+    clearDraft();
     onSave({
-      name: name.trim() || String(fd.get("name") ?? ""),
+      name: form.name.trim(),
       slug: finalSlug,
-      websiteUrl: websiteUrl.trim() || undefined,
-      active,
-      description,
-      metaTitle: String(fd.get("metaTitle") ?? ""),
-      metaDescription: String(fd.get("metaDescription") ?? ""),
-      metaKeywords: String(fd.get("metaKeywords") ?? ""),
-      logoUrl,
-      bannerUrl,
-      logoMediaId,
-      bannerMediaId,
+      websiteUrl: form.websiteUrl.trim() || undefined,
+      status: form.status,
+      active: form.status === "published",
+      description: form.description,
+      metaTitle: form.metaTitle,
+      metaDescription: form.metaDescription,
+      metaKeywords: form.metaKeywords,
+      logoUrl: form.logoUrl,
+      bannerUrl: form.bannerUrl,
+      logoMediaId: form.logoMediaId,
+      bannerMediaId: form.bannerMediaId,
     });
     onOpenChange(false);
   };
 
+  const title = editing ? "Edit Brand" : "Add Brand";
+  const statusVariant =
+    form.status === "published" ? "success" : form.status === "draft" ? "warning" : form.status === "unlisted" ? "outline" : "muted";
+
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        title={mode === "create" ? "Add Brand" : "Edit Brand"}
-        resizable
-        resizeMaxWidth={900}
-        closeButton="none"
-        className="w-full max-w-[100vw] gap-0 overflow-hidden rounded-none border-l border-input bg-background p-0 sm:w-[min(100%,36rem)] sm:min-w-[320px] sm:max-w-[900px]"
-        aria-describedby={undefined}
-      >
-        <div className="flex h-full min-h-0 flex-col">
-          <form id="brand-form" onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-input px-5 py-3">
-              <p className="text-base font-semibold">
-                {mode === "create" ? "Add Brand" : "Edit Brand"}
-              </p>
-              <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" size="sm">
-                  Save
-                </Button>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-              <section>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  General
-                </h3>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Name" required>
-                    <Input
-                      name="name"
-                      required
-                      value={name}
-                      onChange={(e) => handleNameChange(e.target.value)}
-                      placeholder="UrbanWear"
-                    />
-                  </Field>
-                  <Field label="Status">
-                    <div className="flex h-8 items-center justify-between gap-2 rounded-none border border-input bg-background px-2.5">
-                      <span className="text-xs text-muted-foreground">
-                        {active ? "Enabled" : "Disabled"}
-                      </span>
-                      <SwitchPrimitive.Root
-                        checked={active}
-                        onCheckedChange={handleActiveChange}
-                        aria-label={active ? "Enabled" : "Disabled"}
-                        className={cn(
-                          "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=unchecked]:bg-input data-[state=checked]:bg-emerald-600",
-                        )}
-                      >
-                        <SwitchPrimitive.Thumb className="pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0" />
-                      </SwitchPrimitive.Root>
-                    </div>
-                  </Field>
-                  <Field label="Slug" hint="SEO URL" required className="sm:col-span-2">
-                    <SlugInput
-                      value={slug}
-                      onChange={handleSlugChange}
-                      excludeId={brand?.id}
-                      urlPrefix={<span className="shrink-0 text-muted-foreground">/</span>}
-                      required
-                      placeholder="urbanwear"
-                    />
-                  </Field>
-                  <Field label="Website" className="sm:col-span-2">
-                    <Input
-                      name="websiteUrl"
-                      type="url"
-                      value={websiteUrl}
-                      onChange={(e) => setWebsiteUrl(e.target.value)}
-                      placeholder="https://urbanwear.example"
-                    />
-                  </Field>
-                </div>
-              </section>
-
-              <section>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Media
-                </h3>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Logo">
-                    <MediaField
-                      value={logoUrl}
-                      mediaId={logoMediaId}
-                      onChange={(item) => {
-                        setLogoMediaId(item?.id);
-                        setLogoUrl(item?.url);
-                      }}
-                      aspect="square"
-                      emptyLabel="Add logo"
-                      modalTitle="Select brand logo"
-                    />
-                  </Field>
-                  <Field label="Banner">
-                    <MediaField
-                      value={bannerUrl}
-                      mediaId={bannerMediaId}
-                      onChange={(item) => {
-                        setBannerMediaId(item?.id);
-                        setBannerUrl(item?.url);
-                      }}
-                      aspect="banner"
-                      emptyLabel="Add banner"
-                      modalTitle="Select brand banner"
-                    />
-                  </Field>
-                </div>
-              </section>
-
-              <section>
-                <AgaincartClassicEditor
-                  fieldLabel="Description"
-                  value={description}
-                  onChange={setDescription}
-                  placeholder="Brand page description…"
-                  minRows={5}
-                  aiContext="brand.description"
-                  aiVariables={{ brand_name: name }}
+    <AgainDrawerPanel
+      open={open}
+      onOpenChange={handleOpenChange}
+      title={title}
+      resizable
+      defaultWidth={560}
+      minWidth={380}
+      widthStorageKey="again-brand-drawer-width"
+      onPointerDownOutside={saveDraftIfDirty}
+      onInteractOutside={saveDraftIfDirty}
+      onEscapeKeyDown={saveDraftIfDirty}
+    >
+      <AgainDrawerLayout>
+        <AgainDrawerControlBar
+          trailing={
+            <>
+              {editing ? (
+                <ActivityTriggerButton
+                  entity={{ type: "brand", id: brand!.id, label: brand!.name, subtitle: `/${brand!.slug}` }}
+                  className="h-6 w-6 rounded-none"
                 />
-              </section>
+              ) : null}
+              <AgainDrawerCloseButton onClick={() => handleOpenChange(false)} />
+            </>
+          }
+        >
+          <AgainDrawerButton variant="primary" onClick={submit} disabled={!form.name.trim() || (editing && !dirty)}>
+            {editing ? "Save" : "Create"}
+          </AgainDrawerButton>
+          {editing ? (
+            <AgainDrawerButton onClick={discard} disabled={!dirty}>
+              Discard
+            </AgainDrawerButton>
+          ) : (
+            <AgainDrawerButton onClick={cancel}>Cancel</AgainDrawerButton>
+          )}
+        </AgainDrawerControlBar>
 
-              <section>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  SEO
-                </h3>
-                <div className="space-y-3">
-                  <Field label="Meta title">
-                    <Input name="metaTitle" defaultValue={brand?.metaTitle} placeholder="UrbanWear — Shop Online" />
-                  </Field>
-                  <Field label="Meta description">
-                    <Textarea
-                      name="metaDescription"
-                      rows={2}
-                      defaultValue={brand?.metaDescription}
-                      placeholder="Shop UrbanWear products…"
-                    />
-                  </Field>
-                  <Field label="Meta keywords">
-                    <Input
-                      name="metaKeywords"
-                      defaultValue={brand?.metaKeywords}
-                      placeholder="urbanwear, fashion, clothing"
-                    />
-                  </Field>
-                </div>
-              </section>
+        <AgainDrawerScrollBody className={AGAIN_DRAWER_FIELD_SHEET_CLASS} scrollRef={scrollRef}>
+          <div className="@container space-y-5">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className={`${AGAIN_FORM_RECORD_TITLE_CLASS} min-w-0 truncate`}>{form.name.trim() || (editing ? brand!.name : "New brand")}</h2>
+                <Badge variant={statusVariant} className="capitalize">
+                  {form.status}
+                </Badge>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {dirty
+                  ? "Unsaved changes"
+                  : editing
+                    ? `${brand!.productCount} product${brand!.productCount === 1 ? "" : "s"} · /${brand!.slug}`
+                    : "Fill in the name, then Create."}
+              </p>
             </div>
-          </form>
-        </div>
-      </SheetContent>
-    </Sheet>
+
+            <Section title="General">
+              <div className="grid gap-3 @md:grid-cols-2">
+                <Field label="Name" required>
+                  <Input
+                    name="name"
+                    value={form.name}
+                    onChange={(e) => handleNameChange(e.target.value)}
+                    placeholder="UrbanWear"
+                    className="h-8"
+                  />
+                </Field>
+                <Field label="Status">
+                  <Select
+                    value={form.status}
+                    onChange={(e) => patch({ status: e.target.value as BrandStatus })}
+                    className="h-8 w-full"
+                    aria-label="Status"
+                  >
+                    <option value="draft">Draft</option>
+                    <option value="published">Published</option>
+                    <option value="unlisted">Unlisted</option>
+                    <option value="archived">Archived</option>
+                  </Select>
+                </Field>
+                <p className="-mt-1 text-[11px] text-muted-foreground @md:col-span-2">{STATUS_HINT[form.status]}</p>
+                <Field label="Slug" hint="SEO URL" required className="@md:col-span-2">
+                  <SlugInput
+                    value={form.slug}
+                    onChange={handleSlugChange}
+                    excludeId={brand?.id}
+                    urlPrefix={<span className="shrink-0 text-muted-foreground">/</span>}
+                    required
+                    placeholder="urbanwear"
+                  />
+                </Field>
+                <Field label="Website" className="@md:col-span-2">
+                  <Input
+                    name="websiteUrl"
+                    type="url"
+                    value={form.websiteUrl}
+                    onChange={(e) => patch({ websiteUrl: e.target.value })}
+                    placeholder="https://urbanwear.example"
+                    className="h-8"
+                  />
+                </Field>
+              </div>
+            </Section>
+
+            <Section title="Media">
+              <div className="grid gap-3 @md:grid-cols-2">
+                <Field label="Logo">
+                  <MediaField
+                    value={form.logoUrl}
+                    mediaId={form.logoMediaId}
+                    onChange={(item) => patch({ logoMediaId: item?.id, logoUrl: item?.url })}
+                    aspect="square"
+                    emptyLabel="Add logo"
+                    modalTitle="Select brand logo"
+                  />
+                </Field>
+                <Field label="Banner">
+                  <MediaField
+                    value={form.bannerUrl}
+                    mediaId={form.bannerMediaId}
+                    onChange={(item) => patch({ bannerMediaId: item?.id, bannerUrl: item?.url })}
+                    aspect="banner"
+                    emptyLabel="Add banner"
+                    modalTitle="Select brand banner"
+                  />
+                </Field>
+              </div>
+            </Section>
+
+            <Section title="Description">
+              <AgaincartClassicEditor
+                fieldLabel="Brand page description"
+                value={form.description}
+                onChange={(value) => patch({ description: value })}
+                placeholder="Brand page description…"
+                minRows={5}
+                aiContext="brand.description"
+                aiVariables={{ brand_name: form.name }}
+              />
+            </Section>
+
+            <Section title="SEO">
+              <div className="space-y-3">
+                <Field label="Meta title">
+                  <Input
+                    value={form.metaTitle}
+                    onChange={(e) => patch({ metaTitle: e.target.value })}
+                    placeholder="UrbanWear — Shop Online"
+                    className="h-8"
+                  />
+                </Field>
+                <Field label="Meta description">
+                  <Textarea
+                    rows={2}
+                    value={form.metaDescription}
+                    onChange={(e) => patch({ metaDescription: e.target.value })}
+                    placeholder="Shop UrbanWear products…"
+                  />
+                </Field>
+                <Field label="Meta keywords">
+                  <Input
+                    value={form.metaKeywords}
+                    onChange={(e) => patch({ metaKeywords: e.target.value })}
+                    placeholder="urbanwear, fashion, clothing"
+                    className="h-8"
+                  />
+                </Field>
+              </div>
+            </Section>
+          </div>
+        </AgainDrawerScrollBody>
+      </AgainDrawerLayout>
+    </AgainDrawerPanel>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-2 border-b border-border/80 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+      {children}
+    </section>
   );
 }
 

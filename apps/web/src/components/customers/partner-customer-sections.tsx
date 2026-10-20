@@ -47,28 +47,38 @@ export function PartnerStatusPill({
   );
 }
 
+/** Odoo smart-stat boxes: the figure on top, what it is underneath. Columns follow the drawer's own width. */
 export function PartnerKpiGrid({
   items,
 }: {
   items: { label: string; value: React.ReactNode; sub?: string; alert?: boolean }[];
 }) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-      {items.map((item) => (
-        <div
-          key={item.label}
-          className={cn(
-            "rounded-none border border-border/70 bg-background/60 px-2.5 py-2",
-            item.alert && "border-destructive/30 bg-destructive/5",
-          )}
-        >
-          <p className="text-[11px] text-muted-foreground">{item.label}</p>
-          <p className="mt-0.5 text-[13px] font-semibold tabular-nums text-foreground">
-            {item.value}
-          </p>
-          {item.sub ? <p className="text-[10px] text-muted-foreground">{item.sub}</p> : null}
-        </div>
-      ))}
+    <div className="@container">
+      <div className="grid grid-cols-2 gap-2 @lg:grid-cols-3 @2xl:grid-cols-4">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className={cn(
+              "min-w-0 rounded-none border border-border/80 bg-background px-3 py-1.5",
+              item.alert && "border-destructive/40 bg-destructive/5",
+            )}
+          >
+            <p
+              className={cn(
+                "truncate text-[15px] font-semibold leading-tight tabular-nums text-foreground",
+                item.alert && "text-destructive",
+              )}
+            >
+              {item.value}
+            </p>
+            <p className="truncate text-[11px] text-muted-foreground">
+              {item.label}
+              {item.sub ? ` · ${item.sub}` : ""}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -81,7 +91,7 @@ export function PartnerTabEmpty({
   description?: string;
 }) {
   return (
-    <div className="flex min-h-[160px] flex-col items-center justify-center rounded-sm border border-dashed border-border/80 bg-background/40 px-4 py-8 text-center">
+    <div className="flex min-h-[140px] flex-col items-center justify-center rounded-none border border-dashed border-border/80 px-4 py-8 text-center">
       <p className="text-[13px] font-medium text-foreground">{title}</p>
       {description ? (
         <p className="mt-1 max-w-md text-[12px] text-muted-foreground">{description}</p>
@@ -90,6 +100,7 @@ export function PartnerTabEmpty({
   );
 }
 
+/** Group title: 11 px uppercase with a rule under it (docs/common/formcommon.md). */
 export function PartnerSectionTitle({
   title,
   action,
@@ -98,10 +109,8 @@ export function PartnerSectionTitle({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="mb-2 flex items-center justify-between gap-2">
-      <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </h3>
+    <div className="mb-1 flex items-center justify-between gap-2 border-b border-border/80 pb-1">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
       {action}
     </div>
   );
@@ -133,26 +142,26 @@ export function PartnerOrderRows({ orders }: { orders: CustomerOrderSummary[] })
   }
 
   return (
-    <div className="overflow-hidden rounded-none border border-border/70 bg-background/50">
-      <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_auto] gap-2 border-b border-border/60 bg-muted/30 px-2.5 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="overflow-hidden rounded-none">
+      <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_auto] gap-2 border-b border-border/60 px-2.5 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         <span>Order</span>
         <span>Date</span>
         <span>Status</span>
         <span>Payment</span>
         <span className="text-right">Amount</span>
       </div>
-      <ul className="divide-y divide-border/50">
+      <ul className="divide-y divide-border/40">
         {orders.map((order) => (
           <li
             key={`${order.source ?? "order"}-${order.id}`}
-            className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_auto] items-center gap-2 px-2.5 py-2 text-[13px]"
+            className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_auto] items-center gap-2 px-2.5 py-2 text-[13px] hover:bg-muted/30"
           >
             <span className="truncate font-medium text-foreground">{order.orderNumber}</span>
             <span className="truncate text-muted-foreground">
               {formatDate(order.date)}
             </span>
-            <PartnerStatusPill tone={orderStatusTone(order.status)}>{order.status}</PartnerStatusPill>
-            <PartnerStatusPill tone={orderStatusTone(order.paymentStatus)}>
+            <PartnerStatusPill tone={orderStatusTone(order.status)} className="justify-self-start">{order.status}</PartnerStatusPill>
+            <PartnerStatusPill tone={orderStatusTone(order.paymentStatus)} className="justify-self-start">
               {order.paymentStatus}
             </PartnerStatusPill>
             <span className="text-right tabular-nums text-foreground">
@@ -176,8 +185,8 @@ export function PartnerWalletRows({ rows }: { rows: CustomerWalletTransaction[] 
   }
 
   return (
-    <div className="overflow-hidden rounded-sm border border-border/70 bg-background/50">
-      <ul className="divide-y divide-border/50">
+    <div className="overflow-hidden rounded-none">
+      <ul className="divide-y divide-border/40">
         {rows.map((row) => (
           <li key={row.id} className="flex items-center justify-between gap-3 px-2.5 py-2 text-[13px]">
             <div className="min-w-0">
@@ -215,8 +224,8 @@ export function PartnerRewardRows({ rows }: { rows: CustomerRewardEvent[] }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-none border border-border/70 bg-background/50">
-      <ul className="divide-y divide-border/50">
+    <div className="overflow-hidden rounded-none">
+      <ul className="divide-y divide-border/40">
         {rows.map((row) => (
           <li key={row.id} className="flex items-center justify-between gap-3 px-2.5 py-2 text-[13px]">
             <div className="min-w-0">
@@ -293,8 +302,8 @@ export function PartnerHistoryRows({ rows }: { rows: CustomerTimelineEvent[] }) 
   }
 
   return (
-    <div className="overflow-hidden rounded-none border border-border/70 bg-background/50">
-      <ul className="divide-y divide-border/50">
+    <div className="overflow-hidden rounded-none">
+      <ul className="divide-y divide-border/40">
         {sorted.map((row) => {
           const roleLabel = historyRoleLabel(row);
           return (

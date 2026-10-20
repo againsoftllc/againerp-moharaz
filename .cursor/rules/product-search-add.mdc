@@ -15,7 +15,7 @@ Canonical: `ProductSearchAdd` in `apps/web/src/components/products/product-searc
 // ❌ <input />  or  <button>Add product</button>  or  search without filter/plus
 ```
 
-- Left: brand/category filter (`h-8 w-8`, `border-r-0`; active `#00a09d`)
+- Left: brand/category filter toggle with a caret (`h-9`, `border-r-0`; active `#00a09d`); the panel opens under the bar at full bar width, active filters show as removable chips inside the search box, and the panel never shows together with the results list
 - Middle: typeahead SKU/name, **barcode scan**, or **serial number** (adds the matching product)
 - Right: plus → quick-add product
 - Square `h-8`, `rounded-none`. Extract/reuse; do not fork.

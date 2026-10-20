@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
@@ -50,6 +51,7 @@ def list_parties(
     status: Optional[str] = Query(default=None),
     party_type: Optional[str] = Query(default=None, alias="type"),
     role: Optional[str] = Query(default=None),
+    search: Optional[str] = Query(default=None, description="Match on the display or legal name"),
     company_id: str = Depends(get_current_company_id),
 ) -> PartyListResponse:
     query = db.query(Party).options(selectinload(Party.roles)).filter(Party.company_id == company_id)
@@ -61,6 +63,9 @@ def list_parties(
         from app.models.party_role import PartyRole
 
         query = query.join(PartyRole).filter(PartyRole.role == role)
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        query = query.filter(or_(Party.display_name.ilike(like), Party.legal_name.ilike(like)))
     total = query.count()
     offset = (page - 1) * per_page
     rows = (

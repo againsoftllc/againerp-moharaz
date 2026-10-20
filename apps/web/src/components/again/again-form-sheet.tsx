@@ -97,6 +97,10 @@ export function AgainUnderlineInput({
   className,
   inputClassName,
   active,
+  onKeyDown,
+  onFocus,
+  onBlur,
+  autoComplete,
 }: {
   value: string;
   onChange?: (v: string) => void;
@@ -105,6 +109,10 @@ export function AgainUnderlineInput({
   className?: string;
   inputClassName?: string;
   active?: boolean;
+  onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
+  onFocus?: React.FocusEventHandler<HTMLInputElement>;
+  onBlur?: React.FocusEventHandler<HTMLInputElement>;
+  autoComplete?: string;
 }) {
   return (
     <AgainUnderlineField readOnly={readOnly} active={active} className={className}>
@@ -119,6 +127,10 @@ export function AgainUnderlineInput({
         <input
           value={value ?? ""}
           onChange={(e) => onChange?.(e.target.value)}
+          onKeyDown={onKeyDown}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          autoComplete={autoComplete}
           placeholder={placeholder}
           className={cn(
             "h-8 w-full bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70",
@@ -267,5 +279,53 @@ export function AgainFormRecordTitle({
         />
       )}
     </AgainUnderlineField>
+  );
+}
+
+
+/**
+ * Odoo form group title: small uppercase heading with a rule under it. Use between groups of fields
+ * (docs/common/formcommon.md). In a two-column grid pass `className="@xl:col-span-2"` so it spans both.
+ */
+export function AgainFormGroupTitle({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <h3 className={cn("mb-1 mt-2 border-b border-border/80 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground", className)}>
+      {children}
+    </h3>
+  );
+}
+
+/**
+ * Odoo form row for the big record forms: label on the left (13 px), control on the right. Put the rows in a
+ * `.again-odoo-form` container (globals.css) so every text control becomes an underline, teal on focus.
+ * Two columns by the drawer's own width: `grid gap-x-8 @xl:grid-cols-2` inside an `@container`.
+ * `hint` is a one-line note under the control; `required` adds the red star.
+ */
+export function AgainFormField({
+  label,
+  required,
+  hint,
+  className,
+  children,
+}: {
+  label: React.ReactNode;
+  required?: boolean;
+  hint?: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={cn("grid grid-cols-[6.75rem_minmax(0,1fr)] items-start gap-x-2 py-[3px]", className)}>
+      <label className="flex min-h-[28px] items-center text-[13px] font-normal leading-[1.3] text-foreground">
+        <span>
+          {label}
+          {required ? <span className="text-destructive"> *</span> : null}
+        </span>
+      </label>
+      <div className="min-w-0">
+        {children}
+        {hint ? <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{hint}</p> : null}
+      </div>
+    </div>
   );
 }

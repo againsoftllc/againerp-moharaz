@@ -110,11 +110,11 @@ class StorefrontCatalogService:
         if brand_slug and not brand_id:
             brand = (
                 self._db.query(CatalogBrand)
-                .filter(CatalogBrand.slug == brand_slug)
+                .filter(CatalogBrand.slug == brand_slug, CatalogBrand.is_active.is_(True))
                 .first()
             )
-            if brand:
-                brand_id = brand.id
+            # only a published brand has a page; an unlisted / draft / archived one shows nothing, not everything
+            brand_id = brand.id if brand else "__none__"
 
         if search:
             # every word has to match somewhere — name, slug, SKU, SEO title, brand or category — so
@@ -147,7 +147,7 @@ class StorefrontCatalogService:
             brand_ids = [
                 b.id
                 for b in self._db.query(CatalogBrand)
-                .filter(CatalogBrand.slug.in_(brand_slugs))
+                .filter(CatalogBrand.slug.in_(brand_slugs), CatalogBrand.is_active.is_(True))
                 .all()
             ]
             query = query.filter(EcommerceItem.brand_id.in_(brand_ids or ["__none__"]))
@@ -582,7 +582,11 @@ class StorefrontCatalogService:
         )
         brands = []
         if brand_counts:
-            for brand in self._db.query(CatalogBrand).filter(CatalogBrand.id.in_(brand_counts.keys())).all():
+            for brand in (
+                self._db.query(CatalogBrand)
+                .filter(CatalogBrand.id.in_(brand_counts.keys()), CatalogBrand.is_active.is_(True))
+                .all()
+            ):
                 brands.append(
                     {
                         "id": brand.id,

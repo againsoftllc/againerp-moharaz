@@ -18,6 +18,7 @@ import {
   NUMERIC_CELL,
   NUMERIC_HEADER,
 } from "@/components/shared/again-list-grid";
+import { GridFullscreenHeader } from "@/components/shared/grid-fullscreen";
 import { useUserScopedState } from "@/lib/hooks/use-user-scoped-state";
 
 export { NUMERIC_CELL, NUMERIC_HEADER };
@@ -173,6 +174,7 @@ export function FinanceAgListGrid({
         suppressSizeToFit: true,
         headerClass: "product-grid-actions-col",
         cellClass: "product-grid-actions-col",
+        headerComponent: GridFullscreenHeader,
         cellRenderer: rowActions
           ? (p: { data?: RowBase }) => (p.data ? rowActions(p.data) : null)
           : undefined,

@@ -33,6 +33,7 @@ Apply on every admin / ERP UI change in `apps/web`.
 
 ## One pattern globally
 
+- Datatable standard (family, shared shell, list-page look, list refs, checklist): `docs/common/datatablecommon.md`. Drawer standard: `docs/common/drawercommon.md`. Form standard (Odoo style: label left, underline controls via the global `.again-odoo-form` class, `AgainFormField` / `AgainFormGroupTitle`): `docs/common/formcommon.md`.
 - Reuse shared primitives; do not invent per-page visual systems.
 - Copy existing modules (e.g. product grid / sheet) when adding similar UI.
 - List datatable filter bars: wrap `headerLeftActions` in `ListGridHeaderStart` (`@/components/shared/list-grid-header-start`) so the **page name** sits left of New / primary actions (theme `text-foreground`).

@@ -41,6 +41,7 @@ COMPANY_DEFAULT = "default"
 OPEN_RMA_STATUSES = (
     "draft",
     "pending_approval",
+    "correction_requested",
     "approved",
     "awaiting_return",
     "received",
@@ -687,7 +688,7 @@ def open_claim_for(db: Session, row: InventorySerial):
         db.query(RmaTicket)
         .filter(
             RmaTicket.company_id == row.company_id,
-            RmaTicket.serial_number == row.serial_number,
+            or_(RmaTicket.serial_number == row.serial_number, RmaTicket.received_serial_number == row.serial_number),
             RmaTicket.status.in_(OPEN_RMA_STATUSES),
         )
         .first()

@@ -46,6 +46,8 @@ def ensure_warehouse_location_columns() -> None:
         "ALTER TABLE inventory_warehouses ADD COLUMN IF NOT EXISTS city VARCHAR(100)",
         "ALTER TABLE inventory_warehouses ADD COLUMN IF NOT EXISTS state VARCHAR(100)",
         "ALTER TABLE inventory_warehouses ADD COLUMN IF NOT EXISTS zip_code VARCHAR(32)",
+        "ALTER TABLE inventory_warehouses ADD COLUMN IF NOT EXISTS is_rma_store BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE inventory_warehouses ADD COLUMN IF NOT EXISTS is_supplier_transit BOOLEAN NOT NULL DEFAULT false",
         "ALTER TABLE inventory_warehouses ADD COLUMN IF NOT EXISTS country VARCHAR(100)",
         "ALTER TABLE inventory_warehouses ADD COLUMN IF NOT EXISTS mobile VARCHAR(50)",
         "ALTER TABLE inventory_warehouses ADD COLUMN IF NOT EXISTS alternate_contact VARCHAR(50)",
@@ -208,6 +210,8 @@ def create_warehouse(db: Session, payload: WarehouseCreate) -> InventoryWarehous
         payment_option=_clean_opt(payload.payment_option),
         is_active=payload.is_active,
         is_default=payload.is_default,
+        is_rma_store=payload.is_rma_store,
+        is_supplier_transit=payload.is_supplier_transit,
         sort_order=payload.sort_order,
     )
     db.add(row)

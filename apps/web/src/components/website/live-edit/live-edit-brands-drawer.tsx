@@ -584,6 +584,7 @@ export function LiveEditBrandsDrawer({ open, onOpenChange, content, onChange, on
               name: data.name ?? "",
               slug: data.slug ?? "",
               active: data.active ?? true,
+              status: data.status,
               description: data.description,
               websiteUrl: data.websiteUrl,
               metaTitle: data.metaTitle,

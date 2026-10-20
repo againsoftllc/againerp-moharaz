@@ -117,6 +117,7 @@ def create_cheque(
         cheque_number=payload.cheque_number,
         cheque_date=payload.cheque_date,
         amount=payload.amount,
+        leaf_id=payload.cheque_leaf_id,
         receivable_id=payload.receivable_id,
         payable_id=payload.payable_id,
         notes=payload.notes,

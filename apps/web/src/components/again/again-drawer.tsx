@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 /** Right-side record drawer — desktop max 60% viewport width (non-resizable). */
@@ -74,6 +76,7 @@ export type DrawerResizeHandleProps = {
  */
 export function useDrawerResize({
   defaultWidth = DEFAULT_DRAWER_WIDTH,
+  defaultWidthRatio,
   minWidth = DEFAULT_MIN_WIDTH,
   maxWidthRatio = DEFAULT_MAX_RATIO,
   getMaxWidth,
@@ -81,6 +84,8 @@ export function useDrawerResize({
   enabled = true,
 }: {
   defaultWidth?: number;
+  /** Open at this share of the screen width (e.g. 0.6) until the user has dragged it; wins over `defaultWidth`. */
+  defaultWidthRatio?: number;
   minWidth?: number;
   /** Max as fraction of viewport width (default 0.85). Ignored when getMaxWidth is set. */
   maxWidthRatio?: number;
@@ -96,8 +101,12 @@ export function useDrawerResize({
 
   useEffect(() => {
     if (!enabled) return;
-    setWidth(readStoredWidth(storageKey, defaultWidth));
-  }, [enabled, storageKey, defaultWidth]);
+    const fromRatio =
+      defaultWidthRatio && typeof window !== "undefined"
+        ? Math.max(minWidth, Math.round(window.innerWidth * defaultWidthRatio))
+        : defaultWidth;
+    setWidth(readStoredWidth(storageKey, fromRatio));
+  }, [enabled, storageKey, defaultWidth, defaultWidthRatio, minWidth]);
 
   const maxWidth = useCallback(() => {
     if (getMaxRef.current) return getMaxRef.current();
@@ -194,6 +203,8 @@ type AgainDrawerPanelProps = {
   resizable?: boolean;
   /** Initial width in px when resizable (default 480). */
   defaultWidth?: number;
+  /** Initial width as a share of the screen (0.6 = 60%) - for drawers that hold a lot of information. */
+  defaultWidthRatio?: number;
   minWidth?: number;
   /** Max as fraction of viewport width (default 0.85). */
   maxWidthRatio?: number;
@@ -214,6 +225,7 @@ export function AgainDrawerPanel({
   children,
   resizable = false,
   defaultWidth = DEFAULT_DRAWER_WIDTH,
+  defaultWidthRatio,
   minWidth = DEFAULT_MIN_WIDTH,
   maxWidthRatio = DEFAULT_MAX_RATIO,
   widthStorageKey,
@@ -223,6 +235,7 @@ export function AgainDrawerPanel({
 }: AgainDrawerPanelProps) {
   const { width, handleProps } = useDrawerResize({
     defaultWidth,
+    defaultWidthRatio,
     minWidth,
     maxWidthRatio,
     storageKey: widthStorageKey,
@@ -266,11 +279,18 @@ export function AgainDrawerLayout({ children }: { children: React.ReactNode }) {
 export function AgainDrawerScrollBody({
   children,
   className,
+  scrollRef,
 }: {
   children: React.ReactNode;
   className?: string;
+  /** To read / restore the scroll position (a drawer that reopens from a draft goes back to where the user was). */
+  scrollRef?: React.Ref<HTMLDivElement>;
 }) {
-  return <div className={cn(AGAIN_DRAWER_BODY_CLASS, className)}>{children}</div>;
+  return (
+    <div ref={scrollRef} className={cn(AGAIN_DRAWER_BODY_CLASS, className)}>
+      {children}
+    </div>
+  );
 }
 
 export function AgainDrawerControlBar({
@@ -301,5 +321,91 @@ export function AgainDrawerActionBar({
       <div className="flex flex-wrap items-center gap-1.5">{children}</div>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}
     </div>
+  );
+}
+
+/** Size of every button in the control bar (the sales order drawer's bar is the reference). */
+export const AGAIN_DRAWER_BAR_BTN_SIZE = "h-6 px-2 text-[11px]";
+const BAR_BTN_DISABLED = "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-muted/50";
+
+export type AgainDrawerButtonVariant = "primary" | "action" | "success" | "danger";
+
+/**
+ * The control-bar button. One look for every drawer (docs/common/drawercommon.md, "Button types"):
+ * - `primary`  Save / Create / Confirm - purple fill (one per bar)
+ * - `action`   Print, Draft, Discard, Cancel, Preview ... - plain, bordered, grey
+ * - `success`  a positive bulk action (Generate, Approve) - green fill
+ * - `danger`   a destructive action (Delete Unused, Reject) - red fill
+ * Always square, always `type="button"`.
+ */
+export const AgainDrawerButton = forwardRef<
+  HTMLButtonElement,
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: AgainDrawerButtonVariant }
+>(function AgainDrawerButton({ variant = "action", className, style, children, ...props }, ref) {
+  return (
+    <button
+      ref={ref}
+      type="button"
+      {...props}
+      className={cn(
+        "inline-flex items-center justify-center whitespace-nowrap text-center leading-none",
+        variant === "action" ? AGAIN_DRAWER_ACTION_BTN : AGAIN_DRAWER_PRIMARY_BTN,
+        variant === "success" && "bg-emerald-600",
+        variant === "danger" && "bg-red-600",
+        AGAIN_DRAWER_BAR_BTN_SIZE,
+        BAR_BTN_DISABLED,
+        className,
+      )}
+      style={variant === "primary" ? { backgroundColor: AGAIN_DRAWER_PRIMARY_COLOR, ...style } : style}
+    >
+      {children}
+    </button>
+  );
+});
+
+/**
+ * Segmented switch in the control bar: Quotation | Sales Order, Draft | Active | Closed. The current one is filled teal
+ * (#00a09d); pass `onChange` to let the user switch, leave it out to show the state only.
+ */
+export function AgainDrawerSwitch<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+  className,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange?: (value: T) => void;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("ml-2 inline-flex h-6 shrink-0 rounded-none border border-border/80", className)} role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          disabled={!onChange}
+          onClick={() => option.value !== value && onChange?.(option.value)}
+          aria-pressed={option.value === value}
+          className={cn(
+            "px-2 text-[11px] font-medium transition-colors disabled:cursor-default",
+            option.value === value ? "bg-[#00a09d] text-white" : "bg-transparent text-muted-foreground hover:text-foreground disabled:hover:text-muted-foreground",
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The squared X at the far right of the control bar (put it in `AgainDrawerControlBar`'s `trailing`). */
+export function AgainDrawerCloseButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-none" aria-label="Close" onClick={onClick}>
+      <X className="h-3.5 w-3.5" />
+    </Button>
   );
 }

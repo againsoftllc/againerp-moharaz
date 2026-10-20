@@ -192,6 +192,25 @@ function hostOf(url) {
   }
 }
 
+// A page in AgainERP asked for a shop the extension has no access to yet. Chrome only grants that from a click on an
+// extension page, so open the small Allow tab (once) instead of failing with a hint nobody can follow.
+async function promptAccess(url) {
+  const host = hostOf(url);
+  try {
+    const existing = await chrome.tabs.query({ url: chrome.runtime.getURL("allow.html*") });
+    if (existing.length) {
+      await chrome.tabs.update(existing[0].id, { active: true });
+      return;
+    }
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`allow.html?host=${encodeURIComponent(host)}`), active: true });
+  } catch (_) {
+    /* the error message below still tells the admin what to do */
+  }
+}
+
+const accessNeeded = (host) =>
+  `Chrome needs your OK before the extension can read ${host}: a small “Allow” tab just opened — click Allow there, then click here again.`;
+
 async function hasAccess(url) {
   try {
     const { protocol, hostname } = new URL(url);
@@ -544,7 +563,8 @@ async function readHtml(url) {
   if (!url) return { ok: false, error: "No page to read" };
   const host = hostOf(url);
   if (!(await hasAccess(url))) {
-    return { ok: false, error: `The extension has no access to ${host} yet — open it and click Allow under Auto-sync` };
+    await promptAccess(url);
+    return { ok: false, error: accessNeeded(host) };
   }
   return withKeepAlive(async () => {
     try {
@@ -598,10 +618,13 @@ async function syncItem(item, ctx) {
     return { ok: false, match, summary: `Link is on ${host}, not ${item.competitor_label || domain} — fix the link` };
   }
   if (!(await hasAccess(item.url))) {
+    if (ctx) await promptAccess(item.url); // asked from an admin page: ask now (a scheduled run cannot)
     return {
       ok: false,
       skipped: true,
-      summary: `The extension has no access to ${host} yet — open it and click Allow under Auto-sync`,
+      summary: ctx
+        ? accessNeeded(host)
+        : `The extension has no access to ${host} yet — open the extension and click “Allow all websites”`,
     };
   }
   const read = await readPage(item.url);
@@ -722,7 +745,11 @@ async function discoverOne(item, ctx) {
   const domain = (item.competitor_domain || "").replace(/^www\./, "");
   const label = item.competitor_label || domain;
   if (domain && !(await hasAccess(`https://www.${domain}/`)) && !(await hasAccess(`https://${domain}/`))) {
-    return { ok: false, error: `The extension has no access to ${domain} yet — open it and click Allow under Auto-sync` };
+    if (ctx) await promptAccess(`https://${domain}/`);
+    return {
+      ok: false,
+      error: ctx ? accessNeeded(domain) : `The extension has no access to ${domain} yet — open the extension and click “Allow all websites”`,
+    };
   }
   const base = { product_id: item.product_id, competitor: item.competitor };
   return withKeepAlive(async () => {

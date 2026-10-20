@@ -1,3 +1,9 @@
+export type BrandStatus = "draft" | "published" | "unlisted" | "archived";
+
+export function brandStatusOf(b: { status?: BrandStatus; active: boolean }): BrandStatus {
+  return b.status ?? (b.active ? "published" : "unlisted");
+}
+
 export type Brand = {
   id: string;
   name: string;
@@ -6,6 +12,10 @@ export type Brand = {
   productCount: number;
   active: boolean;
   updatedAt: string;
+  /** same words as a product: published = live · unlisted = parked · draft = work left · archived = disabled */
+  status?: BrandStatus;
+  /** who last changed it (shown in the Updated By column) */
+  updatedBy?: string;
   /** Catalog vs Dropshipping (frontstore) — mirrors product channel */
   channel?: "catalog" | "dropshipping";
   description?: string;

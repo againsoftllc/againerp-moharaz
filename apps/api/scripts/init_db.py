@@ -119,6 +119,7 @@ from app.models.again_drop_api_plugin import AgainDropApiPlugin
 from app.models.bkash_plugin import BkashPayment, BkashPlugin  # noqa: F401 — register metadata
 from app.models.sslcommerz_plugin import SslcommerzPayment, SslcommerzPlugin  # noqa: F401
 from app.models.erp_billing import ErpBill, ErpBillPayment  # noqa: F401 — register metadata
+from app.models.finance_cheque_book import FinanceChequeBook, FinanceChequeLeaf  # noqa: F401 — register metadata
 from app.models.paypal_plugin import PaypalPayment, PaypalPlugin  # noqa: F401
 from app.models.stripe_plugin import StripePayment, StripePlugin  # noqa: F401
 from app.models.zkteco_plugin import ZktecoAttendanceLog, ZktecoPlugin  # noqa: F401
@@ -4900,6 +4901,11 @@ def ensure_catalog_brand_columns() -> None:
                 "ALTER TABLE catalog_brands ADD COLUMN IF NOT EXISTS channel VARCHAR(20) NOT NULL DEFAULT 'dropshipping'"
             )
         )
+        conn.execute(text("ALTER TABLE catalog_brands ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'published'"))
+        # a brand that was switched off before statuses existed is unlisted (idempotent: only fixes rows that disagree)
+        conn.execute(text("UPDATE catalog_brands SET status = 'unlisted' WHERE is_active = false AND status = 'published'"))
+        conn.execute(text("ALTER TABLE catalog_brands ADD COLUMN IF NOT EXISTS updated_by_id VARCHAR(36)"))
+        conn.execute(text("ALTER TABLE catalog_brands ADD COLUMN IF NOT EXISTS updated_by_name VARCHAR(255)"))
         # Same one-time legacy backfill as categories — never flip an all-`catalog` set.
         tagged_count = conn.execute(
             text("SELECT COUNT(*) FROM catalog_brands WHERE channel IN ('dropshipping', 'catalog')")

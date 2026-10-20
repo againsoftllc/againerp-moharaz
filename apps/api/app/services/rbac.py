@@ -31,6 +31,35 @@ RBAC_MODULES: tuple[str, ...] = (
     "workspace",
     "plugins",
     "pos",
+    # Privileged RMA actions: a role needs the matching `write` grant (System Manager has them all).
+    "rma_approve",
+    "rma_override",
+    "rma_reprint",
+    "rma_claim_approve",
+    "rma_dispatch",
+    "rma_receive_approve",
+    "rma_serial_change",
+    "rma_delivery_approve",
+    "rma_payment",
+    "rma_settlement_approve",
+    "rma_stock_adjust",
+)
+
+# Not part of anyone's default access beyond System Manager — granted per role in the role editor.
+PRIVILEGED_MODULES: frozenset[str] = frozenset(
+    {
+        "rma_approve",
+        "rma_override",
+        "rma_reprint",
+        "rma_claim_approve",
+        "rma_dispatch",
+        "rma_receive_approve",
+        "rma_serial_change",
+        "rma_delivery_approve",
+        "rma_payment",
+        "rma_settlement_approve",
+        "rma_stock_adjust",
+    }
 )
 
 RBAC_ACTIONS: tuple[str, ...] = ("read", "create", "write", "delete", "publish", "export")
@@ -90,6 +119,17 @@ def module_registry() -> list[dict[str, str]]:
         "workspace": "Workspace",
         "plugins": "Plugins",
         "pos": "POS",
+        "rma_approve": "RMA — approve / reject complaints",
+        "rma_override": "RMA — override protected fields (supplier, lookup exception)",
+        "rma_reprint": "RMA — reprint documents",
+        "rma_claim_approve": "RMA — approve supplier claims",
+        "rma_dispatch": "RMA — dispatch units to a supplier",
+        "rma_receive_approve": "RMA — approve supplier receipts",
+        "rma_serial_change": "RMA — change the actual received serial",
+        "rma_delivery_approve": "RMA — approve customer deliveries",
+        "rma_payment": "RMA — record settlements (money in / money out)",
+        "rma_settlement_approve": "RMA — approve and post settlements",
+        "rma_stock_adjust": "RMA — release to stock, scrap, issue a replacement from stock",
     }
     return [{"id": m, "label": labels.get(m, m.title())} for m in RBAC_MODULES]
 
@@ -245,6 +285,9 @@ def default_permission_flags(slug: str, module: str) -> dict[str, bool]:
     """Seed matrix for system roles."""
     if slug == SYSTEM_MANAGER_SLUG:
         return {"can_read": True, "can_create": True, "can_write": True, "can_delete": True, "can_publish": True, "can_export": True}
+
+    if module in PRIVILEGED_MODULES:
+        return {"can_read": False, "can_create": False, "can_write": False, "can_delete": False, "can_publish": False, "can_export": False}
 
     if slug == "viewer":
         return {

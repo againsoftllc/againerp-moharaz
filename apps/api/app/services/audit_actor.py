@@ -9,6 +9,7 @@ from __future__ import annotations
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
+from app.models.catalog_brand import CatalogBrand
 from app.models.catalog_category import CatalogCategory
 from app.models.catalog_product import CatalogProduct
 
@@ -20,7 +21,7 @@ def _stamp_actor(session: Session, _ctx, _instances) -> None:
         return
     user_id, name = actor
     for obj in list(session.new) + list(session.dirty):
-        if isinstance(obj, (CatalogProduct, CatalogCategory)) and (obj in session.new or session.is_modified(obj, include_collections=False)):
+        if isinstance(obj, (CatalogProduct, CatalogCategory, CatalogBrand)) and (obj in session.new or session.is_modified(obj, include_collections=False)):
             if obj.updated_by_id != user_id:
                 obj.updated_by_id = user_id
             if obj.updated_by_name != name:

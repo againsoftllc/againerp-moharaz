@@ -25,6 +25,8 @@ class WarehouseCreate(BaseModel):
     payment_option: Optional[str] = Field(default=None, max_length=100)
     is_active: bool = True
     is_default: bool = False
+    is_rma_store: bool = False
+    is_supplier_transit: bool = False
     sort_order: int = Field(default=0, ge=0)
 
 
@@ -46,6 +48,8 @@ class WarehouseUpdate(BaseModel):
     payment_option: Optional[str] = Field(default=None, max_length=100)
     is_active: Optional[bool] = None
     is_default: Optional[bool] = None
+    is_rma_store: Optional[bool] = None
+    is_supplier_transit: Optional[bool] = None
     sort_order: Optional[int] = Field(default=None, ge=0)
 
 
@@ -78,6 +82,8 @@ class WarehouseRead(BaseModel):
     total_units: int = 0
     is_active: bool
     is_default: bool
+    is_rma_store: bool = False
+    is_supplier_transit: bool = False
     sort_order: int
     created_at: datetime
     updated_at: datetime

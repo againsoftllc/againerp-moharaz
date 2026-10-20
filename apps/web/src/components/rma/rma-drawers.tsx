@@ -88,7 +88,13 @@ export function StatusDrawer({
   ticket: RmaTicket;
   onDone: () => void;
 }) {
-  const next = RMA_NEXT_STATUSES[ticket.status] ?? [];
+  // A unit in the RMA store reaches the supplier only through a supplier claim (it moves the stock).
+  const next = (RMA_NEXT_STATUSES[ticket.status] ?? []).filter(
+    (s) =>
+      !(s === "sent_to_supplier" && ticket.custody_state === "in_rma_store") &&
+      !(s === "returned_from_supplier" && ticket.custody_state === "with_supplier") &&
+      !(s === "delivered" && ["in_rma_store", "replacement_received", "with_supplier"].includes(ticket.custody_state ?? "")),
+  );
   const [status, setStatus] = useState<RmaStatus | "">(next[0] ?? "");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);

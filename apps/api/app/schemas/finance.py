@@ -639,8 +639,10 @@ class PartnerTradingResponse(BaseModel):
 class FinanceChequeCreate(BaseModel):
     direction: str
     party_id: str
-    bank_name: str = Field(min_length=1, max_length=120)
-    cheque_number: str = Field(min_length=1, max_length=64)
+    # left out when the cheque is taken from a cheque book leaf (the leaf gives the number and the book's bank)
+    bank_name: str = Field(default="", max_length=120)
+    cheque_number: str = Field(default="", max_length=64)
+    cheque_leaf_id: Optional[str] = None
     cheque_date: date
     amount: Decimal = Field(gt=0)
     receivable_id: Optional[str] = None

@@ -920,8 +920,14 @@ def list_products(
         None,
         description="Only products saved at or after this time (the admin list refreshes a cached copy with just the changes)",
     ),
+    sellable: bool = Query(
+        False,
+        description="Only products that have a selling price (leaves out imported / placeholder rows) - used by document product search",
+    ),
 ) -> ProductListResponse:
     query = _list_scope_query(db, company_id, status, exclude_status, channel, scope)
+    if sellable:
+        query = query.filter(CatalogProduct.price > 0)
     if updated_since:
         query = query.filter(CatalogProduct.updated_at >= updated_since)
     # every word must appear in the name, SKU, brand or model ("msi b650m wifi")
@@ -934,10 +940,16 @@ def list_products(
             | CatalogProduct.model.ilike(like)
         )
     total = query.count()
+    # Document product search (sellable=true): what is in stock comes first, then the most recently updated.
+    order = (
+        (CatalogProduct.stock.desc(), CatalogProduct.updated_at.desc(), CatalogProduct.id)
+        if sellable
+        else (CatalogProduct.updated_at.desc(), CatalogProduct.id)
+    )
     rows = (
         # Bulk-seeded rows share updated_at, so id breaks the tie — without it
         # paging is non-deterministic and rows duplicate across pages.
-        query.order_by(CatalogProduct.updated_at.desc(), CatalogProduct.id)
+        query.order_by(*order)
         .offset((page - 1) * per_page)
         .limit(per_page)
         .all()

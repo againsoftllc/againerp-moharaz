@@ -5,6 +5,8 @@ When new common rules are agreed, **update this file** (and mirror into `.cursor
 
 Scope: `apps/web` admin / ERP UI. Storefront/marketing may differ unless noted.
 
+Detailed standards live in `docs/common/`: [drawercommon.md](./common/drawercommon.md) (drawers) and [datatablecommon.md](./common/datatablecommon.md) (datatables).
+
 ---
 
 ## 1. Day / Night mode
@@ -56,6 +58,8 @@ import { ContentDataSkeleton } from "@/components/layout/content-data-skeleton";
 
 ## 4. Drawers — drag to resize
 
+> The full drawer standard (actions on top, drag resize, 60 % default for heavy drawers, drafts on accidental close for new **and** existing records, responsive layout) is in [drawercommon.md](./common/drawercommon.md).
+
 - Side panels / sheets that hold filters, columns, live-edit, or similar tooling should be **resizable** by dragging the inner edge.
 - Use shared `Sheet` / `SheetContent` from `@/components/ui/sheet` with `resizable` (and Again drawers’ existing resize where applicable).
 - Default width may be narrow; allow grow/shrink within sane clamps (e.g. ~160px–720px).
@@ -86,24 +90,7 @@ import { ContentDataSkeleton } from "@/components/layout/content-data-skeleton";
 
 ### List datatable filter bar — page name
 
-- Every AG Grid / list module filter bar starts with a **page name** left of `New` (or other primary action), then settings/actions.
-- Use shared `ListGridHeaderStart` from `@/components/shared/list-grid-header-start` inside `headerLeftActions`.
-- Label uses theme tokens (`text-foreground`), square chrome; keep title visible even when write is disabled.
-
-```tsx
-import { ListGridHeaderStart } from "@/components/shared/list-grid-header-start";
-
-const headerLeftActions = (
-  <ListGridHeaderStart title="Pages">
-    {canWrite ? (
-      <Button size="sm" className="rounded-none" onClick={openCreate}>
-        New
-      </Button>
-    ) : null}
-    {/* settings / refresh menu… */}
-  </ListGridHeaderStart>
-);
-```
+> Moved to [common/datatablecommon.md](./common/datatablecommon.md) §3.1 (page name left of `New`, `ListGridHeaderStart`, the ⚙ settings menu).
 
 ---
 
@@ -113,11 +100,13 @@ On any admin screen where the user **adds a product onto a document** (purchase 
 
 **Canonical implementation:** `ProductSearchAdd` in `apps/web/src/components/products/product-search-add.tsx`. Reuse that component; do not fork a different layout.
 
-Joined square `h-8` control (`rounded-none`):
+Joined square `h-9` control (`rounded-none`; Filter label 13 px, search text 14 px):
 
-1. **Filter** (left, `h-8 w-8`, `border-r-0`) — `ListFilter`; popover for **Brand** and **Category**. Active filter: teal `#00a09d` fill + white corner dot + clear (X).
+1. **Filter** (left, `h-8`, `border-r-0`) — `ListFilter` + caret; a panel under the bar (full bar width, **Brand** and **Category** side by side). Active filters turn the button teal `#00a09d` **and show as removable chips inside the search box** (Odoo facets). The panel and the results list never show together (opening one closes the other).
 2. **Search** — search icon + input. Placeholder: `Name, SKU, barcode, or serial` (or `Search in filtered products…` when a filter is on). Typeahead / exact SKU / **barcode scan** / **serial number** adds the line.
 3. **Plus** (right inside the search box) — opens quick-add / new product, not another search UI.
+
+**Results:** real products first (in stock, priced, name / SKU starting with the typed word) ahead of imported placeholders; the screen also asks the server while the user types (`onQueryChange`) because the preloaded list is only the most recently updated products.
 
 ```tsx
 // ✅ GOOD — PO Order Lines (ProductSearchAdd)
@@ -136,40 +125,13 @@ Does **not** apply to catalog list pages whose primary action is “New product�
 
 ## 7. List refs open drawers
 
-On every admin datatable, a cell that **points at another record** (invoice #, order #, PO, receipt, customer, supplier, product, …) must be clickable and open that record’s drawer. Do not leave those values as plain text.
-
-Canonical cell: `GridRefLink` in `apps/web/src/components/shared/grid-ref-link.tsx`. Square, theme tokens, hover `text-primary`. Stop propagation so row-click actions (settle, row menu) do not fire.
-
-```tsx
-// ✅ GOOD — invoice / customer / supplier / PO
-<GridRefLink title={row.invoice_number} onClick={() => openInvoice(row)}>
-  {row.invoice_number}
-</GridRefLink>
-
-// ❌ BAD — related record shown but not openable
-{row.customer_name}
-```
-
-- Document number → that document’s form drawer (sales order, PO, receipt, RMA, …)
-- Party name → customer (`AgainPartnerDrawer`) or supplier (`SupplierDetailDrawer`)
-- Product / SKU on a list that has a product sheet → product drawer
-- No linked record → toast, do not navigate away
-- Never put Next.js `<Link>` in grid cells. Prefetch + row click abort the RSC payload (`TypeError: Failed to fetch` / `navigateToUnknownRoute`). Use `GridRefLink` or one `router.push`.
-
-Does **not** apply to status chips, dates, or money columns.
+> Moved to [common/datatablecommon.md](./common/datatablecommon.md) §4 — a cell that points at another record opens that record's drawer (`GridRefLink`, never a Next `<Link>` in a grid cell).
 
 ---
 
 ## 8. Again List Datatable (one family)
 
-Admin lists that look like `/customers` (filter bar + AG Grid + zoom + 27px native pager) are the **Again List Datatable** family.
-
-- Inventory of every page and drawer: `docs/AGAIN-LIST-DATATABLE.md`
-- Shared CSS: `.ag-theme-again-list` / `.product-grid-fill` in `apps/web/src/app/globals.css`
-- Shared pieces: `AgainListGrid` (`@/components/shared/again-list-grid`), `ListGridHeaderStart`, `GridZoomControl`, `GridFullscreen`, `GridRefLink`, `finance-ag-list-grid.tsx`
-- **Font:** every datatable uses Odoo's list font — **Inter** (`--font-list`) — at **one size** (`--ag-font-size`, 11px at 100% zoom, scaled by the zoom control). Header text matches cell size, headers are bold. This is enforced in `.ag-theme-again-list` (globals.css) for everything inside `.ag-cell` / `.ag-header-cell`, so a column renderer must **not** set its own `font-mono`, `text-xs`, `text-sm`, `font-size` or `font-family`. Need an id to stand out? Use weight (`font-medium`) or colour, never size or family. Icons (`.ag-icon`, svg) are exempt.
-- Do **not** invent a new list chrome. Change `AgainListGrid` / `.ag-theme-again-list` so every list updates together.
-- New lists: add a row to `docs/AGAIN-LIST-DATATABLE.md`
+> Moved to [common/datatablecommon.md](./common/datatablecommon.md) — the family and the shared shell (`AgainListGrid`, `.ag-theme-again-list`), typography (Inter, one size), the look of a list page (filter bar, pinned actions column, cells, filters, footer, empty / loading / phone), the recipe and the checklist. Inventory of every list and the behaviours they share: [AGAIN-LIST-DATATABLE.md](./AGAIN-LIST-DATATABLE.md).
 
 ---
 
@@ -203,6 +165,8 @@ Does **not** apply to product **multi-image** galleries (keep `MediaGallery` gri
 
 ## 10. Drawers — save a draft on accidental close
 
+> Extended in [drawercommon.md](./common/drawercommon.md): drafts also cover editing an existing record (key per record), use the `useDrawerDraft` hook, and restore the scroll position.
+
 - A **"New X"** drawer (create mode only — not editing an existing record) must not silently discard typed-in data when the user closes it by clicking outside or pressing Escape. Losing an accidental close's worth of typing is a real cost; an explicit **Cancel** click stays an intentional discard and does not save a draft.
 - Use the shared helpers in `@/lib/hooks/use-drawer-draft` (`readDraft`, `writeDraft`, `clearDraft`, `draftAgeLabel`) — a small `localStorage`-backed store, one entry per drawer type (e.g. `"supplier"`, `"product"`, `"customer"`). Do not invent a second draft mechanism per drawer.
 - Wire it in three places:
@@ -230,12 +194,15 @@ const saveDraftIfDirty = () => {
 ## Changelog (common rules)
 
 | 2026-10-17 | Datatables: one font (Inter, Odoo list font) and one size in every cell/header, enforced in `.ag-theme-again-list`; no `font-mono` / `text-xs` in cell renderers |
+| 2026-10-20 | Datatables: the datatable rules moved to `common/datatablecommon.md` (§5 page name, §7 list refs, §8 family / font); `drawercommon.md` now lives in `docs/common/` |
+| 2026-10-20 | Drawers: new standard page `drawercommon.md` (actions on top, resize, 60 % default, drafts for edit too, responsive) |
 | 2026-10-17 | Drawers: primary actions (Cancel / Save) in the header; dropdowns inside drawers use `avoidCollisions` so they flip above near the bottom |
 | 2026-09-26 | Drawers: save a draft on accidental outside-click/Escape (`@/lib/hooks/use-drawer-draft`), reference impl in supplier drawer |
 | 2026-09-07 | Image upload: one square Add tile (`MediaPickTile` / `MediaGallery`) |
 | 2026-09-07 | `AgainListGrid` global list shell — one chrome change updates every datatable |
 | 2026-09-07 | Again List Datatable family catalog (`docs/AGAIN-LIST-DATATABLE.md`) |
 | 2026-09-06 | List refs: invoice / party / document cells open drawers (`GridRefLink`) |
+| 2026-10-20 | Forms: Odoo form standard (label left, underline controls, titled groups) in [common/formcommon.md](./common/formcommon.md); `ProductSearchAdd` filter facets, panel no longer overlaps the results |
 | 2026-09-01 | Product add: barcode scan and serial number resolve to the SKU on every ProductSearchAdd bar |
 | 2026-08-19 | Drawers: one X close on all sheets; header actions start left of title |
 | 2026-07-30 | List grid filter bar: shared page name via `ListGridHeaderStart` left of New |

@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FilterSelect } from "@/components/shared/filter-select";
+import { AgainFormField, AgainFormGroupTitle } from "@/components/again/again-form-sheet";
 import { useInventoryWarehouses } from "@/lib/api/use-inventory";
 import { createPortal } from "react-dom";
 import {
@@ -159,6 +160,7 @@ import {
   AGAIN_DRAWER_PRIMARY_BTN,
   AGAIN_DRAWER_PRIMARY_COLOR,
   AGAIN_DRAWER_SALES_SHEET_CLASS,
+  AgainDrawerButton,
   AgainDrawerControlBar,
   AgainDrawerScrollBody,
   DrawerResizeHandle,
@@ -2240,6 +2242,8 @@ export function SalesOrderFormDrawer({
   const [paymentAccounts, setPaymentAccounts] = useState<ApiFinancePaymentAccount[]>([]);
   const [pathaoBooking, setPathaoBooking] = useState(false);
   const [catalogProducts, setCatalogProducts] = useState<SalesProductOption[]>([]);
+  const productSearchTimer = useRef<number | null>(null);
+  const productSearchSeq = useRef(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
   const customerAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -2366,7 +2370,11 @@ export function SalesOrderFormDrawer({
 
   useEffect(() => {
     const existingOrder = mode !== "create" && !!form.orderNumber && form.orderNumber !== "New";
-    const salesOrder = statusToStage(form.status) === "sales_order";
+    // every real order (not a draft quotation, not cancelled) can have a return — also the "pending" ones a shop's
+    // new-order feed brings in, which the drawer otherwise treats as a sent quotation
+    const salesOrder =
+      statusToStage(form.status) !== "quotation" ||
+      (!!order?.websiteStatus && order.websiteStatus !== "cancelled");
     if (tab === "shipping" && !featureFlags.tabShipping) setTab("lines");
     else if (tab === "payment" && !featureFlags.tabPayment) setTab("lines");
     else if (tab === "return" && !(existingOrder && salesOrder && !isCancelledOrder)) setTab("lines");
@@ -2381,6 +2389,7 @@ export function SalesOrderFormDrawer({
     form.orderNumber,
     mode,
     isCancelledOrder,
+    order?.websiteStatus,
   ]);
 
   useEffect(() => {
@@ -3048,6 +3057,58 @@ export function SalesOrderFormDrawer({
       /* No variants / fetch failed — keep the plain single line. */
     }
   };
+
+  /**
+   * The list loaded up front is only the most recently updated products, so the shop's real products are often not in it.
+   * While the user types, ask the server for what matches and merge it in (newest answer wins, the list is capped).
+   */
+  const searchProductsOnServer = useCallback((raw: string) => {
+    const q = raw.trim();
+    if (productSearchTimer.current) window.clearTimeout(productSearchTimer.current);
+    if (q.length < 2) return;
+    const seq = ++productSearchSeq.current;
+    productSearchTimer.current = window.setTimeout(() => {
+      const enc = encodeURIComponent(q);
+      type SearchProduct = {
+        id: string;
+        sku: string;
+        name: string;
+        barcode?: string | null;
+        item_id?: string | null;
+        price: string;
+        purchase_price?: string | null;
+        stock?: number | null;
+        track_quantity?: boolean | null;
+        track_serial?: boolean | null;
+        thumbnail?: string | null;
+        weight?: string | null;
+      };
+      // Two asks: the products that have a selling price (the ones the shop really sells, found first) and the plain match,
+      // which still lets a free / unpriced item be found by its SKU or name.
+      void Promise.all([
+        apiFetch<{ data: SearchProduct[] }>(`/api/v1/catalog/products?per_page=60&sellable=true&q=${enc}`),
+        apiFetch<{ data: { id: string; sku: string; name: string; barcode?: string | null }[] }>(`/api/v1/items?per_page=40&q=${enc}`),
+      ])
+        .then(([sellableRes, itemsRes]) => {
+          if (seq !== productSearchSeq.current) return;
+          const sellable = sellableRes.data ?? [];
+          const fromSellable = mapItemsToSalesProducts(
+            sellable
+              .filter((p) => p.item_id)
+              .map((p) => ({ id: p.item_id as string, sku: p.sku, name: p.name, barcode: p.barcode ?? null })),
+            sellable,
+          );
+          const plain = mapItemsToSalesProducts(itemsRes.data ?? [], sellable);
+          const found = [...fromSellable, ...plain.filter((p) => !fromSellable.some((f) => f.id === p.id))];
+          if (!found.length) return;
+          setCatalogProducts((prev) => {
+            const foundIds = new Set(found.map((p) => p.id));
+            return [...found, ...prev.filter((p) => !foundIds.has(p.id))].slice(0, 800);
+          });
+        })
+        .catch(() => undefined);
+    }, 250);
+  }, []);
 
   const handleProductCreated = async (saved?: Product) => {
     const lineId = productCreateLineId;
@@ -4285,7 +4346,9 @@ export function SalesOrderFormDrawer({
 
   const recordLabel = mode === "create" ? "New" : form.orderNumber;
 
-  const isSalesOrder = stage === "sales_order";
+  // a shop order still "Pending" is a real order too (the drawer files it under draft internally)
+  const isSalesOrder =
+    stage === "sales_order" || (!!order?.websiteStatus && order.websiteStatus !== "cancelled");
 
   return (
     <>
@@ -4862,8 +4925,10 @@ export function SalesOrderFormDrawer({
                     ? [{ id: "shipping" as const, label: "Shipping" }]
                     : []),
                   { id: "others" as const, label: "Others" },
-                  ...(isExistingOrder && isSalesOrder && !isCancelledOrder
-                    ? [{ id: "return" as const, label: "Return" }]
+                  ...(isExistingOrder &&
+                  !isCancelledOrder &&
+                  (stage !== "quotation" || (!!order?.websiteStatus && order.websiteStatus !== "cancelled"))
+                    ? [{ id: "return" as const, label: "Returns" }]
                     : []),
                   ...(featureFlags.tabHistory
                     ? [{ id: "history" as const, label: "Activity" }]
@@ -4881,6 +4946,7 @@ export function SalesOrderFormDrawer({
                     <ProductSearchAdd
                       items={catalogProducts}
                       portalHost={portalHost}
+                      onQueryChange={searchProductsOnServer}
                       onPick={(item, scan) => pickProductFromSearch(item, scan)}
                       onAddNew={() => {
                         const empty = form.lines.find(
@@ -5216,8 +5282,11 @@ export function SalesOrderFormDrawer({
               </div>
             ) : null}
 
-                        {tab === "shipping" ? (
-              <div className="space-y-6">
+            {tab === "shipping" ? (
+              // Odoo form: titled groups, label left / underline control right (docs/common/formcommon.md).
+              <div className="again-odoo-form @container space-y-5">
+                <div>
+                  <AgainFormGroupTitle>Ship to</AgainFormGroupTitle>
                 <div>
                   <div
                     ref={deliveryAddrAnchorRef}
@@ -5300,45 +5369,34 @@ export function SalesOrderFormDrawer({
                     )}
                   />
                 </div>
+                </div>
 
-                <div className="border border-border bg-muted/20 p-3 dark:bg-muted/10">
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Shipping details
-                  </p>
+                <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                  <AgainFormGroupTitle className="@xl:col-span-2">Shipping</AgainFormGroupTitle>
                   {readOnly ? (
-                    <div className="space-y-1.5 text-[13px]">
-                      <div className="flex justify-between gap-3">
-                        <span className="text-muted-foreground">Line</span>
-                        <span>
-                          {SHIPPING_LINE_OPTIONS.find((o) => o.id === form.shippingLineId)
-                            ?.label || "—"}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-muted-foreground">Charge</span>
-                        <span className="tabular-nums">
-                          {formatCurrency(form.orderShippingCharge ?? 0)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-muted-foreground">Weight</span>
-                        <span className="tabular-nums">
-                          {form.shippingWeight ? `${form.shippingWeight} kg` : "—"}
-                        </span>
-                      </div>
+                    <>
+                      <AgainFormField label="Line">
+                        <p className="py-1 text-[13px]">{SHIPPING_LINE_OPTIONS.find((o) => o.id === form.shippingLineId)?.label || "\u2014"}</p>
+                      </AgainFormField>
+                      <AgainFormField label="Charge">
+                        <p className="py-1 text-[13px] tabular-nums">{formatCurrency(form.orderShippingCharge ?? 0)}</p>
+                      </AgainFormField>
+                      <AgainFormField label="Weight">
+                        <p className="py-1 text-[13px] tabular-nums">{form.shippingWeight ? `${form.shippingWeight} kg` : "\u2014"}</p>
+                      </AgainFormField>
                       {form.shippingNote ? (
-                        <p className="whitespace-pre-wrap pt-1 text-muted-foreground">
-                          {form.shippingNote}
-                        </p>
+                        <AgainFormField label="Note">
+                          <p className="whitespace-pre-wrap py-1 text-[13px]">{form.shippingNote}</p>
+                        </AgainFormField>
                       ) : null}
-                    </div>
+                    </>
                   ) : (
-                    <div className="space-y-2">
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1.2fr)_110px_110px]">
+                    <>
+                      <AgainFormField label="Line">
                         <select
                           value={form.shippingLineId}
                           onChange={(e) => applyShippingLine(e.target.value)}
-                          className="h-8 w-full rounded-none border border-border bg-background px-2 text-[13px] outline-none focus:border-[#00a09d]"
+                          className="h-8 w-full bg-transparent px-1 text-[13px] outline-none"
                         >
                           {SHIPPING_LINE_OPTIONS.map((opt) => (
                             <option key={opt.id} value={opt.id}>
@@ -5346,12 +5404,16 @@ export function SalesOrderFormDrawer({
                             </option>
                           ))}
                         </select>
+                      </AgainFormField>
+                      <AgainFormField label="Charge">
                         <LineNumericInput
                           value={form.orderShippingCharge ?? 0}
                           onChange={(n) => patch("orderShippingCharge", n)}
-                          className="h-8 w-full rounded-none border border-border bg-background px-2 text-right text-[13px] tabular-nums outline-none focus:border-[#00a09d]"
+                          className="h-8 w-full bg-transparent px-1 text-[13px] tabular-nums outline-none"
                         />
-                        <div className="flex h-8 items-center gap-1 rounded-none border border-border bg-background px-2">
+                      </AgainFormField>
+                      <AgainFormField label="Weight">
+                        <div className="flex h-8 items-center gap-1">
                           <input
                             type="text"
                             inputMode="decimal"
@@ -5363,96 +5425,72 @@ export function SalesOrderFormDrawer({
                             }}
                             placeholder="—"
                             aria-label="Shipping weight"
-                            className="h-full min-w-0 flex-1 bg-transparent text-right text-[13px] tabular-nums outline-none placeholder:text-muted-foreground/70"
+                            className="h-full min-w-0 flex-1 bg-transparent px-1 text-[13px] tabular-nums outline-none"
                           />
                           <span className="shrink-0 text-[11px] text-muted-foreground">kg</span>
                         </div>
-                      </div>
-                      <input
-                        value={form.shippingNote}
-                        onChange={(e) => patch("shippingNote", e.target.value)}
-                        placeholder="Shipping note (optional)"
-                        className="h-8 w-full rounded-none border border-border bg-background px-2 text-[13px] outline-none placeholder:text-muted-foreground/70 focus:border-[#00a09d]"
-                      />
-                    </div>
+                      </AgainFormField>
+                      <AgainFormField label="Note">
+                        <input
+                          value={form.shippingNote}
+                          onChange={(e) => patch("shippingNote", e.target.value)}
+                          placeholder="Shipping note (optional)"
+                          className="h-8 w-full bg-transparent px-1 text-[13px] outline-none"
+                        />
+                      </AgainFormField>
+                    </>
                   )}
                 </div>
 
                 {form.shippingLineId === "pathao" ? (
-                  <div className="border border-border bg-muted/20 p-3 dark:bg-muted/10">
-                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Pathao courier
-                    </p>
+                  <div>
+                    <AgainFormGroupTitle>Pathao courier</AgainFormGroupTitle>
                     {form.trackingNumber ? (
-                      <div className="flex items-center justify-between gap-3 text-[13px]">
-                        <span className="text-muted-foreground">Consignment</span>
-                        {form.trackingUrl ? (
-                          <a
-                            href={form.trackingUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="font-medium text-[#00a09d] hover:underline"
-                          >
-                            {form.trackingNumber}
-                          </a>
-                        ) : (
-                          <span className="font-medium">{form.trackingNumber}</span>
-                        )}
-                      </div>
+                      <AgainFormField label="Consignment">
+                        <p className="py-1 text-[13px]">
+                          {form.trackingUrl ? (
+                            <a href={form.trackingUrl} target="_blank" rel="noreferrer" className="font-medium text-[#00a09d] hover:underline">
+                              {form.trackingNumber}
+                            </a>
+                          ) : (
+                            <span className="font-medium">{form.trackingNumber}</span>
+                          )}
+                        </p>
+                      </AgainFormField>
                     ) : readOnly ? (
-                      <p className="text-[13px] text-muted-foreground">Not booked yet.</p>
+                      <p className="py-1 text-[13px] text-muted-foreground">Not booked yet.</p>
                     ) : (
-                      <div className="space-y-1.5">
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="h-7 rounded-none text-[12px]"
-                          disabled={pathaoBooking || !order?.id}
-                          onClick={() => void bookPathaoShipment()}
-                        >
-                          {pathaoBooking ? "Booking…" : "Create Pathao shipment"}
-                        </Button>
-                        {!order?.id ? (
-                          <p className="text-[11px] text-muted-foreground">
-                            Save the order first.
-                          </p>
-                        ) : null}
+                      <div className="space-y-1.5 py-1">
+                        <AgainDrawerButton variant="primary" disabled={pathaoBooking || !order?.id} onClick={() => void bookPathaoShipment()}>
+                          {pathaoBooking ? "Booking\u2026" : "Create Pathao shipment"}
+                        </AgainDrawerButton>
+                        {!order?.id ? <p className="text-[11px] text-muted-foreground">Save the order first.</p> : null}
                       </div>
                     )}
                   </div>
                 ) : null}
 
-                <div className="border border-border bg-muted/20 p-3 dark:bg-muted/10">
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Delivery
-                  </p>
+                <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                  <AgainFormGroupTitle className="@xl:col-span-2">Delivery</AgainFormGroupTitle>
                   {readOnly ? (
-                    <div className="space-y-1.5 text-[13px]">
-                      <div className="flex justify-between gap-3">
-                        <span className="text-muted-foreground">Shipping status</span>
-                        <span>{SHIPPING_STATUS_LABELS[form.shippingStatus]}</span>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-muted-foreground">Delivered to</span>
-                        <span>{form.deliveredTo || "—"}</span>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-muted-foreground">Delivery person</span>
-                        <span>
-                          {mentionableUsers.find((u) => u.id === form.deliveryPersonId)?.name || "—"}
-                        </span>
-                      </div>
-                    </div>
+                    <>
+                      <AgainFormField label="Shipping status">
+                        <p className="py-1 text-[13px]">{SHIPPING_STATUS_LABELS[form.shippingStatus]}</p>
+                      </AgainFormField>
+                      <AgainFormField label="Delivered to">
+                        <p className="py-1 text-[13px]">{form.deliveredTo || "\u2014"}</p>
+                      </AgainFormField>
+                      <AgainFormField label="Delivery person">
+                        <p className="py-1 text-[13px]">{mentionableUsers.find((u) => u.id === form.deliveryPersonId)?.name || "\u2014"}</p>
+                      </AgainFormField>
+                    </>
                   ) : (
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <div className="space-y-1">
-                        <label className="text-[11px] text-muted-foreground">Shipping status</label>
+                    <>
+                      <AgainFormField label="Shipping status">
                         <select
                           value={form.shippingStatus}
-                          onChange={(e) =>
-                            patch("shippingStatus", e.target.value as FormState["shippingStatus"])
-                          }
-                          className="h-8 w-full rounded-none border border-border bg-background px-2 text-[13px] outline-none focus:border-[#00a09d]"
+                          onChange={(e) => patch("shippingStatus", e.target.value as FormState["shippingStatus"])}
+                          className="h-8 w-full bg-transparent px-1 text-[13px] outline-none"
                         >
                           {Object.entries(SHIPPING_STATUS_LABELS).map(([value, label]) => (
                             <option key={value} value={value}>
@@ -5460,22 +5498,20 @@ export function SalesOrderFormDrawer({
                             </option>
                           ))}
                         </select>
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[11px] text-muted-foreground">Delivered to</label>
+                      </AgainFormField>
+                      <AgainFormField label="Delivered to">
                         <input
                           value={form.deliveredTo}
                           onChange={(e) => patch("deliveredTo", e.target.value)}
                           placeholder="Recipient name"
-                          className="h-8 w-full rounded-none border border-border bg-background px-2 text-[13px] outline-none placeholder:text-muted-foreground/70 focus:border-[#00a09d]"
+                          className="h-8 w-full bg-transparent px-1 text-[13px] outline-none"
                         />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[11px] text-muted-foreground">Delivery person</label>
+                      </AgainFormField>
+                      <AgainFormField label="Delivery person">
                         <select
                           value={form.deliveryPersonId}
                           onChange={(e) => patch("deliveryPersonId", e.target.value)}
-                          className="h-8 w-full rounded-none border border-border bg-background px-2 text-[13px] outline-none focus:border-[#00a09d]"
+                          className="h-8 w-full bg-transparent px-1 text-[13px] outline-none"
                         >
                           <option value="">Unassigned</option>
                           {mentionableUsers.map((u) => (
@@ -5484,15 +5520,13 @@ export function SalesOrderFormDrawer({
                             </option>
                           ))}
                         </select>
-                      </div>
-                    </div>
+                      </AgainFormField>
+                    </>
                   )}
                 </div>
 
-                <div className="border border-border bg-muted/20 p-3 dark:bg-muted/10">
-                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Shipping documents
-                  </p>
+                <div>
+                  <AgainFormGroupTitle>Shipping documents</AgainFormGroupTitle>
                   <OrderDocumentsBox
                     orderId={order?.id}
                     readOnly={readOnly}
@@ -5507,12 +5541,11 @@ export function SalesOrderFormDrawer({
             {tab === "payment" ? (
               <div className="space-y-6">
                 {!readOnly && featureFlags.optionRegisterPayment ? (
-                  <div className="border border-border bg-muted/20 p-2 dark:bg-muted/10">
-                    <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {payDraftKind === "refund" ? "Register return due" : "Register payment"}
-                      </p>
-                      {refundDue > 0 ? (
+                  <div className="again-odoo-form @container">
+                    <AgainFormGroupTitle>{payDraftKind === "refund" ? "Register return due" : "Register payment"}</AgainFormGroupTitle>
+                    {refundDue > 0 ? (
+                      <AgainFormField label="Entry type">
+                        <div className="flex min-h-[28px] items-center">
                         <span
                           className="inline-flex h-5 shrink-0 border border-border"
                           role="group"
@@ -5551,66 +5584,47 @@ export function SalesOrderFormDrawer({
                             Return due
                           </button>
                         </span>
-                      ) : null}
-                    </div>
-                    {payDraftKind === "refund" ? (
-                      <p className="mb-1.5 text-[11px] text-amber-700 dark:text-amber-400">
-                        Refund owed to customer: {formatCurrency(refundDue)}
-                      </p>
+                        </div>
+                      </AgainFormField>
                     ) : null}
-                    <div className="space-y-1.5">
-                      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_88px_60px]">
-                        <select
-                          value={payDraftMethod}
-                          onChange={(e) => setPayDraftMethod(e.target.value)}
-                          className="h-6 w-full rounded-none border border-border bg-background px-1.5 text-[11px] outline-none focus:border-[#00a09d]"
-                        >
+                    {payDraftKind === "refund" ? (
+                      <p className="mb-1 text-[12px] text-amber-700 dark:text-amber-400">Refund owed to customer: {formatCurrency(refundDue)}</p>
+                    ) : null}
+                    <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                      <AgainFormField label="Method">
+                        <select value={payDraftMethod} onChange={(e) => setPayDraftMethod(e.target.value)} className="h-8 w-full bg-transparent px-1 text-[13px] outline-none">
                           {PAYMENT_METHOD_OPTIONS.map((m) => (
                             <option key={m} value={m}>
                               {m}
                             </option>
                           ))}
                         </select>
+                      </AgainFormField>
+                      <AgainFormField label="Date">
                         <input
                           type="datetime-local"
                           value={payDraftAt}
                           onChange={(e) => setPayDraftAt(e.target.value)}
-                          className="h-6 w-full min-w-0 rounded-none border border-border bg-background px-1.5 text-[11px] outline-none focus:border-[#00a09d]"
+                          className="h-8 w-full min-w-0 bg-transparent px-1 text-[13px] outline-none"
                           aria-label="Payment date and time"
                         />
+                      </AgainFormField>
+                      <AgainFormField label="Amount">
                         <LineNumericInput
                           value={payDraftAmount}
                           onChange={(n) => {
                             setPayDraftAmount(n);
                             setPayDraftAmountTouched(true);
                           }}
-                          className="h-6 w-full rounded-none border border-border bg-background px-1.5 text-right text-[11px] tabular-nums outline-none focus:border-[#00a09d]"
+                          className="h-8 w-full bg-transparent px-1 text-[13px] tabular-nums outline-none"
                         />
-                        <button
-                          type="button"
-                          className={cn(AGAIN_DRAWER_PRIMARY_BTN, "h-6 w-full text-[11px]")}
-                          style={
-                            payDraftKind === "refund"
-                              ? { backgroundColor: "#b45309" }
-                              : { backgroundColor: AGAIN_DRAWER_PRIMARY_COLOR }
-                          }
-                          onClick={registerPayment}
-                        >
-                          Add
-                        </button>
-                      </div>
-                      <div className={cn("grid gap-1.5", paymentAccounts.length > 0 ? "grid-cols-2" : "grid-cols-1")}>
-                        <input
-                          value={payDraftNote}
-                          onChange={(e) => setPayDraftNote(e.target.value)}
-                          placeholder="Note / transaction ID (optional)"
-                          className="h-6 w-full rounded-none border border-border bg-background px-1.5 text-[11px] outline-none placeholder:text-muted-foreground/70 focus:border-[#00a09d]"
-                        />
-                        {paymentAccounts.length > 0 ? (
+                      </AgainFormField>
+                      {paymentAccounts.length > 0 ? (
+                        <AgainFormField label="Account">
                           <select
                             value={payDraftAccountId}
                             onChange={(e) => setPayDraftAccountId(e.target.value)}
-                            className="h-6 w-full rounded-none border border-border bg-background px-1.5 text-[11px] outline-none focus:border-[#00a09d]"
+                            className="h-8 w-full bg-transparent px-1 text-[13px] outline-none"
                             aria-label="Payment account"
                           >
                             {paymentAccounts.map((a) => (
@@ -5619,8 +5633,25 @@ export function SalesOrderFormDrawer({
                               </option>
                             ))}
                           </select>
-                        ) : null}
-                      </div>
+                        </AgainFormField>
+                      ) : null}
+                      <AgainFormField label="Note" className="@xl:col-span-2">
+                        <input
+                          value={payDraftNote}
+                          onChange={(e) => setPayDraftNote(e.target.value)}
+                          placeholder="Note / transaction ID (optional)"
+                          className="h-8 w-full bg-transparent px-1 text-[13px] outline-none"
+                        />
+                      </AgainFormField>
+                    </div>
+                    <div className="flex justify-end pt-2">
+                      <AgainDrawerButton
+                        variant="primary"
+                        style={payDraftKind === "refund" ? { backgroundColor: "#b45309" } : undefined}
+                        onClick={registerPayment}
+                      >
+                        {payDraftKind === "refund" ? "Add return due" : "Add payment"}
+                      </AgainDrawerButton>
                     </div>
                   </div>
                 ) : null}
@@ -5735,141 +5766,126 @@ export function SalesOrderFormDrawer({
             ) : null}
 
             {tab === "others" ? (
-              <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">Reference No</label>
-                  <input
-                    value={form.customerReference}
-                    disabled={readOnly}
-                    onChange={(e) => patch("customerReference", e.target.value)}
-                    placeholder="Optional \u2014 customer PO / reference"
-                    className="h-8 w-full rounded-none border border-input bg-background px-2.5 text-xs shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                  />
+              // Odoo form: label left, underline control right, groups with a titled rule (docs/common/formcommon.md).
+              <div className="again-odoo-form @container space-y-5">
+                <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                  <AgainFormGroupTitle className="@xl:col-span-2">Order</AgainFormGroupTitle>
+                  <AgainFormField label="Reference No">
+                    <input
+                      value={form.customerReference}
+                      disabled={readOnly}
+                      onChange={(e) => patch("customerReference", e.target.value)}
+                      placeholder="Customer PO / reference"
+                      className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                    />
+                  </AgainFormField>
+                  <AgainFormField label="Order Date">
+                    <input
+                      type="date"
+                      value={form.orderDate}
+                      disabled={readOnly}
+                      onChange={(e) => patch("orderDate", e.target.value)}
+                      className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                    />
+                  </AgainFormField>
+                  <AgainFormField label="Warehouse">
+                    <FilterSelect
+                      value={form.warehouseId}
+                      onChange={(v) => patch("warehouseId", v)}
+                      width="w-full"
+                      ariaLabel="Warehouse"
+                      options={[
+                        { value: "", label: "Default" },
+                        ...warehouses.map((w) => ({ value: w.id, label: `${w.code} \u2014 ${w.name}` })),
+                      ]}
+                    />
+                  </AgainFormField>
+                  <AgainFormField label="Salesperson">
+                    <select
+                      value={form.salesperson}
+                      disabled={readOnly}
+                      onChange={(e) => patch("salesperson", e.target.value)}
+                      className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                    >
+                      {form.salesperson && !mentionableUsers.some((u) => u.name === form.salesperson) ? (
+                        <option value={form.salesperson}>{form.salesperson}</option>
+                      ) : null}
+                      {mentionableUsers.map((u) => (
+                        <option key={u.id} value={u.name}>
+                          {u.name}
+                        </option>
+                      ))}
+                    </select>
+                  </AgainFormField>
+                  <AgainFormGroupTitle className="@xl:col-span-2">Payment</AgainFormGroupTitle>
+                  <AgainFormField label="Pay term">
+                    {(() => {
+                      const payTerm = parsePayTerm(form.paymentTerms);
+                      return (
+                        <div className="flex h-8 items-stretch gap-3">
+                          <input
+                            value={payTerm.number}
+                            disabled={readOnly}
+                            onChange={(e) => patch("paymentTerms", formatPayTerm(e.target.value.replace(/[^\d]/g, ""), payTerm.unit))}
+                            placeholder="0"
+                            aria-label="Pay term number"
+                            className="h-8 w-16 shrink-0 bg-transparent px-1 text-[13px] tabular-nums outline-none disabled:opacity-60"
+                          />
+                          <select
+                            value={payTerm.unit}
+                            disabled={readOnly}
+                            onChange={(e) => patch("paymentTerms", formatPayTerm(payTerm.number, e.target.value as "days" | "months"))}
+                            aria-label="Pay term unit"
+                            className="h-8 min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                          >
+                            <option value="days">Days</option>
+                            <option value="months">Months</option>
+                          </select>
+                        </div>
+                      );
+                    })()}
+                  </AgainFormField>
+                  <AgainFormField label="Invoice scheme">
+                    <FilterSelect
+                      value={form.invoiceScheme}
+                      onChange={(v) => patch("invoiceScheme", v as FormState["invoiceScheme"])}
+                      width="w-full"
+                      ariaLabel="Invoice scheme"
+                      options={Object.entries(INVOICE_SCHEME_LABELS).map(([value, label]) => ({
+                        value,
+                        label,
+                      }))}
+                    />
+                  </AgainFormField>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">Order Date</label>
-                  <input
-                    type="date"
-                    value={form.orderDate}
-                    disabled={readOnly}
-                    onChange={(e) => patch("orderDate", e.target.value)}
-                    className="h-8 w-full rounded-none border border-input bg-background px-2.5 text-xs shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">Warehouse</label>
-                  <FilterSelect
-                    value={form.warehouseId}
-                    onChange={(v) => patch("warehouseId", v)}
-                    width="w-full"
-                    ariaLabel="Warehouse"
-                    options={[
-                      { value: "", label: "Default" },
-                      ...warehouses.map((w) => ({ value: w.id, label: `${w.code} \u2014 ${w.name}` })),
-                    ]}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">Salesperson</label>
-                  <select
-                    value={form.salesperson}
-                    disabled={readOnly}
-                    onChange={(e) => patch("salesperson", e.target.value)}
-                    className="h-8 w-full rounded-none border border-input bg-background px-2.5 text-xs shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                  >
-                    {form.salesperson &&
-                    !mentionableUsers.some((u) => u.name === form.salesperson) ? (
-                      <option value={form.salesperson}>{form.salesperson}</option>
-                    ) : null}
-                    {mentionableUsers.map((u) => (
-                      <option key={u.id} value={u.name}>
-                        {u.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="flex items-center gap-1 text-xs font-medium text-foreground">
-                    Pay term
-                    <FieldHelpTip label="Payments to be paid for purchases/sales within the given time period. Upcoming or due payments show on the dashboard's Payment Due section." />
-                  </label>
-                  {(() => {
-                    const payTerm = parsePayTerm(form.paymentTerms);
-                    return (
-                      <div className="flex h-8 items-stretch gap-1.5">
-                        <input
-                          value={payTerm.number}
-                          disabled={readOnly}
-                          onChange={(e) =>
-                            patch(
-                              "paymentTerms",
-                              formatPayTerm(e.target.value.replace(/[^\d]/g, ""), payTerm.unit),
-                            )
-                          }
-                          placeholder="0"
-                          className="h-8 w-16 shrink-0 rounded-none border border-input bg-background px-2.5 text-xs tabular-nums shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                        />
-                        <select
-                          value={payTerm.unit}
-                          disabled={readOnly}
-                          onChange={(e) =>
-                            patch(
-                              "paymentTerms",
-                              formatPayTerm(payTerm.number, e.target.value as "days" | "months"),
-                            )
-                          }
-                          className="h-8 min-w-0 flex-1 rounded-none border border-input bg-background px-2 text-xs shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                        >
-                          <option value="days">Days</option>
-                          <option value="months">Months</option>
-                        </select>
-                      </div>
-                    );
-                  })()}
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">Invoice scheme</label>
-                  <FilterSelect
-                    value={form.invoiceScheme}
-                    onChange={(v) => patch("invoiceScheme", v as FormState["invoiceScheme"])}
-                    width="w-full"
-                    ariaLabel="Invoice scheme"
-                    options={Object.entries(INVOICE_SCHEME_LABELS).map(([value, label]) => ({
-                      value,
-                      label,
-                    }))}
-                  />
-                </div>
-              </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">Note</label>
-                <textarea
-                  value={stripPaymentMeta(form.notes)}
-                  disabled={readOnly}
-                  onChange={(e) => {
-                    const marker = form.notes.match(PAYMENT_META_MARKER_RE)?.[0];
-                    patch("notes", marker ? `${e.target.value}\n\n${marker}` : e.target.value);
-                  }}
-                  placeholder="Internal note about this order (optional)"
-                  rows={3}
-                  className="w-full resize-y rounded-none border border-input bg-background px-2.5 py-2 text-xs shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                />
-              </div>
+                <div>
+                  <AgainFormGroupTitle>Note</AgainFormGroupTitle>
+                  <AgainFormField label="Internal note">
+                    <textarea
+                      value={stripPaymentMeta(form.notes)}
+                      disabled={readOnly}
+                      onChange={(e) => {
+                        const marker = form.notes.match(PAYMENT_META_MARKER_RE)?.[0];
+                        patch("notes", marker ? `${e.target.value}\n\n${marker}` : e.target.value);
+                      }}
+                      placeholder="Internal note about this order (optional)"
+                      rows={3}
+                      className="w-full resize-y bg-transparent px-1 py-1.5 text-[13px] outline-none disabled:opacity-60"
+                    />
+                  </AgainFormField>
+                </div>
 
-              <div className="border border-border bg-muted/20 p-3 dark:bg-muted/10">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Attach document
-                </p>
-                <OrderDocumentsBox
-                  orderId={order?.id}
-                  readOnly={readOnly}
-                  fileType="document"
-                  savePrompt="Save the order first to attach documents."
-                  emptyText="No documents attached yet."
-                />
-              </div>
+                <div>
+                  <AgainFormGroupTitle>Attach document</AgainFormGroupTitle>
+                  <OrderDocumentsBox
+                    orderId={order?.id}
+                    readOnly={readOnly}
+                    fileType="document"
+                    savePrompt="Save the order first to attach documents."
+                    emptyText="No documents attached yet."
+                  />
+                </div>
               </div>
             ) : null}
 
@@ -6220,32 +6236,33 @@ export function SalesOrderFormDrawer({
                         )}
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-foreground">Reason</label>
-                          <select
-                            value={returnReason}
-                            disabled={readOnly}
-                            onChange={(e) => setReturnReason(e.target.value as SalesReturnReason)}
-                            className="h-8 w-full rounded-none border border-input bg-background px-2.5 text-xs shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                          >
-                            <option value="customer_changed_mind">Customer changed mind</option>
-                            <option value="defective">Defective</option>
-                            <option value="wrong_item">Wrong item</option>
-                            <option value="warranty">Warranty</option>
-                            <option value="damaged_in_transit">Damaged in transit</option>
-                            <option value="other">Other</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-foreground">Notes</label>
-                          <input
-                            value={returnNotes}
-                            disabled={readOnly}
-                            onChange={(e) => setReturnNotes(e.target.value)}
-                            placeholder="Optional"
-                            className="h-8 w-full rounded-none border border-input bg-background px-2.5 text-xs shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                          />
+                      <div className="again-odoo-form @container">
+                        <AgainFormGroupTitle>Return details</AgainFormGroupTitle>
+                        <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                          <AgainFormField label="Reason">
+                            <select
+                              value={returnReason}
+                              disabled={readOnly}
+                              onChange={(e) => setReturnReason(e.target.value as SalesReturnReason)}
+                              className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                            >
+                              <option value="customer_changed_mind">Customer changed mind</option>
+                              <option value="defective">Defective</option>
+                              <option value="wrong_item">Wrong item</option>
+                              <option value="warranty">Warranty</option>
+                              <option value="damaged_in_transit">Damaged in transit</option>
+                              <option value="other">Other</option>
+                            </select>
+                          </AgainFormField>
+                          <AgainFormField label="Notes">
+                            <input
+                              value={returnNotes}
+                              disabled={readOnly}
+                              onChange={(e) => setReturnNotes(e.target.value)}
+                              placeholder="Optional"
+                              className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                            />
+                          </AgainFormField>
                         </div>
                       </div>
 

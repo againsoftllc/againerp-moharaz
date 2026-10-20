@@ -422,6 +422,35 @@ async function openSync() {
     if (handleAuthError(err)) return;
   }
   renderSyncPermission();
+  renderAllSites();
+}
+
+// "Allow all websites": the one click that makes every shop readable (Chrome asks on a click, never in the background).
+async function renderAllSites() {
+  let all = false;
+  try {
+    all = await chrome.permissions.contains({ origins: ["https://*/*", "http://*/*"] });
+  } catch (_) {
+    all = false;
+  }
+  show($("all-sites"), !all);
+}
+
+async function allowAllSites() {
+  let ok = false;
+  try {
+    ok = await chrome.permissions.request({ origins: ["https://*/*", "http://*/*"] });
+  } catch (err) {
+    $("sync-status").textContent = `Chrome refused the request: ${err.message}`;
+    return;
+  }
+  if (ok) sync.missing = [];
+  renderSyncPermission();
+  renderAllSites();
+  setTimeout(renderBridgeStatus, 500);
+  $("sync-status").textContent = ok
+    ? "Every website is allowed now — go back to AgainERP and try again."
+    : "Access wasn't allowed — the extension still can't read protected shops.";
 }
 
 function renderSyncPermission() {
@@ -547,6 +576,7 @@ $("sync-hours").addEventListener("change", saveSyncSettings);
 $("sync-mode").addEventListener("change", saveSyncSettings);
 $("sync-tabs").addEventListener("change", saveSyncSettings);
 $("sync-allow").addEventListener("click", allowSites);
+$("allow-all").addEventListener("click", allowAllSites);
 $("sync-now").addEventListener("click", syncNow);
 
 loadSettings().then(() => (state.token && state.apiBase ? startCapture() : openLogin()));

@@ -126,6 +126,10 @@ def create_brand(
         raise HTTPException(status_code=409, detail="Brand slug already exists")
 
     data = payload.model_dump()
+    # status and the live flag always agree: only a published brand is live
+    status = data.get("status") or ("published" if data.get("is_active", True) else "unlisted")
+    data["status"] = status
+    data["is_active"] = status == "published"
     channel = data.get("channel") or "catalog"
     data["channel"] = channel
     row = CatalogBrand(**data)
@@ -165,6 +169,14 @@ def update_brand(
         )
         if conflict:
             raise HTTPException(status_code=409, detail="Brand slug already exists")
+
+    if changes.get("status"):
+        changes["is_active"] = changes["status"] == "published"
+    elif "is_active" in changes and changes["is_active"] is not None:
+        # an older caller switches a brand on / off: on = published; off = unlisted (unless it is already draft / archived)
+        changes["status"] = "published" if changes["is_active"] else (row.status if row.status != "published" else "unlisted")
+    if changes.get("status") is None:
+        changes.pop("status", None)
 
     for key, value in changes.items():
         setattr(row, key, value)

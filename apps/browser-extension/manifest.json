@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Send to AgainERP",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Read a competitor's product price in your own browser and save it to AgainERP Price Compare.",
   "action": {
     "default_title": "Send to AgainERP",

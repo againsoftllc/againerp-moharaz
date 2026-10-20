@@ -12,23 +12,17 @@ import {
   type ReactNode,
 } from "react";
 import type {
+  CellClickedEvent,
   ColDef,
+  ColumnState,
   GridApi,
   ICellRendererParams,
   RowDragEndEvent,
 } from "ag-grid-community";
 import * as Dialog from "@radix-ui/react-dialog";
-import {
-  Archive,
-  Eye,
-  GripVertical,
-  MoreHorizontal,
-  Pencil,
-  Trash2,
-  X,
-} from "lucide-react";
+import { ClipboardList, Eye, Pencil, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-import type { Brand } from "@/lib/mock-data/brands";
+import { brandStatusOf, type Brand, type BrandStatus } from "@/lib/mock-data/brands";
 import {
   bulkPatchCatalogBrands,
   createCatalogBrand,
@@ -39,11 +33,13 @@ import {
 } from "@/lib/api/use-catalog-brands";
 import { resolveMediaUrl } from "@/lib/media/resolve-media";
 import { useMediaStore } from "@/lib/store/media-store";
-import { cn } from "@/lib/utils";
+import { useActivityStore } from "@/lib/store/activity-store";
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
+import { useUserScopedState } from "@/lib/hooks/use-user-scoped-state";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/native-select";
+import { FilterSelect } from "@/components/shared/filter-select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,83 +50,94 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { SlugCellEditor } from "@/components/data-grid/slug-cell-editor";
 import { slugCellClassRules } from "@/components/data-grid/slug-cell-rules";
 import { slugHasError, validateSlug } from "@/lib/url-slug/validate-slug";
-import { ActivityTriggerButton } from "@/components/activity/activity-trigger-button";
 import { BrandFormDialog } from "@/components/brands/brand-form-dialog";
 import { BrandMobileCards } from "@/components/brands/brand-mobile-cards";
 import { AgainListGrid } from "@/components/shared/again-list-grid";
+import { RowActionsTrigger } from "@/components/shared/row-actions-icon";
+import { GridFullscreenHeader } from "@/components/shared/grid-fullscreen";
 
-const COLUMN_KEYS = ["logo", "slug", "website", "products", "status", "updated"] as const;
+const COLUMN_KEYS = ["logo", "slug", "products", "status", "updated", "updatedBy"] as const;
 type ColumnKey = (typeof COLUMN_KEYS)[number];
 
 const COLUMN_LABELS: Record<ColumnKey, string> = {
   logo: "Logo",
   slug: "Slug",
-  website: "Website",
   products: "Products",
   status: "Status",
   updated: "Updated",
+  updatedBy: "Updated by",
 };
 
 const DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
   logo: true,
   slug: true,
-  website: true,
   products: true,
   status: true,
   updated: true,
+  updatedBy: true,
 };
 
-const LIVE_EDIT_TOGGLES = ["slug", "status"] as const;
+// every field of the list that can be changed in the table itself (double-click the cell, Enter saves)
+const BRAND_STATUSES: BrandStatus[] = ["draft", "published", "unlisted", "archived"];
+const BRAND_STATUS_LABEL: Record<BrandStatus, string> = {
+  draft: "Draft",
+  published: "Published",
+  unlisted: "Unlisted",
+  archived: "Archived",
+};
+
+function BrandStatusBadge({ status }: { status: BrandStatus }) {
+  const variant =
+    status === "published" ? "success" : status === "draft" ? "warning" : status === "unlisted" ? "outline" : "muted";
+  return (
+    <div className="flex h-full items-center overflow-hidden">
+      <Badge variant={variant} className="max-w-28 shrink-0 truncate leading-4">
+        {BRAND_STATUS_LABEL[status]}
+      </Badge>
+    </div>
+  );
+}
+
+const LIVE_EDIT_TOGGLES = ["name", "slug", "status"] as const;
 type LiveEditKey = (typeof LIVE_EDIT_TOGGLES)[number];
 
 const LIVE_EDIT_LABELS: Record<LiveEditKey, string> = {
+  name: "Name",
   slug: "Slug",
   status: "Status",
 };
 
-const LIVE_EDIT_HINTS: Record<LiveEditKey, string> = {
-  slug: "Double-click cell to edit in grid",
-  status: "Click On / Off in grid · Off = inactive",
-};
-
 const DEFAULT_LIVE_EDIT: Record<LiveEditKey, boolean> = {
+  name: false,
   slug: true,
   status: true,
 };
 
-const FORM_ONLY_FIELDS = [
-  "Description",
-  "Meta title / description / keywords",
-  "Logo & Banner",
-  "Website URL",
-] as const;
-
-const FILTER_KEYS = ["search", "status"] as const;
+const FILTER_KEYS = ["search", "status", "updatedBy"] as const;
 type FilterKey = (typeof FILTER_KEYS)[number];
 
 const FILTER_LABELS: Record<FilterKey, string> = {
   search: "Search",
   status: "Status",
-};
-
-const FILTER_HINTS: Record<FilterKey, string> = {
-  search: "Name, slug diye khujun",
-  status: "Active / Inactive filter",
+  updatedBy: "Updated by",
 };
 
 const DEFAULT_VISIBLE_FILTERS: Record<FilterKey, boolean> = {
   search: true,
-  status: false,
+  status: true,
+  updatedBy: true,
 };
 
 type FilterState = {
   search: string;
   status: string;
+  updatedBy: string;
 };
 
 const DEFAULT_FILTERS: FilterState = {
   search: "",
   status: "all",
+  updatedBy: "all",
 };
 
 function applyFilters(rows: Brand[], f: FilterState) {
@@ -139,8 +146,8 @@ function applyFilters(rows: Brand[], f: FilterState) {
     if (q && !b.name.toLowerCase().includes(q) && !b.slug.toLowerCase().includes(q)) {
       return false;
     }
-    if (f.status === "on" && !b.active) return false;
-    if (f.status === "off" && b.active) return false;
+    if (f.status !== "all" && brandStatusOf(b) !== f.status) return false;
+    if (f.updatedBy !== "all" && (b.updatedBy ?? "") !== f.updatedBy) return false;
     return true;
   });
 }
@@ -156,6 +163,11 @@ function reorderBrandIds(brands: Brand[], draggedId: string, overId: string): st
   next.splice(from, 1);
   next.splice(to, 0, draggedId);
   return next;
+}
+
+/** Saved column order / widths only (visibility stays with the Columns switches). */
+function withoutFlex(state: { colId: string; width?: number }[]): ColumnState[] {
+  return state.map((c) => ({ colId: c.colId, ...(typeof c.width === "number" ? { width: c.width } : {}) }));
 }
 
 type Props = {
@@ -182,6 +194,7 @@ export type BrandGridHandle = {
 function countAdvancedFilters(f: FilterState): number {
   let n = 0;
   if (f.status !== "all") n += 1;
+  if (f.updatedBy !== "all") n += 1;
   if (f.search.trim()) n += 1;
   return n;
 }
@@ -212,13 +225,25 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
   const [editBrand, setEditBrand] = useState<Brand | null>(null);
   const [selected, setSelected] = useState<Brand[]>([]);
   const [columnSheetOpen, setColumnSheetOpen] = useState(false);
-  const [visibleCols, setVisibleCols] = useState(DEFAULT_VISIBLE);
   const [liveEditSheetOpen, setLiveEditSheetOpen] = useState(false);
-  const [liveEdit, setLiveEdit] = useState(DEFAULT_LIVE_EDIT);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
-  const [visibleFilters, setVisibleFilters] = useState(DEFAULT_VISIBLE_FILTERS);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTargets, setDeleteTargets] = useState<Brand[]>([]);
+
+  // columns / live edit / toolbar filters / column layout are saved per admin (like the Products table)
+  const [visibleColsSaved, setVisibleCols] = useUserScopedState("brand-grid:columns", DEFAULT_VISIBLE);
+  const visibleCols = useMemo(() => ({ ...DEFAULT_VISIBLE, ...visibleColsSaved }), [visibleColsSaved]);
+  const [liveEditSaved, setLiveEdit] = useUserScopedState("brand-grid:live-edit", DEFAULT_LIVE_EDIT);
+  const liveEdit = useMemo(() => ({ ...DEFAULT_LIVE_EDIT, ...liveEditSaved }), [liveEditSaved]);
+  const [visibleFiltersSaved, setVisibleFilters] = useUserScopedState("brand-grid:filters", DEFAULT_VISIBLE_FILTERS);
+  const visibleFilters = useMemo(() => ({ ...DEFAULT_VISIBLE_FILTERS, ...visibleFiltersSaved }), [visibleFiltersSaved]);
+  const [savedColumnState, setSavedColumnState, savedColumnStateLoaded] = useUserScopedState<
+    { colId: string; width?: number }[]
+  >("brand-grid:columnState", [], { sync: true });
+  const savedNameWidth = useMemo(
+    () => savedColumnState.find((c) => c.colId === "name")?.width ?? null,
+    [savedColumnState],
+  );
 
   const ordered = useMemo(
     () => [...brands].sort((a, b) => a.sortOrder - b.sortOrder),
@@ -226,6 +251,18 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
   );
   const filtered = useMemo(() => applyFilters(ordered, filters), [ordered, filters]);
   const advancedCount = countAdvancedFilters(filters);
+  const updaters = useMemo(
+    () => [...new Set(brands.map((b) => b.updatedBy).filter((n): n is string => Boolean(n)))].sort((a, b) => a.localeCompare(b)),
+    [brands],
+  );
+
+  const persistColumnState = useCallback(() => {
+    const api = gridApiRef.current;
+    if (!api) return;
+    setSavedColumnState(
+      api.getColumnState().map((c: ColumnState) => ({ colId: c.colId, width: c.width ?? undefined })),
+    );
+  }, [setSavedColumnState]);
 
   useEffect(() => {
     onAdvancedFilterCountChange?.(advancedCount);
@@ -240,17 +277,6 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
     }),
     [],
   );
-
-  const fitColumnsToGrid = useCallback((api: { sizeColumnsToFit: () => void }) => {
-    requestAnimationFrame(() => {
-      api.sizeColumnsToFit();
-      requestAnimationFrame(() => api.sizeColumnsToFit());
-    });
-  }, []);
-
-  useEffect(() => {
-    if (gridApiRef.current) fitColumnsToGrid(gridApiRef.current);
-  }, [visibleCols, fitColumnsToGrid]);
 
   const openCreate = useCallback(() => {
     setFormMode("create");
@@ -279,20 +305,8 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
   const turnOff = useCallback(
     async (brand: Brand) => {
       try {
-        await patchCatalogBrand(brand.id, { active: false });
-        toast.success(`Turned off ${brand.name}`);
-        onBrandsChanged?.();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Update failed");
-      }
-    },
-    [onBrandsChanged],
-  );
-
-  const toggleActive = useCallback(
-    async (brand: Brand) => {
-      try {
-        await patchCatalogBrand(brand.id, { active: !brand.active });
+        await patchCatalogBrand(brand.id, { status: "unlisted" });
+        toast.success(`${brand.name} is unlisted`);
         onBrandsChanged?.();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Update failed");
@@ -342,6 +356,11 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
         toast.error(validation.message ?? "Slug already in use");
         return;
       }
+      if (field === "name" && !String(e.data.name ?? "").trim()) {
+        toast.error("Name can't be empty");
+        onBrandsChanged?.();
+        return;
+      }
       try {
         await patchCatalogBrand(e.data.id, {
           [field]: e.data[field as keyof Brand],
@@ -356,33 +375,8 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
   );
 
   const StatusCell = useCallback(
-    ({ data }: ICellRendererParams<Brand>) => {
-      if (!data) return null;
-      const on = data.active;
-      if (!liveEdit.status) {
-        return (
-          <span className={cn("text-[10px]", on ? "text-emerald-600" : "text-muted-foreground")}>
-            {on ? "On" : "Off"}
-          </span>
-        );
-      }
-      return (
-        <button
-          type="button"
-          className={cn(
-            "rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
-            on ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground hover:bg-muted/80",
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleActive(data);
-          }}
-        >
-          {on ? "On" : "Off"}
-        </button>
-      );
-    },
-    [liveEdit.status, toggleActive],
+    ({ data }: ICellRendererParams<Brand>) => (data ? <BrandStatusBadge status={brandStatusOf(data)} /> : null),
+    [],
   );
 
   const handleSave = async (data: Partial<Brand>) => {
@@ -392,6 +386,7 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
           name: data.name ?? "New Brand",
           slug: data.slug ?? "new-brand",
           active: data.active ?? true,
+          status: data.status,
           description: data.description,
           websiteUrl: data.websiteUrl,
           metaTitle: data.metaTitle,
@@ -409,6 +404,7 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
           name: data.name,
           slug: data.slug,
           active: data.active,
+          status: data.status,
           description: data.description,
           websiteUrl: data.websiteUrl,
           metaTitle: data.metaTitle,
@@ -452,67 +448,84 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
     [brands, filtered, onBrandsChanged],
   );
 
-  const RowActions = useCallback(
-    ({ data }: ICellRendererParams<Brand>) => {
-      if (!data) return null;
-      return (
-        <div className="flex items-center gap-0">
-          <ActivityTriggerButton
-            entity={{ type: "brand", id: data.id, label: data.name, subtitle: `/${data.slug}` }}
-          />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {onView && (
-                <DropdownMenuItem onClick={() => onView(data)}>
-                  <Eye className="mr-2 h-3.5 w-3.5" /> View
-                </DropdownMenuItem>
-              )}
-              {canWrite && (
-                <>
-                  <DropdownMenuItem onClick={() => openEdit(data)}>
-                    <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => turnOff(data)} className="text-destructive">
-                    <Archive className="mr-2 h-3.5 w-3.5" /> Turn off
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      );
-    },
-    [openEdit, turnOff, onView, canWrite],
+  /** The ≡ at the left of every row — same place and look as in the Products table. */
+  const RowMenu = useCallback(
+    ({ data }: { data: Brand }) => (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <RowActionsTrigger />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {onView ? (
+            <DropdownMenuItem onClick={() => onView(data)}>
+              <Eye className="mr-1.5 h-3 w-3" /> View
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem
+            onClick={() =>
+              useActivityStore.getState().openDrawer({
+                type: "brand",
+                id: data.id,
+                label: data.name,
+                subtitle: `/${data.slug}`,
+              })
+            }
+          >
+            <ClipboardList className="mr-1.5 h-3 w-3" /> Activity
+          </DropdownMenuItem>
+          {canWrite ? (
+            <>
+              <DropdownMenuItem onClick={() => openEdit(data)}>
+                <Pencil className="mr-1.5 h-3 w-3" /> Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openDeleteConfirm([data])} className="text-destructive">
+                <Trash2 className="mr-1.5 h-3 w-3" /> Delete
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ),
+    [onView, openEdit, openDeleteConfirm, canWrite],
   );
 
   const columnDefs = useMemo<ColDef<Brand>[]>(
     () => [
       {
-        headerCheckboxSelection: canWrite,
-        checkboxSelection: canWrite,
-        width: 32,
-        maxWidth: 32,
+        colId: "actions",
+        headerName: "",
+        width: 26,
+        maxWidth: 26,
+        minWidth: 26,
         pinned: "left",
         resizable: false,
         suppressMovable: true,
         suppressHeaderMenuButton: true,
+        suppressSizeToFit: true,
+        sortable: false,
+        headerClass: "product-grid-actions-col",
+        cellClass: "product-grid-actions-col",
+        headerComponent: GridFullscreenHeader,
+        cellRenderer: (p: ICellRendererParams<Brand>) => (p.data ? <RowMenu data={p.data} /> : null),
       },
       {
-        rowDrag: true,
-        width: 36,
-        maxWidth: 36,
+        // tick box + the handle that drags a brand to a new place in the list
+        colId: "controls",
+        headerName: "",
+        headerCheckboxSelection: canWrite,
+        checkboxSelection: canWrite,
+        rowDrag: canWrite,
+        width: canWrite ? 54 : 24,
+        maxWidth: canWrite ? 54 : 24,
+        minWidth: canWrite ? 54 : 24,
         pinned: "left",
         resizable: false,
         suppressMovable: true,
         suppressHeaderMenuButton: true,
-        headerComponent: () => (
-          <GripVertical className="mx-auto h-3.5 w-3.5 text-muted-foreground" />
-        ),
+        suppressSizeToFit: true,
+        sortable: false,
+        headerClass: "product-grid-controls-col",
+        cellClass: "product-grid-controls-col",
       },
       {
         colId: "logo",
@@ -536,17 +549,24 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
       {
         field: "name",
         headerName: "Name",
-        width: 220,
-        minWidth: 140,
-        editable: false,
+        ...(savedNameWidth != null ? { width: savedNameWidth } : { flex: 2 }),
+        minWidth: 160,
+        editable: canWrite && liveEdit.name,
+        cellClass: canWrite && liveEdit.name ? "live-edit-cell" : undefined,
+        valueParser: (p) => String(p.newValue ?? "").trim() || p.oldValue,
         tooltipField: "name",
         cellRenderer: (p: ICellRendererParams<Brand>) => {
           if (!p.data) return null;
           return (
             <button
               type="button"
-              className="truncate text-left hover:underline focus-visible:outline-none"
-              onClick={(e) => { e.stopPropagation(); openEdit(p.data!); }}
+              className="block w-full truncate text-left font-semibold text-foreground hover:underline focus-visible:outline-none"
+              title={p.data.name}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onView) onView(p.data!);
+                else openEdit(p.data!);
+              }}
             >
               {p.data.name}
             </button>
@@ -559,25 +579,10 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
         width: 160,
         hide: !visibleCols.slug,
         editable: canWrite && liveEdit.slug,
+        cellClass: canWrite && liveEdit.slug ? "live-edit-cell" : undefined,
         tooltipField: "slug",
         cellEditor: liveEdit.slug ? SlugCellEditor : undefined,
         cellClassRules: slugCellClassRules,
-      },
-      {
-        colId: "website",
-        field: "websiteUrl",
-        headerName: "Website",
-        width: 180,
-        hide: !visibleCols.website,
-        valueFormatter: (p) => {
-          if (!p.value) return "—";
-          try {
-            return new URL(String(p.value)).hostname;
-          } catch {
-            return String(p.value);
-          }
-        },
-        tooltipField: "websiteUrl",
       },
       {
         field: "productCount",
@@ -587,10 +592,21 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
       },
       {
         colId: "status",
-        field: "active",
+        field: "status",
         headerName: "Status",
-        width: 88,
+        width: 110,
         hide: !visibleCols.status,
+        valueGetter: (p) => (p.data ? brandStatusOf(p.data) : "published"),
+        valueSetter: (p) => {
+          if (!p.data) return false;
+          p.data.status = p.newValue as BrandStatus;
+          p.data.active = p.newValue === "published";
+          return true;
+        },
+        editable: canWrite && liveEdit.status,
+        cellClass: canWrite && liveEdit.status ? "live-edit-cell" : undefined,
+        cellEditor: liveEdit.status ? "agSelectCellEditor" : undefined,
+        cellEditorParams: liveEdit.status ? { values: BRAND_STATUSES } : undefined,
         cellRenderer: StatusCell,
       },
       {
@@ -601,19 +617,15 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
         hide: !visibleCols.updated,
       },
       {
-        colId: "actions",
-        headerName: "Action",
-        width: 72,
-        maxWidth: 72,
-        pinned: "right",
-        resizable: false,
-        suppressMovable: true,
-        cellRenderer: RowActions,
-        sortable: false,
-        suppressHeaderMenuButton: true,
+        colId: "updatedBy",
+        field: "updatedBy",
+        headerName: "Updated By",
+        width: 120,
+        hide: !visibleCols.updatedBy,
+        valueGetter: (p) => p.data?.updatedBy || "—",
       },
     ],
-    [RowActions, visibleCols, liveEdit, StatusCell, mediaItems, onView, openEdit],
+    [RowMenu, visibleCols, liveEdit, StatusCell, mediaItems, onView, openEdit, canWrite, savedNameWidth],
   );
 
   const toggleVisibleFilter = (key: FilterKey, enabled: boolean) => {
@@ -623,9 +635,14 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
         ...f,
         ...(key === "search" ? { search: "" } : {}),
         ...(key === "status" ? { status: "all" } : {}),
+        ...(key === "updatedBy" ? { updatedBy: "all" } : {}),
       }));
     }
   };
+
+  const SHEET_CLASS = "w-[180px] min-w-[160px] max-w-[720px] gap-2 rounded-none p-3";
+  const CHECK_CLASS =
+    "h-3.5 w-3.5 shrink-0 cursor-pointer appearance-none rounded-none border border-input bg-background checked:border-primary checked:bg-primary";
 
   return (
     <AgainListGrid<Brand>
@@ -645,56 +662,64 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
             />
           )}
           {visibleFilters.status && (
-            <Select
+            <FilterSelect
               value={filters.status}
-              onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
-              className="w-[128px] shrink-0 rounded-none"
-            >
-              <option value="all">All status</option>
-              <option value="on">Active</option>
-              <option value="off">Inactive</option>
-            </Select>
+              onChange={(status) => setFilters((f) => ({ ...f, status }))}
+              width="w-[138px]"
+              className="shrink-0"
+              ariaLabel="Status filter"
+              options={[
+                { value: "all", label: "All statuses" },
+                ...BRAND_STATUSES.map((st) => ({ value: st, label: BRAND_STATUS_LABEL[st] })),
+              ]}
+            />
+          )}
+          {visibleFilters.updatedBy && updaters.length > 0 && (
+            <FilterSelect
+              value={filters.updatedBy}
+              onChange={(updatedBy) => setFilters((f) => ({ ...f, updatedBy }))}
+              width="w-[140px]"
+              className="shrink-0"
+              ariaLabel="Updated by"
+              options={[{ value: "all", label: "All users" }, ...updaters.map((u) => ({ value: u, label: u }))]}
+            />
           )}
         </>
       }
       banner={
         selected.length > 0 && canWrite ? (
-        <div className="flex flex-wrap items-center gap-2 border-b border-primary/30 bg-primary/5 px-3 py-2">
-          <span className="text-xs font-medium">{selected.length} selected</span>
-          <Button size="sm" onClick={() => bulkUpdate(selected, { active: true }, "Activated")}>
-            Turn on (Active)
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => bulkUpdate(selected, { active: false }, "Deactivated")}
-          >
-            Turn off (Inactive)
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => toast.success(`Export started for ${selected.length} brands (mock)`)}
-          >
-            Export selected
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => openDeleteConfirm(selected)}
-          >
-            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-            Delete
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto h-7 w-7 p-0"
-            onClick={() => setSelected([])}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
+          <div className="flex flex-wrap items-center gap-2 border-b border-primary/30 bg-primary/5 px-3 py-2">
+            <span className="text-xs font-medium">{selected.length} selected</span>
+            <Button size="sm" onClick={() => void bulkUpdate(selected, { status: "published" }, "Published")}>
+              Publish
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void bulkUpdate(selected, { status: "unlisted" }, "Unlisted")}
+            >
+              Unlist
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void bulkUpdate(selected, { status: "archived" }, "Archived")}
+            >
+              Archive
+            </Button>
+            <Button variant="destructive" size="sm" onClick={() => openDeleteConfirm(selected)}>
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-7 w-7 p-0"
+              onClick={() => setSelected([])}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         ) : null
       }
       footerLeftActions={footerLeftActions}
@@ -702,29 +727,50 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
       onResetFilters={() => setFilters(DEFAULT_FILTERS)}
       onOpenColumns={() => setColumnSheetOpen(true)}
       apiRef={gridApiRef}
-      autoFit={false}
       defaultColDef={{ minWidth: 72 }}
+      layoutKey={false}
+      layoutHasWidths={savedColumnState.some((c) => typeof c.width === "number")}
+      layoutWidths={savedColumnState}
+      layoutReady={savedColumnStateLoaded}
+      onGridReady={(e) => {
+        if (savedColumnState.length > 0) {
+          e.api.setGridOption("suppressColumnMoveAnimation", true);
+          e.api.applyColumnState({ state: withoutFlex(savedColumnState), applyOrder: true });
+          requestAnimationFrame(() => e.api.setGridOption("suppressColumnMoveAnimation", false));
+        }
+      }}
       gridProps={{
-        autoSizeStrategy: { type: "fitGridWidth" },
-        rowDragEntireRow: true,
         colResizeDefault: "shift",
         rowSelection: "multiple",
         suppressRowClickSelection: true,
+        rowClass: onView ? "cursor-pointer" : undefined,
         onRowDragEnd,
         onCellValueChanged,
         onSelectionChanged: (e) => setSelected(e.api.getSelectedRows()),
-        onGridSizeChanged: (e) => fitColumnsToGrid(e.api),
+        // a click on the row opens the brand (not on the ≡, tick box, name, badge or an editable cell)
+        onCellClicked: (e: CellClickedEvent<Brand>) => {
+          if (!e.data || !onView) return;
+          const colId = e.column.getColId();
+          if (colId === "controls" || colId === "actions" || colId === "name") return;
+          if (e.colDef.editable) return;
+          const target = e.event?.target;
+          if (target instanceof HTMLElement && target.closest("button, a, input, [role='menuitem']")) return;
+          onView(e.data);
+        },
+        onColumnMoved: (e) => {
+          // only the admin's own drags, not the saved order being applied on load
+          if (e.finished && (e.source === "uiColumnMoved" || e.source === "uiColumnDragged")) persistColumnState();
+        },
+        onColumnResized: (e) => {
+          if (e.finished && e.source === "uiColumnResized") persistColumnState();
+        },
         rowClassRules: {
-          "opacity-45": (p) => !!p.data && !p.data.active,
+          "opacity-45": (p) => !!p.data && brandStatusOf(p.data) !== "published",
         },
       }}
       mobile={
         <>
-          <BrandMobileCards
-            brands={filtered.slice(0, 50)}
-            onEdit={openEdit}
-            onTurnOff={turnOff}
-          />
+          <BrandMobileCards brands={filtered.slice(0, 50)} onEdit={openEdit} onTurnOff={turnOff} />
           {filtered.length > 50 && (
             <p className="text-center text-xs text-muted-foreground">
               Showing 50 of {filtered.length} — use desktop to reorder
@@ -742,19 +788,18 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
         onLiveChange={(data) => void patchCatalogBrand(data.id, data).then(() => onBrandsChanged?.())}
       />
 
+      {/* Columns */}
       <Sheet open={columnSheetOpen} onOpenChange={setColumnSheetOpen}>
-        <SheetContent side="right" className="w-[180px] max-w-[180px] gap-2 p-3">
-          <h2 className="pr-6 text-sm font-semibold">Columns</h2>
-          <div className="mt-3 space-y-1.5">
+        <SheetContent side="right" title="Columns" resizable closeButton="inside" className={SHEET_CLASS}>
+          <h2 className="border-b border-border pb-2 pr-8 text-sm font-semibold">Columns</h2>
+          <div className="mt-1 flex-1 space-y-1.5 overflow-y-auto">
             {COLUMN_KEYS.map((key) => (
-              <label key={key} className="flex items-center gap-2 text-xs">
+              <label key={key} className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
                 <input
                   type="checkbox"
                   checked={visibleCols[key]}
-                  onChange={(e) =>
-                    setVisibleCols((v) => ({ ...v, [key]: e.target.checked }))
-                  }
-                  className="rounded border-input"
+                  onChange={(e) => setVisibleCols((v) => ({ ...v, [key]: e.target.checked }))}
+                  className={CHECK_CLASS}
                 />
                 {COLUMN_LABELS[key]}
               </label>
@@ -763,42 +808,40 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
           <Button
             variant="outline"
             size="sm"
-            className="mt-3 h-7 text-xs"
-            onClick={() => setVisibleCols(DEFAULT_VISIBLE)}
+            className="mt-3 h-7 rounded-none text-xs"
+            onClick={() => {
+              setVisibleCols(DEFAULT_VISIBLE);
+              setSavedColumnState([]);
+              gridApiRef.current?.resetColumnState();
+            }}
           >
             Reset columns
           </Button>
         </SheetContent>
       </Sheet>
 
+      {/* Filters */}
       <Sheet open={filterSheetOpen} onOpenChange={setFilterSheetOpen}>
-        <SheetContent side="right" className="w-full max-w-sm">
-          <h2 className="pr-8 text-base font-semibold">Filters</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Choose which filters show in the toolbar above the list.
-          </p>
-          <div className="mt-4 space-y-3">
+        <SheetContent side="right" title="Filters" resizable closeButton="inside" className={SHEET_CLASS}>
+          <h2 className="border-b border-border pb-2 pr-8 text-sm font-semibold">Filters</h2>
+          <p className="mt-1 text-[11px] text-muted-foreground">Show in the toolbar</p>
+          <div className="mt-1 flex-1 space-y-1.5 overflow-y-auto">
             {FILTER_KEYS.map((key) => (
-              <label key={key} className="flex cursor-pointer gap-2 text-sm">
+              <label key={key} className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
                 <input
                   type="checkbox"
                   checked={visibleFilters[key]}
                   onChange={(e) => toggleVisibleFilter(key, e.target.checked)}
-                  className="mt-0.5 rounded border-input"
+                  className={CHECK_CLASS}
                 />
-                <span>
-                  <span className="font-medium">{FILTER_LABELS[key]}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {FILTER_HINTS[key]}
-                  </span>
-                </span>
+                {FILTER_LABELS[key]}
               </label>
             ))}
           </div>
           <Button
             variant="outline"
             size="sm"
-            className="mt-4"
+            className="mt-3 h-7 rounded-none text-xs"
             onClick={() => {
               setVisibleFilters(DEFAULT_VISIBLE_FILTERS);
               setFilters(DEFAULT_FILTERS);
@@ -809,49 +852,36 @@ export const BrandGrid = forwardRef<BrandGridHandle, Props>(function BrandGrid(
         </SheetContent>
       </Sheet>
 
+      {/* Live edit */}
       <Sheet open={liveEditSheetOpen} onOpenChange={setLiveEditSheetOpen}>
-        <SheetContent side="right" className="w-full max-w-sm">
-          <h2 className="pr-8 text-base font-semibold">Live edit</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Choose which fields you can edit directly in the list without opening the form.
+        <SheetContent side="right" title="Live edit" resizable closeButton="inside" className={SHEET_CLASS}>
+          <h2 className="border-b border-border pb-2 pr-8 text-sm font-semibold">Live edit</h2>
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            Tick a field to edit it in the table: double-click its cell, Enter saves, Esc cancels. Status is a list
+            (Draft, Published, Unlisted, Archived). Drag the handle at the left of a row to reorder.
           </p>
-          <div className="mt-4 space-y-3">
+          <div className="mt-1 flex-1 space-y-1.5 overflow-y-auto">
             {LIVE_EDIT_TOGGLES.map((key) => (
-              <label key={key} className="flex cursor-pointer gap-2 text-sm">
+              <label key={key} className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
                 <input
                   type="checkbox"
                   checked={liveEdit[key]}
-                  onChange={(e) =>
-                    setLiveEdit((v) => ({ ...v, [key]: e.target.checked }))
-                  }
-                  className="mt-0.5 rounded border-input"
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setLiveEdit((v) => ({ ...v, [key]: on }));
+                    // a field can only be edited where it is shown (the name always is)
+                    if (on && key !== "name") setVisibleCols((cols) => ({ ...cols, [key]: true }));
+                  }}
+                  className={CHECK_CLASS}
                 />
-                <span>
-                  <span className="font-medium">{LIVE_EDIT_LABELS[key]}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {LIVE_EDIT_HINTS[key]}
-                  </span>
-                </span>
+                {LIVE_EDIT_LABELS[key]}
               </label>
             ))}
-            <div className="rounded-md border border-input bg-muted/30 px-3 py-2">
-              <p className="text-xs font-medium">Order</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">Drag row handle to reorder</p>
-              <p className="mt-1 text-[10px] text-muted-foreground">Always enabled</p>
-            </div>
-          </div>
-          <div className="mt-5 border-t border-input pt-4">
-            <p className="text-xs font-medium text-muted-foreground">Edit form only</p>
-            <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-              {FORM_ONLY_FIELDS.map((f) => (
-                <li key={f}>· {f}</li>
-              ))}
-            </ul>
           </div>
           <Button
             variant="outline"
             size="sm"
-            className="mt-4"
+            className="mt-3 h-7 rounded-none text-xs"
             onClick={() => setLiveEdit(DEFAULT_LIVE_EDIT)}
           >
             Reset live edit

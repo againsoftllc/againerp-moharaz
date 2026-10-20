@@ -70,6 +70,13 @@ export const FINANCE_NAV_MENUS: FinanceNavMenu[] = [
         href: "/finance/payment-accounts",
         description: "Cash, bank, and wallet accounts — balances and transfers.",
       },
+      {
+        kind: "item",
+        id: "cheque-books",
+        label: "Cheque books",
+        href: "/finance/cheque-books",
+        description: "Register the cheque books you hold and see which leaves are unused, issued or cleared.",
+      },
     ],
   },
   {

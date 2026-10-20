@@ -63,6 +63,10 @@ from app.routers import (
     portal,
     supplier_portal_admin,
     rma,
+    rma_claims,
+    rma_deliveries,
+    rma_settlements,
+    rma_receipts,
     service_jobs,
     service_categories,
     seo,
@@ -70,6 +74,7 @@ from app.routers import (
     catalog_duplicates,
     catalog_sitemap_import,
     finance_cheques,
+    finance_cheque_books,
     finance_allocation,
     finance_periods,
     core_sequences,
@@ -819,11 +824,16 @@ app.include_router(purchase_returns.router, prefix="/api/v1", dependencies=requi
 app.include_router(sales_returns.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(supplier_portal_admin.router, prefix="/api/v1/commerce", dependencies=require_admin)
 app.include_router(rma.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(rma_claims.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(rma_receipts.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(rma_deliveries.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(rma_settlements.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(service_jobs.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(service_categories.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(seo.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_cheques.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(finance_cheque_books.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(catalog_duplicates.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(catalog_sitemap_import.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_allocation.router, prefix="/api/v1", dependencies=require_admin)

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ListFilter, Plus, Search, X } from "lucide-react";
+import { ChevronDown, ListFilter, Plus, Search, X } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { FilterSelect } from "@/components/shared/filter-select";
 import { CategoryTreeFilter, categoryNamesWithDescendants } from "@/components/categories/category-tree-filter";
@@ -36,13 +36,36 @@ function matchProducts<T extends ProductSearchItem>(items: T[], query: string, r
   if (!q) return requireQuery ? [] : items.slice(0, 12);
   // every typed word, in any order ("msi b650m" finds "MSI PRO B650M-B")
   const words = q.split(/\s+/).filter(Boolean);
-  return items.filter((item) => {
+  const hits = items.filter((item) => {
     const haystack = [item.sku, item.name, item.model, item.brand, item.category, item.barcode]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
     return words.every((w) => haystack.includes(w));
   });
+  return rankProducts(hits, words);
+}
+
+/**
+ * Real products first. A big catalog also holds imported / placeholder rows (no stock, no price) that match almost any
+ * short query; they must not push the products the shop actually sells out of the short result list.
+ * Stable: ties keep the order the list came in.
+ */
+function rankProducts<T extends ProductSearchItem>(items: T[], words: string[]): T[] {
+  const score = (item: ProductSearchItem) => {
+    let n = 0;
+    if ((item.stock ?? 0) > 0) n += 4;
+    if ((item.price ?? 0) > 0) n += 2;
+    const name = item.name.toLowerCase();
+    const sku = item.sku.toLowerCase();
+    if (words.length && (name.startsWith(words[0]) || sku.startsWith(words[0]))) n += 3;
+    else if (words.length && name.split(/[\s\-_/]+/).some((part) => part.startsWith(words[0]))) n += 1;
+    return n;
+  };
+  return items
+    .map((item, index) => ({ item, index, rank: score(item) }))
+    .sort((a, b) => b.rank - a.rank || a.index - b.index)
+    .map((row) => row.item);
 }
 
 function localExact<T extends ProductSearchItem>(items: T[], query: string): T | undefined {
@@ -134,6 +157,13 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
   }, [items, brand, category, categoryTree]);
 
   const hasFilter = Boolean(brand || category);
+  /** Opening the filter panel closes the results list and the other way round, so the two never overlap. */
+  const toggleFilter = () => {
+    setFilterOpen((next) => {
+      if (!next) setOpen(false);
+      return !next;
+    });
+  };
   const matches = matchProducts(filteredItems, query, !hasFilter).slice(0, 40);
 
   const pick = (item: T, scan?: ScanProductHit | null) => {
@@ -195,12 +225,12 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
   }, []);
 
   return (
-    <div ref={wrapRef} className="relative flex min-w-0 flex-1 items-stretch gap-0">
+    <div ref={wrapRef} className="@container relative flex min-w-0 flex-1 items-stretch gap-0">
       <div className="relative shrink-0">
         <button
           type="button"
           className={cn(
-            "inline-flex h-8 shrink-0 items-center gap-1 border border-r-0 border-input px-2 text-[11px] font-medium",
+            "inline-flex h-9 shrink-0 items-center gap-1.5 border border-r-0 border-input px-3 text-[13px] font-medium",
             hasFilter
               ? "bg-[#00a09d] text-white hover:bg-[#00c4bf]"
               : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -213,12 +243,13 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
           }
           aria-expanded={filterOpen}
           title={hasFilter ? "Filters applied — click to edit" : "Filter by brand or category"}
-          onClick={() => setFilterOpen((next) => !next)}
+          onClick={toggleFilter}
         >
-          <ListFilter className="h-3.5 w-3.5 shrink-0" />
-          <span className="max-w-[110px] truncate">
+          <ListFilter className="h-4 w-4 shrink-0" />
+          <span className="max-w-[140px] truncate">
             {hasFilter ? [brand, category].filter(Boolean).join(", ") : "Filter"}
           </span>
+          <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 opacity-70 transition-transform", filterOpen && "rotate-180")} />
         </button>
         {hasFilter ? (
           <button
@@ -240,13 +271,30 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
       </div>
       <div
         ref={searchBoxRef}
-        className="flex h-8 min-w-0 flex-1 items-center border border-input bg-background"
+        className="flex h-9 min-w-0 flex-1 items-center border border-input bg-background"
       >
-        <Search className="ml-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <Search className="ml-2.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        {brand ? (
+          <span className="ml-1.5 inline-flex h-5 max-w-[9rem] shrink-0 items-center gap-1 bg-[#00a09d]/10 px-1.5 text-[11px] text-[#00807e] dark:text-[#4fd1ce]" title={`Brand: ${brand}`}>
+            <span className="truncate">Brand: {brand}</span>
+            <button type="button" className="shrink-0 hover:text-destructive" aria-label="Clear brand filter" onMouseDown={(e) => e.preventDefault()} onClick={() => setBrand("")}>
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ) : null}
+        {category ? (
+          <span className="ml-1.5 inline-flex h-5 max-w-[10rem] shrink-0 items-center gap-1 bg-[#00a09d]/10 px-1.5 text-[11px] text-[#00807e] dark:text-[#4fd1ce]" title={`Category: ${category}`}>
+            <span className="truncate">Category: {category}</span>
+            <button type="button" className="shrink-0 hover:text-destructive" aria-label="Clear category filter" onMouseDown={(e) => e.preventDefault()} onClick={() => setCategory("")}>
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ) : null}
         <input
           ref={inputRef}
           value={query}
           onChange={(event) => {
+            setFilterOpen(false);
             const next = event.target.value;
             // an exact SKU / name / barcode (typed or scanned) is picked at once
             const exact = next.trim().length >= 2 ? localExact(filteredItems, next) : undefined;
@@ -276,14 +324,14 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
           placeholder={
             hasFilter ? "Search in filtered products…" : "Name, SKU, barcode, or serial"
           }
-          className="h-8 min-w-0 flex-1 bg-transparent px-2 text-[13px] outline-none placeholder:text-muted-foreground"
+          className="h-9 min-w-0 flex-1 bg-transparent px-2 text-[14px] outline-none placeholder:text-muted-foreground"
           aria-label="Search product, barcode, or serial"
           autoComplete="off"
         />
         {onAddNew ? (
           <button
             type="button"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground"
             aria-label="Add a new product"
             title="Add a new product"
             onMouseDown={(event) => event.preventDefault()}
@@ -292,63 +340,68 @@ export function ProductSearchAdd<T extends ProductSearchItem>({
               onAddNew();
             }}
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-4 w-4" />
           </button>
         ) : null}
       </div>
       {filterOpen ? (
-        <div className="absolute left-0 top-full z-[300] mt-0.5 w-[240px] space-y-2 border border-border bg-popover p-2 text-popover-foreground shadow-md">
-          <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground">Brand</p>
-            <FilterSelect
-              value={brand}
-              onChange={setBrand}
-              width="w-full"
-              ariaLabel="Brand"
-              placeholder="All brands"
-              options={[
-                { value: "", label: "All brands" },
-                ...brands.map((value) => ({ value, label: value })),
-              ]}
-            />
+        <div className="absolute inset-x-0 top-full z-[300] mt-0.5 border border-border bg-popover text-popover-foreground shadow-lg">
+          <div className="flex items-center justify-between border-b border-border/80 px-3 py-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Filter products</p>
+            {hasFilter ? (
+              <button
+                type="button"
+                className="text-[12px] text-[#00a09d] hover:underline"
+                onClick={() => {
+                  setBrand("");
+                  setCategory("");
+                }}
+              >
+                Clear filters
+              </button>
+            ) : null}
           </div>
-          <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground">Category</p>
-            {categoryTree.length > 0 ? (
-              <CategoryTreeFilter
-                categories={categoryTree}
-                value={category}
-                onChange={setCategory}
-                allValue=""
-                width="w-full"
-                avoidCollisions
-              />
-            ) : (
+          <div className="grid gap-x-4 gap-y-2 p-3 @sm:grid-cols-2">
+            <div className="min-w-0 space-y-1">
+              <p className="text-[11px] text-muted-foreground">Brand</p>
               <FilterSelect
-                value={category}
-                onChange={setCategory}
+                value={brand}
+                onChange={setBrand}
                 width="w-full"
-                ariaLabel="Category"
-                placeholder="All categories"
+                ariaLabel="Brand"
+                placeholder="All brands"
                 options={[
-                  { value: "", label: "All categories" },
-                  ...categories.map((value) => ({ value, label: value })),
+                  { value: "", label: "All brands" },
+                  ...brands.map((value) => ({ value, label: value })),
                 ]}
               />
-            )}
+            </div>
+            <div className="min-w-0 space-y-1">
+              <p className="text-[11px] text-muted-foreground">Category</p>
+              {categoryTree.length > 0 ? (
+                <CategoryTreeFilter
+                  categories={categoryTree}
+                  value={category}
+                  onChange={setCategory}
+                  allValue=""
+                  width="w-full"
+                  avoidCollisions
+                />
+              ) : (
+                <FilterSelect
+                  value={category}
+                  onChange={setCategory}
+                  width="w-full"
+                  ariaLabel="Category"
+                  placeholder="All categories"
+                  options={[
+                    { value: "", label: "All categories" },
+                    ...categories.map((value) => ({ value, label: value })),
+                  ]}
+                />
+              )}
+            </div>
           </div>
-          {hasFilter ? (
-            <button
-              type="button"
-              className="text-[12px] text-[#00a09d] hover:underline"
-              onClick={() => {
-                setBrand("");
-                setCategory("");
-              }}
-            >
-              Clear filters
-            </button>
-          ) : null}
         </div>
       ) : null}
       <SearchDropdown

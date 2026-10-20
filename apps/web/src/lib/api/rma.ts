@@ -3,6 +3,7 @@ import { apiFetch } from "@/lib/api/client";
 export type RmaStatus =
   | "draft"
   | "pending_approval"
+  | "correction_requested"
   | "approved"
   | "awaiting_return"
   | "received"
@@ -37,6 +38,7 @@ export type RmaResolutionType =
 export const RMA_STATUS_LABEL: Record<RmaStatus, string> = {
   draft: "Draft",
   pending_approval: "Pending approval",
+  correction_requested: "Needs correction",
   approved: "Approved",
   awaiting_return: "Awaiting return",
   received: "Received",
@@ -57,10 +59,12 @@ export const RMA_STATUS_LABEL: Record<RmaStatus, string> = {
 /** Mirrors RMA_STATUS_TRANSITIONS on the server so the UI only offers legal moves. */
 export const RMA_NEXT_STATUSES: Record<RmaStatus, RmaStatus[]> = {
   draft: ["pending_approval", "received", "rejected", "cancelled"],
-  pending_approval: ["approved", "rejected", "cancelled"],
+  // Approve / reject / send back is its own action (rma_approve + a reason), not a plain status change.
+  pending_approval: ["cancelled"],
+  correction_requested: ["pending_approval", "rejected", "cancelled"],
   approved: ["awaiting_return", "received", "cancelled"],
   awaiting_return: ["received", "cancelled"],
-  received: ["diagnosing", "in_repair", "rejected", "on_hold", "cancelled"],
+  received: ["diagnosing", "in_repair", "rejected", "on_hold", "cancelled"],  // sent_to_supplier: only through a supplier claim
   diagnosing: [
     "awaiting_approval",
     "in_repair",
@@ -86,6 +90,7 @@ export const RMA_NEXT_STATUSES: Record<RmaStatus, RmaStatus[]> = {
 export const RMA_STATUS_TONE: Record<string, string> = {
   draft: "border-muted-foreground/30 bg-muted text-muted-foreground",
   pending_approval: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  correction_requested: "border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400",
   approved: "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
   awaiting_return: "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
   received: "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
@@ -127,6 +132,16 @@ export const WARRANTY_LABEL: Record<WarrantyStatus, string> = {
   in_warranty: "In warranty",
   out_of_warranty: "Out of warranty",
   unknown: "Unverified",
+};
+
+/** Plain-language stock state of the unit (docs/RMA.md section 3). */
+export type RmaCustodyState = "in_rma_store" | "with_supplier" | "replacement_received" | "delivered";
+
+export const CUSTODY_LABEL: Record<RmaCustodyState, string> = {
+  in_rma_store: "In RMA Store",
+  with_supplier: "With Supplier",
+  replacement_received: "Replacement Received",
+  delivered: "Delivered to Customer",
 };
 
 export type RmaCharge = {
@@ -216,6 +231,34 @@ export type RmaTicket = {
   refund_id?: string | null;
   refund_amount?: string;
   replacement_sku?: string | null;
+  // Complaint intake & approval
+  custody_state?: RmaCustodyState | null;
+  unit_received?: boolean;
+  complaint_decision?: "approved" | "rejected" | "correction_requested" | null;
+  complaint_decided_by_name?: string | null;
+  complaint_decided_at?: string | null;
+  complaint_decision_reason?: string | null;
+  assigned_to_user_id?: string | null;
+  promised_delivery_date?: string | null;
+  charge_estimate?: string;
+  diagnosis_required?: boolean;
+  diagnosis_report?: string | null;
+  supplier_id?: string | null;
+  supplier_name?: string | null;
+  purchase_receipt_no?: string | null;
+  purchase_bill_no?: string | null;
+  vendor_invoice_no?: string | null;
+  supplier_source?: "traced" | "manual" | "none";
+  supplier_override_reason?: string | null;
+  prior_rma_count?: number;
+  days_open?: number;
+  overdue_days?: number;
+  is_repeat?: boolean;
+  /** The serial actually held now, when the supplier sent back a different unit (serial_number is never overwritten). */
+  received_serial_number?: string | null;
+  receipt_no?: string | null;
+  receipt_print_count?: number;
+  receipt_last_printed_at?: string | null;
   charges: RmaCharge[];
   supplier_job: RmaSupplierJob | null;
 };
@@ -253,6 +296,10 @@ export type RmaDashboard = {
   unbilled_total: string;
   pending_approval_count?: number;
   awaiting_return_count?: number;
+  overdue_count?: number;
+  supplier_pending_count?: number;
+  supplier_late_count?: number;
+  repeat_count?: number;
   status_breakdown: Record<string, number>;
 };
 
@@ -264,7 +311,10 @@ export type RmaFilters = {
   supplierId?: string;
   rmaType?: string;
   search?: string;
+  queue?: RmaQueueId;
 };
+
+export type RmaQueueId = "overdue" | "supplier_pending" | "repeat";
 
 export async function fetchRmaTickets(filters: RmaFilters = {}) {
   const qs = new URLSearchParams({ limit: "500" });
@@ -273,6 +323,7 @@ export async function fetchRmaTickets(filters: RmaFilters = {}) {
   if (filters.supplierId) qs.set("supplier_id", filters.supplierId);
   if (filters.rmaType) qs.set("rma_type", filters.rmaType);
   if (filters.search) qs.set("search", filters.search);
+  if (filters.queue) qs.set("queue", filters.queue);
   return apiFetch<{ data: RmaTicket[]; meta: ListMeta }>(`/api/v1/rma/tickets?${qs}`);
 }
 
@@ -353,6 +404,16 @@ export type CreateRmaInput = {
   internal_notes?: string;
   order_item_id?: string;
   claim_group_id?: string;
+  assigned_to_user_id?: string;
+  promised_delivery_date?: string;
+  charge_estimate?: number | string;
+  diagnosis_required?: boolean;
+  diagnosis_report?: string;
+  /** Only honoured with the RMA override permission, and only when the purchase trace found nothing. */
+  supplier_id?: string;
+  supplier_override_reason?: string;
+  /** false = a remote request: the unit is stocked when it is marked received. */
+  unit_received?: boolean;
 };
 
 export async function createRmaTicket(input: CreateRmaInput) {
@@ -540,3 +601,196 @@ export function restockRmaTicket(id: string, warehouseId: string) {
 export function scrapRmaTicket(id: string) {
   return ticketAction(id, "scrap");
 }
+
+// ---------------------------------------------------------------- Complaint intake & approval (docs/RMA.md Stage A-B)
+
+export type RmaStore = { id: string; code: string; name: string };
+
+export async function fetchRmaStores() {
+  const res = await apiFetch<{ data: RmaStore[] }>("/api/v1/rma/stores");
+  return res.data;
+}
+
+export type RmaTrace = {
+  source: "traced" | "none";
+  supplier_id: string | null;
+  supplier_name: string | null;
+  purchase_receipt_no: string | null;
+  purchase_bill_no: string | null;
+  vendor_invoice_no: string | null;
+};
+
+/** Supplier, purchase receipt and vendor invoice behind a serial. */
+export async function traceRmaSerial(serial: string) {
+  const res = await apiFetch<{ data: RmaTrace }>(`/api/v1/rma/trace?${new URLSearchParams({ serial })}`);
+  return res.data;
+}
+
+export type RmaPrior = {
+  id: string;
+  rma_number: string;
+  status: RmaStatus;
+  received_at: string;
+  fault_reported: string;
+  serial_number: string | null;
+  product_name: string;
+  resolution_type: string | null;
+};
+
+export async function fetchPriorRmas(params: { serial?: string; itemId?: string; customerId?: string; excludeId?: string }) {
+  const qs = new URLSearchParams();
+  if (params.serial) qs.set("serial", params.serial);
+  if (params.itemId) qs.set("item_id", params.itemId);
+  if (params.customerId) qs.set("customer_id", params.customerId);
+  if (params.excludeId) qs.set("exclude_id", params.excludeId);
+  const res = await apiFetch<{ data: RmaPrior[] }>(`/api/v1/rma/prior?${qs}`);
+  return res.data;
+}
+
+export async function submitRmaForApproval(id: string) {
+  const res = await apiFetch<{ data: RmaTicket }>(`/api/v1/rma/tickets/${id}/submit`, { method: "POST" });
+  return res.data;
+}
+
+export type RmaDecision = "approved" | "rejected" | "correction_requested";
+
+export async function decideRmaComplaint(id: string, decision: RmaDecision, reason?: string) {
+  const res = await apiFetch<{ data: RmaTicket }>(`/api/v1/rma/tickets/${id}/decision`, {
+    method: "POST",
+    body: JSON.stringify({ decision, reason: reason || undefined }),
+  });
+  return res.data;
+}
+
+export type RmaStockEvent = {
+  id: string;
+  event_key: string;
+  state: string | null;
+  movement_type: string | null;
+  warehouse: string | null;
+  to_warehouse?: string | null;
+  quantity: number;
+  reversed: boolean;
+  reference: string | null;
+  note: string | null;
+  created_at: string;
+};
+
+export async function fetchRmaStockEvents(id: string) {
+  const res = await apiFetch<{ data: RmaStockEvent[] }>(`/api/v1/rma/tickets/${id}/stock-events`);
+  return res.data;
+}
+
+/** The customer-facing complaint receipt (no internal notes, no costs). A reprint needs the reprint permission. */
+export type RmaReceipt = {
+  receipt_no: string;
+  reprint: boolean;
+  print_count: number;
+  printed_at: string;
+  printed_by: string;
+  rma_number: string;
+  complaint_date: string | null;
+  customer_name: string;
+  customer_phone: string;
+  customer_email: string;
+  product_name: string;
+  sku: string;
+  serial_number: string | null;
+  under_warranty: boolean;
+  warranty_status: WarrantyStatus;
+  warranty_label: string;
+  sales_invoice_no: string | null;
+  sales_date: string | null;
+  problem: string;
+  narration: string | null;
+  accessories: string | null;
+  condition_on_arrival: string | null;
+  prior_job_ref: string | null;
+  times_before: number;
+  engineer: string | null;
+  delivery_date: string | null;
+  charge_estimate: string;
+  approved_by: string | null;
+};
+
+export async function requestRmaReceipt(id: string) {
+  const res = await apiFetch<{ data: RmaReceipt }>(`/api/v1/rma/tickets/${id}/receipt-print`, { method: "POST" });
+  return res.data;
+}
+
+// ---------------------------------------------------------------- Work queues & job card (docs/RMA.md Phase 5)
+
+export type RmaOverdueRow = {
+  rma_id: string;
+  rma_number: string;
+  customer_name: string;
+  product_name: string;
+  status: RmaStatus;
+  custody_state: string | null;
+  promised_delivery_date: string | null;
+  days_overdue: number;
+};
+
+export type SupplierPendingState = "claim_waiting_approval" | "ready_to_dispatch" | "with_supplier" | "receipt_waiting_approval";
+
+export const SUPPLIER_PENDING_LABEL: Record<SupplierPendingState, string> = {
+  claim_waiting_approval: "Claim waiting approval",
+  ready_to_dispatch: "Ready to dispatch",
+  with_supplier: "With supplier",
+  receipt_waiting_approval: "Receipt waiting approval",
+};
+
+export type RmaSupplierPendingRow = {
+  rma_id: string;
+  rma_number: string;
+  customer_name: string;
+  product_name: string;
+  serial_number: string | null;
+  claim_id: string | null;
+  claim_number: string | null;
+  supplier_name: string;
+  state: SupplierPendingState;
+  since: string | null;
+  days_waiting: number;
+  expected_return_date: string | null;
+  is_late: boolean;
+};
+
+export type RmaRepeatRow = {
+  rma_id: string;
+  rma_number: string;
+  customer_name: string;
+  product_name: string;
+  serial_number: string | null;
+  status: RmaStatus;
+  prior_rma_count: number;
+};
+
+export type RmaQueues = {
+  overdue: RmaOverdueRow[];
+  supplier_pending: RmaSupplierPendingRow[];
+  repeat: RmaRepeatRow[];
+  counts: { overdue: number; supplier_pending: number; supplier_late: number; repeat: number };
+};
+
+export async function fetchRmaQueues() {
+  const res = await apiFetch<{ data: RmaQueues }>("/api/v1/rma/queues");
+  return res.data;
+}
+
+export type RmaServiceJob = {
+  id: string;
+  job_number: string;
+  status: string;
+  service_type: string;
+  technician_name: string;
+  expected_at: string | null;
+  labour_total: string | null;
+  parts_total: string | null;
+};
+
+export async function fetchRmaServiceJob(ticketId: string) {
+  const res = await apiFetch<{ data: RmaServiceJob | null }>(`/api/v1/rma/tickets/${ticketId}/service-job`);
+  return res.data;
+}
+

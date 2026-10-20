@@ -26,6 +26,7 @@ from app.models.finance import (
     FinancePaymentAccount,
     FinanceReceivable,
 )
+from app.models.finance_cheque_book import FinanceChequeBook, FinanceChequeLeaf
 from app.models.finance_period import FinancePeriod
 from app.services.finance.cheque_service import (
     ChequeService,
@@ -50,6 +51,8 @@ TABLES = [
     FinancePayable.__table__,
     FinanceCheque.__table__,
     FinanceChequeEvent.__table__,
+    FinanceChequeBook.__table__,
+    FinanceChequeLeaf.__table__,
     CoreSequence.__table__,
     FinancePeriod.__table__,
 ]

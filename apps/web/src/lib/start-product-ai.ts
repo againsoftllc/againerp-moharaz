@@ -28,6 +28,11 @@ export async function startProductAiFill(product: Product, onDone: () => void): 
           { id: toastId },
         );
       }
+    } else if (/needs your OK/i.test(read.error)) {
+      // Chrome has to be told once that the extension may read this shop: the extension opened its Allow tab. Wait for
+      // that instead of starting an AI run that is bound to fail on a protected shop.
+      toast.warning(read.error, { id: toastId, duration: 20000 });
+      return;
     } else {
       toast.warning(`Your browser couldn't read the source page (${read.error}) — the server will try itself`, { id: toastId });
     }

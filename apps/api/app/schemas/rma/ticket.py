@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 STATUS_PATTERN = (
-    "^(draft|pending_approval|approved|awaiting_return|received|diagnosing|awaiting_approval|"
+    "^(draft|pending_approval|correction_requested|approved|awaiting_return|received|diagnosing|awaiting_approval|"
     "in_repair|sent_to_supplier|at_supplier|returned_from_supplier|ready_for_delivery|"
     "delivered|closed|rejected|cancelled|on_hold)$"
 )
@@ -125,6 +125,35 @@ class RmaTicketRead(BaseModel):
     refund_amount: Decimal = Decimal("0")
     replacement_sku: Optional[str] = None
 
+    # Complaint intake & approval
+    custody_state: Optional[str] = None
+    unit_received: bool = True
+    complaint_decision: Optional[str] = None
+    complaint_decided_by_name: Optional[str] = None
+    complaint_decided_at: Optional[datetime] = None
+    complaint_decision_reason: Optional[str] = None
+    assigned_to_user_id: Optional[str] = None
+    promised_delivery_date: Optional[date] = None
+    charge_estimate: Decimal = Decimal("0")
+    diagnosis_required: bool = False
+    diagnosis_report: Optional[str] = None
+    supplier_id: Optional[str] = None
+    supplier_name: Optional[str] = None
+    purchase_receipt_no: Optional[str] = None
+    purchase_bill_no: Optional[str] = None
+    vendor_invoice_no: Optional[str] = None
+    supplier_source: str = "none"
+    supplier_override_reason: Optional[str] = None
+    prior_rma_count: int = 0
+    # derived work-queue read-outs
+    days_open: int = 0
+    overdue_days: int = 0
+    is_repeat: bool = False
+    received_serial_number: Optional[str] = None
+    receipt_no: Optional[str] = None
+    receipt_print_count: int = 0
+    receipt_last_printed_at: Optional[datetime] = None
+
     charges: List[RmaChargeRead] = []
     supplier_job: Optional[RmaSupplierJobRead] = None
 
@@ -175,6 +204,16 @@ class RmaCreate(BaseModel):
     tracking_number: Optional[str] = Field(default=None, max_length=100)
     internal_notes: Optional[str] = None
     claim_group_id: Optional[str] = Field(default=None, max_length=36)
+    # Complaint intake (docs/RMA.md Stage A)
+    assigned_to_user_id: Optional[str] = Field(default=None, max_length=36)
+    promised_delivery_date: Optional[date] = None
+    charge_estimate: Decimal = Field(default=Decimal("0"), ge=0)
+    diagnosis_required: bool = False
+    diagnosis_report: Optional[str] = None
+    # Only honoured with the RMA override permission, and only when the purchase trace found nothing.
+    supplier_id: Optional[str] = Field(default=None, max_length=36)
+    supplier_override_reason: Optional[str] = None
+    unit_received: bool = True
 
 
 class RmaUpdate(BaseModel):
@@ -195,6 +234,112 @@ class RmaUpdate(BaseModel):
     tracking_number: Optional[str] = Field(default=None, max_length=100)
     received_by: Optional[str] = Field(default=None, max_length=100)
     internal_notes: Optional[str] = None
+    assigned_to_user_id: Optional[str] = Field(default=None, max_length=36)
+    promised_delivery_date: Optional[date] = None
+    charge_estimate: Optional[Decimal] = Field(default=None, ge=0)
+    diagnosis_required: Optional[bool] = None
+    diagnosis_report: Optional[str] = None
+    supplier_id: Optional[str] = Field(default=None, max_length=36)
+    # Required together with any change to a protected field (serial, customer of a sale, supplier).
+    override_reason: Optional[str] = None
+
+
+class RmaDecisionRequest(BaseModel):
+    decision: str = Field(pattern="^(approved|rejected|correction_requested)$")
+    reason: Optional[str] = None
+
+
+class RmaStoreRead(BaseModel):
+    id: str
+    code: str
+    name: str
+
+
+class RmaStoreListResponse(BaseModel):
+    data: List[RmaStoreRead]
+
+
+class RmaTraceRead(BaseModel):
+    source: str
+    supplier_id: Optional[str] = None
+    supplier_name: Optional[str] = None
+    purchase_receipt_no: Optional[str] = None
+    purchase_bill_no: Optional[str] = None
+    vendor_invoice_no: Optional[str] = None
+
+
+class RmaTraceResponse(BaseModel):
+    data: RmaTraceRead
+
+
+class RmaPriorRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    rma_number: str
+    status: str
+    received_at: datetime
+    fault_reported: str
+    serial_number: Optional[str] = None
+    product_name: str = ""
+    resolution_type: Optional[str] = None
+
+
+class RmaPriorResponse(BaseModel):
+    data: List[RmaPriorRead]
+
+
+class RmaStockEventRead(BaseModel):
+    id: str
+    event_key: str
+    state: Optional[str] = None
+    movement_type: Optional[str] = None
+    warehouse: Optional[str] = None
+    to_warehouse: Optional[str] = None
+    quantity: int = 0
+    reversed: bool = False
+    reference: Optional[str] = None
+    note: Optional[str] = None
+    created_at: datetime
+
+
+class RmaStockEventResponse(BaseModel):
+    data: List[RmaStockEventRead]
+
+
+class RmaReceiptRead(BaseModel):
+    receipt_no: str
+    reprint: bool
+    print_count: int
+    printed_at: str
+    printed_by: str
+    rma_number: str
+    complaint_date: Optional[str] = None
+    customer_name: str = ""
+    customer_phone: str = ""
+    customer_email: str = ""
+    product_name: str = ""
+    sku: str = ""
+    serial_number: Optional[str] = None
+    under_warranty: bool = False
+    warranty_status: str = "unknown"
+    warranty_label: str = ""
+    sales_invoice_no: Optional[str] = None
+    sales_date: Optional[str] = None
+    problem: str = ""
+    narration: Optional[str] = None
+    accessories: Optional[str] = None
+    condition_on_arrival: Optional[str] = None
+    prior_job_ref: Optional[str] = None
+    times_before: int = 0
+    engineer: Optional[str] = None
+    delivery_date: Optional[str] = None
+    charge_estimate: str = "0"
+    approved_by: Optional[str] = None
+
+
+class RmaReceiptResponse(BaseModel):
+    data: RmaReceiptRead
 
 
 class RmaStatusChange(BaseModel):
@@ -318,6 +463,10 @@ class RmaDashboardRead(BaseModel):
     unbilled_total: Decimal
     pending_approval_count: int = 0
     awaiting_return_count: int = 0
+    overdue_count: int = 0
+    supplier_pending_count: int = 0
+    supplier_late_count: int = 0
+    repeat_count: int = 0
     status_breakdown: Dict[str, int]
 
 
@@ -387,4 +536,74 @@ class RmaReportsRead(BaseModel):
 
 class RmaReportsResponse(BaseModel):
     data: RmaReportsRead
+
+
+class RmaOverdueRow(BaseModel):
+    rma_id: str
+    rma_number: str
+    customer_name: str = ""
+    product_name: str = ""
+    status: str
+    custody_state: Optional[str] = None
+    promised_delivery_date: Optional[date] = None
+    days_overdue: int = 0
+
+
+class RmaSupplierPendingRow(BaseModel):
+    rma_id: str
+    rma_number: str
+    customer_name: str = ""
+    product_name: str = ""
+    serial_number: Optional[str] = None
+    claim_id: Optional[str] = None
+    claim_number: Optional[str] = None
+    supplier_name: str = ""
+    state: str  # claim_waiting_approval | ready_to_dispatch | with_supplier | receipt_waiting_approval
+    since: Optional[date] = None
+    days_waiting: int = 0
+    expected_return_date: Optional[date] = None
+    is_late: bool = False
+
+
+class RmaRepeatRow(BaseModel):
+    rma_id: str
+    rma_number: str
+    customer_name: str = ""
+    product_name: str = ""
+    serial_number: Optional[str] = None
+    status: str
+    prior_rma_count: int = 0
+
+
+class RmaQueueCounts(BaseModel):
+    overdue: int = 0
+    supplier_pending: int = 0
+    supplier_late: int = 0
+    repeat: int = 0
+
+
+class RmaQueuesRead(BaseModel):
+    overdue: List[RmaOverdueRow]
+    supplier_pending: List[RmaSupplierPendingRow]
+    repeat: List[RmaRepeatRow]
+    counts: RmaQueueCounts
+
+
+class RmaQueuesResponse(BaseModel):
+    data: RmaQueuesRead
+
+
+class RmaServiceJobRead(BaseModel):
+    id: str
+    job_number: str
+    status: str
+    service_type: str
+    technician_name: str = ""
+    expected_at: Optional[datetime] = None
+    labour_total: Optional[Decimal] = None
+    parts_total: Optional[Decimal] = None
+
+
+class RmaServiceJobResponse(BaseModel):
+    data: Optional[RmaServiceJobRead] = None
 

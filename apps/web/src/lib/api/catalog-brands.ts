@@ -9,6 +9,7 @@ export type ApiCatalogBrand = {
   sort_order: number;
   product_count: number;
   is_active: boolean;
+  status?: string;
   description: string | null;
   website: string | null;
   meta_title: string | null;
@@ -20,6 +21,7 @@ export type ApiCatalogBrand = {
   banner_media_id: string | null;
   channel?: "catalog" | "dropshipping";
   created_at: string;
+  updated_by_name?: string | null;
   updated_at: string;
 };
 
@@ -42,7 +44,9 @@ export function apiBrandToBrand(row: ApiCatalogBrand): Brand {
     sortOrder: row.sort_order,
     productCount: row.product_count,
     active: row.is_active,
+    status: (["draft", "published", "unlisted", "archived"].includes(row.status ?? "") ? row.status : row.is_active ? "published" : "unlisted") as Brand["status"],
     updatedAt: row.updated_at.slice(0, 10),
+    updatedBy: row.updated_by_name ?? undefined,
     description: row.description ?? undefined,
     websiteUrl: row.website ?? undefined,
     metaTitle: row.meta_title ?? undefined,
@@ -60,6 +64,7 @@ export type CreateCatalogBrandInput = {
   name: string;
   slug: string;
   active?: boolean;
+  status?: "draft" | "published" | "unlisted" | "archived";
   description?: string;
   websiteUrl?: string;
   metaTitle?: string;
@@ -79,6 +84,7 @@ function brandInputToApiPayload(input: CreateCatalogBrandInput | UpdateCatalogBr
   if ("name" in input && input.name !== undefined) payload.name = input.name;
   if ("slug" in input && input.slug !== undefined) payload.slug = input.slug;
   if ("active" in input && input.active !== undefined) payload.is_active = input.active;
+  if ("status" in input && input.status !== undefined) payload.status = input.status;
   if ("description" in input && input.description !== undefined) {
     payload.description = input.description;
   }
@@ -117,6 +123,7 @@ export function partialBrandToApiUpdate(data: Partial<Brand>): UpdateCatalogBran
   if (data.name !== undefined) input.name = data.name;
   if (data.slug !== undefined) input.slug = data.slug;
   if (data.active !== undefined) input.active = data.active;
+  if (data.status !== undefined) input.status = data.status;
   if (data.description !== undefined) input.description = data.description;
   if (data.websiteUrl !== undefined) input.websiteUrl = data.websiteUrl;
   if (data.metaTitle !== undefined) input.metaTitle = data.metaTitle;

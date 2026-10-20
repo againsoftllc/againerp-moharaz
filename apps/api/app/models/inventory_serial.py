@@ -65,6 +65,10 @@ class InventorySerial(Base):
 
     # The claim currently holding the unit, if any.
     rma_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    # A supplier replacement keeps both serials and the link between them (docs/RMA.md Stage D):
+    # the unit that went out says which serial replaced it, and the one that came back says which it replaces.
+    replaces_serial: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
+    replaced_by_serial: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
 
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 

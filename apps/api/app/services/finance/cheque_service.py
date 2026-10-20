@@ -194,9 +194,20 @@ class ChequeService:
         payable_id: Optional[str] = None,
         notes: Optional[str] = None,
         actor: Optional[str] = None,
+        leaf_id: Optional[str] = None,
     ) -> FinanceCheque:
         if direction not in DIRECTIONS:
             raise HTTPException(status_code=400, detail="Direction must be received or issued")
+        books = leaf = None
+        if leaf_id:
+            # an issued cheque taken from a cheque book: the leaf gives its number, the book its bank
+            if direction != "issued":
+                raise HTTPException(status_code=400, detail="Only an issued cheque can use a cheque book leaf")
+            from app.services.finance.cheque_book_service import ChequeBookService
+
+            books = ChequeBookService(self._db)
+            leaf, book = books.take_leaf(leaf_id, company_id=company_id)
+            cheque_number, bank_name = leaf.cheque_number, book.bank_name
         bank_name = (bank_name or "").strip()
         cheque_number = (cheque_number or "").strip()
         if not bank_name or not cheque_number:
@@ -251,6 +262,8 @@ class ChequeService:
         )
         self._db.add(cheque)
         self._db.flush()
+        if books is not None and leaf is not None:
+            books.attach_cheque(leaf, cheque)
 
         entry_date = date.today()
         entry = self._fin._post_journal(
@@ -310,6 +323,16 @@ class ChequeService:
         cheque = self.get(cheque_id, company_id=company_id, lock=True)
         if cheque.status in ("cleared", "bounced", "cancelled"):
             raise HTTPException(status_code=409, detail=f"A {cheque.status} cheque cannot be edited")
+        from app.models.finance_cheque_book import FinanceChequeLeaf
+
+        if self._db.query(FinanceChequeLeaf.id).filter(FinanceChequeLeaf.cheque_id == cheque.id).first() is not None and (
+            (bank_name is not None and bank_name.strip() != cheque.bank_name)
+            or (cheque_number is not None and cheque_number.strip() != cheque.cheque_number)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="This cheque was taken from a cheque book, so its number and bank follow the book. Cancel it and issue another leaf instead.",
+            )
         new_bank = (bank_name if bank_name is not None else cheque.bank_name).strip()
         new_number = (cheque_number if cheque_number is not None else cheque.cheque_number).strip()
         if not new_bank or not new_number:

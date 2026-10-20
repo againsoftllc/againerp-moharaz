@@ -55,6 +55,7 @@ from app.schemas.finance import (
     FinanceTaxSummaryRead,
     FinanceTaxSummaryResponse,
 )
+from app.services.finance import dashboard_period_service
 from app.services.finance.constants import account_normal_balance
 from app.services.finance.partner_trading_service import partner_trading
 from app.services.finance.finance_reports import FinanceReportService
@@ -203,6 +204,18 @@ def _journal_entry_read(
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────
+
+
+@router.get("/dashboard/period")
+def dashboard_period(
+    date_from: Optional[date] = Query(default=None, description="first day, inclusive (none: from the first payment)"),
+    date_to: Optional[date] = Query(default=None, description="last day, inclusive (none: up to today)"),
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("finance", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> dict:
+    """The Finance module's landing dashboard: balances right now and money in / out over the chosen period."""
+    return {"data": dashboard_period_service.dashboard_period(db, company_id, date_from, date_to)}
 
 
 @router.get("/dashboard", response_model=FinanceDashboardResponse)

@@ -1216,6 +1216,123 @@ class FinanceService:
             apply_unapplied_payments(self._db, order.customer_id)
         return receivable
 
+    def void_rma_receivable(self, ticket_id: str) -> Optional[FinanceReceivable]:
+        """Cancelling an RMA: its own unpaid invoice stops billing the customer (amount / balance 0, status void) and the AR
+        posting is reversed with a mirror entry keyed by the receivable id, so a retry cannot reverse twice.
+
+        Only an invoice with no payment on it can be voided; one that has been paid (even partly) must have its payments
+        reversed first, otherwise the money would be left without an invoice."""
+        from app.models.rma import RmaTicket
+
+        ticket = self._db.get(RmaTicket, ticket_id)
+        if ticket is None:
+            return None
+        receivable = self._receivable_by_source(ticket.company_id, "rma", ticket.id)
+        if receivable is None or receivable.status == "void":
+            return receivable
+        if money(receivable.amount_paid) > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{receivable.invoice_number} already has payments on it. Reverse those settlements first, then cancel the RMA.",
+            )
+        total = money(receivable.amount)
+        tax = money(receivable.tax_amount)
+        net = money(total - tax)
+        receivable.amount = Decimal("0")
+        receivable.balance = Decimal("0")
+        receivable.tax_amount = Decimal("0")
+        receivable.status = "void"
+        self._db.flush()
+        if receivable.journal_entry_id and total != 0:
+            customer_id = receivable.customer_id
+            invoice_no = receivable.invoice_number
+            lines = [("1100", Decimal("0"), total, f"Invoice {invoice_no} voided", "customer", customer_id, Decimal("0"))]
+            if net != 0:
+                lines.append(("4000", net, Decimal("0"), "RMA charges reversal", "customer", customer_id, Decimal("0")))
+            if tax != 0:
+                lines.append(("2210", tax, Decimal("0"), "Output tax reversal", "customer", customer_id, tax))
+            self._post_journal(
+                company_id=receivable.company_id,
+                entry_date=date.today(),
+                description=f"Invoice {invoice_no} voided (RMA cancelled)",
+                source_type="receivable_void",
+                source_id=receivable.id,
+                lines=lines,
+            )
+        return receivable
+
+    def reverse_party_payment(
+        self,
+        original: FinancePayment,
+        *,
+        source_type: str,
+        source_id: str,
+        payment_date: Optional[date] = None,
+        reference: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> tuple[FinancePayment, FinanceJournalEntry]:
+        """The exact mirror of a payment: the opposite payment on the same account and party, and the original journal with
+        every debit and credit swapped. Idempotent on (source_type, source_id). The caller undoes any receivable it had settled."""
+        existing = (
+            self._db.query(FinancePayment)
+            .filter(
+                FinancePayment.company_id == original.company_id,
+                FinancePayment.source_type == source_type,
+                FinancePayment.source_id == source_id,
+            )
+            .first()
+        )
+        if existing is not None:
+            return existing, self.get_journal_entry(existing.journal_entry_id, company_id=original.company_id)
+        if not original.journal_entry_id:
+            raise HTTPException(status_code=400, detail="The original payment has no journal entry to reverse.")
+        original_lines = self.get_journal_lines(original.journal_entry_id)
+        if not original_lines:
+            raise HTTPException(status_code=400, detail="The original payment has no journal lines to reverse.")
+        original_entry = self.get_journal_entry(original.journal_entry_id, company_id=original.company_id)
+        pay_date = payment_date or date.today()
+        lines = []
+        for row in original_lines:
+            account = self._db.get(FinanceAccount, row.account_id)
+            lines.append(
+                (account.code, row.credit, row.debit, f"Reversal of {original_entry.entry_number}", row.party_type, row.party_id, row.tax_amount or Decimal("0"))
+            )
+        entry = self._post_journal(
+            company_id=original.company_id,
+            entry_date=pay_date,
+            description=f"Reversal of {original_entry.entry_number} ({original.payment_number})",
+            source_type=source_type,
+            source_id=source_id,
+            lines=lines,
+        )
+        payment = FinancePayment(
+            company_id=original.company_id,
+            payment_number=self._next_payment_number(original.company_id),
+            payment_date=pay_date,
+            amount=original.amount,
+            payment_method=original.payment_method,
+            payment_account_id=original.payment_account_id,
+            direction="outbound" if original.direction == "inbound" else "inbound",
+            source_type=source_type,
+            source_id=source_id,
+            party_type=original.party_type,
+            party_id=original.party_id,
+            journal_entry_id=entry.id,
+            reference=reference,
+            notes=notes,
+        )
+        self._db.add(payment)
+        self._db.flush()
+        return payment, entry
+
+    def unapply_payment_from_receivable(self, receivable: FinanceReceivable, amount: Decimal) -> None:
+        """The inverse of applying a payment: the receivable owes that amount again (open / partial)."""
+        receivable.amount_paid = max(receivable.amount_paid - amount, Decimal("0"))
+        receivable.balance = max(receivable.amount - receivable.amount_paid, Decimal("0"))
+        if receivable.status != "void":
+            receivable.status = "partial" if receivable.amount_paid > 0 else "open"
+        self._db.flush()
+
     def record_service_invoice(self, job_id: str) -> FinanceReceivable:
         from app.models.service_job import ServiceJob
 
@@ -2173,6 +2290,80 @@ class FinanceService:
         self._apply_payment_to_payable(payable, amount)
         self._db.flush()
         return payable, payment
+
+    def post_party_payment(
+        self,
+        *,
+        company_id: str,
+        direction: str,
+        amount: Decimal,
+        payment_account_id: Optional[str],
+        payment_date: Optional[date],
+        source_type: str,
+        source_id: str,
+        counter_code: str,
+        description: str,
+        party_type: Optional[str] = None,
+        party_id: Optional[str] = None,
+        line_party_type: Optional[str] = None,
+        reference: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> tuple[FinancePayment, FinanceJournalEntry]:
+        """One money-in / money-out against a named counter account (the caller decides which: see the RMA settlement map).
+
+        Idempotent on (source_type, source_id): a retry returns the payment already made instead of posting a second one.
+        The journal goes through `_post_journal`, so period control and the single posting funnel apply as everywhere else.
+        """
+        if direction not in ("inbound", "outbound"):
+            raise HTTPException(status_code=400, detail="Direction must be inbound or outbound")
+        amount = money(amount)
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Payment amount must be positive")
+        existing = (
+            self._db.query(FinancePayment)
+            .filter(
+                FinancePayment.company_id == company_id,
+                FinancePayment.source_type == source_type,
+                FinancePayment.source_id == source_id,
+            )
+            .first()
+        )
+        if existing is not None:
+            return existing, self.get_journal_entry(existing.journal_entry_id, company_id=company_id)
+
+        payment_account = self._resolve_payment_account(company_id, payment_account_id)
+        gl_code = self._payment_account_gl_code(payment_account)
+        pay_date = payment_date or date.today()
+        zero = Decimal("0")
+        cash_line = (gl_code, amount if direction == "inbound" else zero, amount if direction == "outbound" else zero, description, line_party_type, party_id, zero)
+        counter_line = (counter_code, amount if direction == "outbound" else zero, amount if direction == "inbound" else zero, description, line_party_type, party_id, zero)
+        entry = self._post_journal(
+            company_id=company_id,
+            entry_date=pay_date,
+            description=description,
+            source_type=source_type,
+            source_id=source_id,
+            lines=[cash_line, counter_line],
+        )
+        payment = FinancePayment(
+            company_id=company_id,
+            payment_number=self._next_payment_number(company_id),
+            payment_date=pay_date,
+            amount=amount,
+            payment_method=payment_account.kind,
+            payment_account_id=payment_account.id,
+            direction=direction,
+            source_type=source_type,
+            source_id=source_id,
+            party_type=party_type,
+            party_id=party_id,
+            journal_entry_id=entry.id,
+            reference=reference,
+            notes=notes,
+        )
+        self._db.add(payment)
+        self._db.flush()
+        return payment, entry
 
     # ── Lists ────────────────────────────────────────────────────────────────
 

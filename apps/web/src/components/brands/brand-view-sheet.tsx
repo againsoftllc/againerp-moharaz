@@ -1,7 +1,7 @@
 "use client";
 
 import { Edit2, Globe, Tag, X } from "lucide-react";
-import type { Brand } from "@/lib/mock-data/brands";
+import { brandStatusOf, type Brand } from "@/lib/mock-data/brands";
 import { resolveMediaUrl } from "@/lib/media/resolve-media";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,8 +36,8 @@ function BrandDetailContent({
       <div className="flex shrink-0 items-start justify-between gap-3 border-b border-input px-5 py-4">
         <div className="min-w-0">
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-            <Badge variant={brand.active ? "default" : "secondary"} className="text-[10px]">
-              {brand.active ? "Active" : "Inactive"}
+            <Badge variant={brandStatusOf(brand) === "published" ? "default" : "secondary"} className="text-[10px] capitalize">
+              {brandStatusOf(brand)}
             </Badge>
             <span className="font-mono text-[10px] text-muted-foreground">/{brand.slug}</span>
           </div>
@@ -120,8 +120,8 @@ function BrandDetailContent({
             <Row label="Products" value={formatQuantity(brand.productCount)} />
             <Row
               label="Status"
-              value={brand.active ? "Active" : "Inactive"}
-              valueClass={brand.active ? "text-emerald-600 font-medium" : "text-muted-foreground"}
+              value={brandStatusOf(brand).replace(/^./, (c) => c.toUpperCase())}
+              valueClass={brandStatusOf(brand) === "published" ? "text-emerald-600 font-medium" : "text-muted-foreground"}
             />
             <Row label="Updated" value={brand.updatedAt} />
           </dl>

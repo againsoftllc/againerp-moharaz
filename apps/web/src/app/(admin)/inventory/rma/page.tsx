@@ -50,6 +50,8 @@ function RmaPageInner() {
   const claimId = searchParams.get("claim");
   const stageParam = searchParams.get("stage");
   const stage = isRmaStageId(stageParam) ? stageParam : null;
+  const queueParam = searchParams.get("queue");
+  const queue = queueParam === "overdue" || queueParam === "supplier_pending" || queueParam === "repeat" ? queueParam : null;
   const gridRef = useRef<RmaGridHandle>(null);
   const [tickets, setTickets] = useState<RmaTicket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,6 +69,7 @@ function RmaPageInner() {
         status: status ?? undefined,
         warrantyStatus: warrantyStatus ?? undefined,
         rmaType: rmaType ?? undefined,
+        queue: queue ?? undefined,
       });
       setTickets(list.data);
     } catch (err) {
@@ -75,13 +78,24 @@ function RmaPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [status, warrantyStatus, rmaType]);
+  }, [status, warrantyStatus, rmaType, queue]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const handleFilterCount = useCallback((count: number) => setFilterCount(count), []);
+
+  const setQueue = useCallback(
+    (value: string) => {
+      const next = new URLSearchParams(searchParams.toString());
+      if (value && value !== "all") next.set("queue", value);
+      else next.delete("queue");
+      const q = next.toString();
+      router.replace(q ? `/inventory/rma?${q}` : "/inventory/rma", { scroll: false });
+    },
+    [router, searchParams],
+  );
 
   const setClaimId = useCallback(
     (id: string | null) => {
@@ -173,6 +187,8 @@ function RmaPageInner() {
       loading={loading && tickets.length === 0}
       claimId={claimId}
       initialStage={stage}
+      initialQueue={queue}
+      onQueueChange={setQueue}
       onOpenClaim={(id) => setClaimId(id)}
       onCloseClaim={() => setClaimId(null)}
       onChanged={load}

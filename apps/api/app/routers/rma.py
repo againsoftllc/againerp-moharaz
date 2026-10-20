@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -15,12 +15,27 @@ from app.schemas.rma.ticket import (
     RmaChargeCreate,
     RmaCreate,
     RmaDashboardRead,
+    RmaDecisionRequest,
+    RmaPriorRead,
+    RmaPriorResponse,
+    RmaReceiptRead,
+    RmaReceiptResponse,
+    RmaStockEventRead,
+    RmaStockEventResponse,
+    RmaStoreListResponse,
+    RmaStoreRead,
+    RmaTraceRead,
+    RmaTraceResponse,
     RmaDashboardResponse,
     RmaHistoryListResponse,
     RmaHistoryRead,
     RmaInspectionRequest,
     RmaListMeta,
     RmaListResponse,
+    RmaQueuesRead,
+    RmaQueuesResponse,
+    RmaServiceJobRead,
+    RmaServiceJobResponse,
     RmaReasonListResponse,
     RmaReasonRead,
     RmaRefundRequest,
@@ -41,7 +56,8 @@ from app.schemas.rma.ticket import (
     OrderSearchLineRead,
     OrderSearchResponse,
 )
-from app.services.rma import rma_service
+from app.services import rbac
+from app.services.rma import complaint_service, queue_service, rma_service
 from app.services.rma.rma_service import TicketIntake
 
 router = APIRouter(prefix="/rma", tags=["rma"])
@@ -49,6 +65,16 @@ router = APIRouter(prefix="/rma", tags=["rma"])
 
 def _read(ticket) -> RmaTicketRead:
     return RmaTicketRead.model_validate(ticket)
+
+
+def _can(db: Session, user: AuthUser, module: str) -> bool:
+    """Whether the user holds a privileged RMA grant (`rma_approve` / `rma_override` / `rma_reprint`)."""
+    return rbac.has_permission(db, user, module, "write")
+
+
+def _need(db: Session, user: AuthUser, module: str, what: str) -> None:
+    if not _can(db, user, module):
+        raise HTTPException(status_code=403, detail=f"You need the RMA permission to {what}.")
 
 
 @router.get("/dashboard", response_model=RmaDashboardResponse)
@@ -60,6 +86,29 @@ def rma_dashboard(
     return RmaDashboardResponse(
         data=RmaDashboardRead(**rma_service.dashboard(db, company_id))
     )
+
+
+@router.get("/queues", response_model=RmaQueuesResponse)
+def rma_queues(
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("rma", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaQueuesResponse:
+    """The work queues: overdue RMAs, units waiting on a supplier (with how long and whether they are late), repeat RMAs."""
+    return RmaQueuesResponse(data=RmaQueuesRead(**queue_service.queues(db, company_id)))
+
+
+@router.get("/tickets/{ticket_id}/service-job", response_model=RmaServiceJobResponse)
+def rma_service_job(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("rma", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaServiceJobResponse:
+    """The linked Service / Job Card (none when the RMA has no job card)."""
+    ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
+    summary = queue_service.service_job_summary(db, ticket)
+    return RmaServiceJobResponse(data=RmaServiceJobRead(**summary) if summary else None)
 
 
 @router.get("/warranty-lookup", response_model=WarrantyLookupResponse)
@@ -132,6 +181,7 @@ def list_tickets(
     supplier_id: Optional[str] = Query(default=None),
     item_id: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
+    queue: Optional[str] = Query(default=None, pattern="^(overdue|supplier_pending|repeat)$"),
     limit: int = Query(default=200, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> RmaListResponse:
@@ -144,6 +194,7 @@ def list_tickets(
         rma_type=rma_type,
         item_id=item_id,
         search=search,
+        queue=queue,
         limit=limit,
         offset=offset,
     )
@@ -210,6 +261,15 @@ def create_ticket(
             tracking_number=payload.tracking_number,
             internal_notes=payload.internal_notes,
             claim_group_id=payload.claim_group_id,
+            assigned_to_user_id=payload.assigned_to_user_id,
+            promised_delivery_date=payload.promised_delivery_date,
+            charge_estimate=payload.charge_estimate,
+            diagnosis_required=payload.diagnosis_required,
+            diagnosis_report=payload.diagnosis_report,
+            supplier_id=payload.supplier_id,
+            supplier_override_reason=payload.supplier_override_reason,
+            can_override=_can(db, user, "rma_override"),
+            unit_received=payload.unit_received,
         ),
     )
     db.commit()
@@ -222,16 +282,172 @@ def update_ticket(
     ticket_id: str,
     payload: RmaUpdate,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("rma", "write")),
+    user: AuthUser = Depends(require_permission("rma", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> RmaResponse:
     ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
-    for key, value in payload.model_dump(exclude_unset=True).items():
-        if value is not None:
-            setattr(ticket, key, value)
+    changes = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    reason = changes.pop("override_reason", None)
+
+    # Values that came from the sale, the serial registry or the purchase trace change only with the override
+    # permission and a reason, and the change is written to the activity log.
+    protected = complaint_service.check_protected_changes(
+        ticket, changes, can_override=_can(db, user, "rma_override"), reason=reason
+    )
+    if "warehouse_id" in changes and changes["warehouse_id"] != ticket.warehouse_id:
+        if complaint_service.stock_event(db, ticket.id, "intake") is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="The unit is already stocked in this RMA store; it cannot be moved by editing the claim.",
+            )
+        complaint_service.require_rma_store(db, ticket.company_id, changes["warehouse_id"])
+
+    new_supplier = changes.pop("supplier_id", None) if "supplier_id" in protected else None
+    if "supplier_id" in changes:  # unchanged value
+        changes.pop("supplier_id")
+    assignee_id = changes.pop("assigned_to_user_id", None)
+    if assignee_id:
+        from app.models.auth_user import AuthUser as _User
+
+        assignee = db.get(_User, assignee_id)
+        if assignee is None or assignee.company_id != ticket.company_id:
+            raise HTTPException(status_code=400, detail="The assigned staff member was not found.")
+        ticket.assigned_to_user_id = assignee.id
+        ticket.assigned_to = assignee.name or assignee.username
+    changes.pop("supplier_name", None)
+
+    for key, value in changes.items():
+        setattr(ticket, key, value)
+    if new_supplier:
+        complaint_service.set_supplier_manually(
+            db, ticket, supplier_id=new_supplier, reason=reason or "", actor=user.id
+        )
+    for key, (old, new) in protected.items():
+        if key == "supplier_id":
+            continue
+        complaint_service.record_activity(
+            db, ticket, "protected_field_changed", actor=user.id,
+            old_value=str(old) if old is not None else None, new_value=str(new),
+            details={"field": key, "reason": reason},
+        )
     db.commit()
     db.refresh(ticket)
     return RmaResponse(data=_read(ticket))
+
+
+@router.get("/stores", response_model=RmaStoreListResponse)
+def list_rma_stores(
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("rma", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaStoreListResponse:
+    """Warehouses flagged as RMA stores (a default "RMA Store" is created the first time)."""
+    rows = complaint_service.rma_stores(db, company_id)
+    db.commit()
+    return RmaStoreListResponse(data=[RmaStoreRead(id=w.id, code=w.code, name=w.name) for w in rows])
+
+
+@router.get("/trace", response_model=RmaTraceResponse)
+def trace_serial(
+    serial: str = Query(min_length=1, max_length=128),
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("rma", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaTraceResponse:
+    """Supplier, purchase receipt and vendor invoice behind a serial."""
+    data = complaint_service.trace_purchase(db, serial, company_id)
+    return RmaTraceResponse(
+        data=RmaTraceRead(
+            source=data["source"],
+            supplier_id=data["supplier_id"],
+            supplier_name=data["supplier_name"],
+            purchase_receipt_no=data["purchase_receipt_no"],
+            purchase_bill_no=data["purchase_bill_no"],
+            vendor_invoice_no=data["vendor_invoice_no"],
+        )
+    )
+
+
+@router.get("/prior", response_model=RmaPriorResponse)
+def prior_claims(
+    serial: Optional[str] = Query(default=None, max_length=128),
+    item_id: Optional[str] = Query(default=None, max_length=36),
+    customer_id: Optional[str] = Query(default=None, max_length=36),
+    exclude_id: Optional[str] = Query(default=None, max_length=36),
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("rma", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaPriorResponse:
+    """Earlier claims on the same unit — shown as a warning, never blocks the new one."""
+    rows = complaint_service.prior_tickets(
+        db, company_id, serial_number=serial, item_id=item_id, customer_id=customer_id, exclude_id=exclude_id
+    )
+    return RmaPriorResponse(data=[RmaPriorRead.model_validate(r) for r in rows])
+
+
+@router.post("/tickets/{ticket_id}/submit", response_model=RmaResponse)
+def submit_for_approval(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    user: AuthUser = Depends(require_permission("rma", "write")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaResponse:
+    """Send a draft (or a complaint returned for correction) to the approver."""
+    ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
+    complaint_service.submit_for_approval(db, ticket, actor=user.id)
+    db.commit()
+    db.refresh(ticket)
+    return RmaResponse(data=_read(ticket))
+
+
+@router.post("/tickets/{ticket_id}/decision", response_model=RmaResponse)
+def decide_complaint(
+    ticket_id: str,
+    payload: RmaDecisionRequest,
+    db: Session = Depends(get_db),
+    user: AuthUser = Depends(require_permission("rma", "write")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaResponse:
+    """Approve, reject or return a complaint for correction. Approving stocks the unit into the RMA store once."""
+    _need(db, user, "rma_approve", "approve or reject complaints")
+    ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
+    complaint_service.decide(db, ticket, decision=payload.decision, reason=payload.reason, user=user)
+    db.commit()
+    db.refresh(ticket)
+    return RmaResponse(data=_read(ticket))
+
+
+@router.post("/tickets/{ticket_id}/receipt-print", response_model=RmaReceiptResponse)
+def print_complaint_receipt(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    user: AuthUser = Depends(require_permission("rma", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaReceiptResponse:
+    """The customer-facing complaint receipt. The first print is free; a reprint needs the reprint permission."""
+    ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
+    reprint = (ticket.receipt_print_count or 0) > 0
+    if reprint:
+        _need(db, user, "rma_reprint", "reprint documents")
+    complaint_service.count_receipt_print(db, ticket, actor=user.id)
+    payload = complaint_service.receipt_payload(
+        db, ticket, printed_by=user.name or user.username, reprint=reprint
+    )
+    db.commit()
+    return RmaReceiptResponse(data=RmaReceiptRead(**payload))
+
+
+@router.get("/tickets/{ticket_id}/stock-events", response_model=RmaStockEventResponse)
+def ticket_stock_events(
+    ticket_id: str,
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("rma", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaStockEventResponse:
+    ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
+    return RmaStockEventResponse(
+        data=[RmaStockEventRead(**row) for row in complaint_service.stock_events_view(db, ticket)]
+    )
 
 
 @router.post("/tickets/{ticket_id}/status", response_model=RmaResponse)
@@ -257,6 +473,8 @@ def override_warranty(
     user: AuthUser = Depends(require_permission("rma", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> RmaResponse:
+    # A warranty override decides who pays, so it is a protected action like the other overrides.
+    _need(db, user, "rma_override", "override the warranty result")
     ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
     rma_service.set_warranty(
         db,
@@ -331,9 +549,11 @@ def upsert_supplier_job(
     ticket_id: str,
     payload: RmaSupplierJobUpsert,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("rma", "write")),
+    user: AuthUser = Depends(require_permission("rma", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> RmaResponse:
+    # The manual supplier job sets the supplier by hand: the normal path is a supplier claim, so this needs the override grant.
+    _need(db, user, "rma_override", "set the supplier job by hand")
     ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
     rma_service.upsert_supplier_job(
         db,
@@ -358,10 +578,11 @@ def raise_bill(
     ticket_id: str,
     payload: RmaBillRequest,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("rma", "write")),
+    user: AuthUser = Depends(require_permission("rma", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> RmaBillResponse:
     """Charges become a customer receivable, the same as any other invoice."""
+    _need(db, user, "rma_payment", "invoice the RMA charges")
     ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
     receivable = rma_service.raise_bill(db, ticket, due_date=payload.due_date)
     db.commit()
@@ -482,6 +703,7 @@ def refund_ticket(
     user: AuthUser = Depends(require_permission("rma", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> RmaResponse:
+    _need(db, user, "rma_payment", "refund the customer")
     ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
     rma_service.process_refund(
         db, ticket, amount=payload.amount, method=payload.method, actor=user.id
@@ -499,6 +721,7 @@ def replace_ticket(
     user: AuthUser = Depends(require_permission("rma", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> RmaResponse:
+    _need(db, user, "rma_stock_adjust", "issue a replacement from stock")
     ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
     rma_service.issue_replacement(
         db,
@@ -521,6 +744,7 @@ def release_stock(
     user: AuthUser = Depends(require_permission("rma", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> RmaResponse:
+    _need(db, user, "rma_stock_adjust", "release the unit to stock")
     ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
     rma_service.release_to_stock(db, ticket, warehouse_id=payload.warehouse_id, actor=user.id)
     db.commit()
@@ -535,6 +759,7 @@ def scrap_ticket(
     user: AuthUser = Depends(require_permission("rma", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> RmaResponse:
+    _need(db, user, "rma_stock_adjust", "scrap the unit")
     ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
     rma_service.scrap_unit(db, ticket, actor=user.id)
     db.commit()

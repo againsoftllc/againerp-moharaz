@@ -81,6 +81,7 @@ import { cn } from "@/lib/utils";
 import { ChevronDown, X } from "lucide-react";
 import { clearDraft, draftAgeLabel, readDraft, writeDraft } from "@/lib/hooks/use-drawer-draft";
 import { SearchDropdown } from "@/components/again/again-search-dropdown";
+import { AgainFormField, AgainFormGroupTitle } from "@/components/again/again-form-sheet";
 import { mapSupplierToItem, fetchSupplierLinksByItem } from "@/lib/api/supplier-catalog";
 import {
   SUPPLIER_STOCK_STATUS_LABELS,
@@ -871,15 +872,15 @@ export function InventoryProductQuickAdd({
           side="right"
           title={isEdit ? "Edit product" : supplierLink ? "Add supplier product" : "Add product"}
           resizable
-          resizeMaxWidth={1100}
+          resizeMaxWidth={typeof window !== "undefined" ? Math.round(window.innerWidth * 0.85) : 1400}
           closeButton="inside"
           onPointerDownOutside={() => saveDraftIfDirty()}
           onInteractOutside={() => saveDraftIfDirty()}
           onEscapeKeyDown={() => saveDraftIfDirty()}
           className={
             nested
-              ? "z-[260] w-[min(100%,48rem)] min-w-[320px] max-w-[1100px] gap-0 overflow-hidden rounded-none border-l border-input bg-background p-0"
-              : "w-[min(100%,48rem)] min-w-[320px] max-w-[1100px] gap-0 overflow-hidden rounded-none border-l border-input bg-background p-0"
+              ? "z-[260] w-full min-w-[320px] max-w-none gap-0 overflow-hidden rounded-none border-l border-input bg-background p-0 md:w-1/2 md:min-w-[420px]"
+              : "w-full min-w-[320px] max-w-none gap-0 overflow-hidden rounded-none border-l border-input bg-background p-0 md:w-1/2 md:min-w-[420px]"
           }
           aria-describedby={undefined}
         >
@@ -1143,7 +1144,7 @@ export function InventoryProductQuickAdd({
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto pt-3 pr-1">
-                <div className="w-full max-w-3xl space-y-6">
+                <div className="again-odoo-form @container w-full max-w-4xl space-y-5">
                   {fieldVisibility.media ? (
                     <MediaGallery
                       items={productMedia}
@@ -1163,28 +1164,29 @@ export function InventoryProductQuickAdd({
                     />
                   ) : null}
 
-                  <div className="grid gap-4 sm:grid-cols-4">
-                    <Field label="Product name" required className="sm:col-span-4">
+                  <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                    <AgainFormGroupTitle className="@xl:col-span-2">Product</AgainFormGroupTitle>
+                    <AgainFormField label="Product name" required className="@xl:col-span-2">
                       <Input
                         id="qa-name"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         placeholder="Premium Cotton T-Shirt"
                       />
-                    </Field>
-                    <Field label="SKU" className="sm:col-span-2">
+                    </AgainFormField>
+                    <AgainFormField label="SKU">
                       <Input
                         id="qa-sku"
                         value={sku}
                         onChange={(e) => setSku(e.target.value)}
                         placeholder="Auto-generated if blank"
                       />
-                    </Field>
-                    <Field label="Model" className="sm:col-span-2">
+                    </AgainFormField>
+                    <AgainFormField label="Model">
                       <Input id="qa-model" value={model} onChange={(e) => setModel(e.target.value)} />
-                    </Field>
+                    </AgainFormField>
                     {fieldVisibility.barcodeType ? (
-                      <Field label="Barcode type" className="sm:col-span-2">
+                      <AgainFormField label="Barcode type">
                         <FilterSelect
                           value={barcodeType}
                           onChange={setBarcodeType}
@@ -1199,10 +1201,10 @@ export function InventoryProductQuickAdd({
                             { value: "UPCE", label: "UPC-E" },
                           ]}
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.category ? (
-                      <Field label="Category" className="sm:col-span-2">
+                      <AgainFormField label="Category">
                         <CategoryCombobox
                           multiple
                           categories={categories}
@@ -1216,10 +1218,10 @@ export function InventoryProductQuickAdd({
                           onList={() => setListCategoryOpen(true)}
                           className="w-full"
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.brand ? (
-                      <Field label="Brand" className="sm:col-span-2">
+                      <AgainFormField label="Brand">
                         <BrandCombobox
                           brands={brands}
                           value={brandId}
@@ -1230,10 +1232,10 @@ export function InventoryProductQuickAdd({
                           onList={() => setListBrandOpen(true)}
                           className="w-full"
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.warranty ? (
-                      <Field label="Warranty" className="sm:col-span-2">
+                      <AgainFormField label="Warranty">
                         <WarrantyCombobox
                           options={warrantyOptions}
                           value={warranty}
@@ -1244,10 +1246,10 @@ export function InventoryProductQuickAdd({
                           }}
                           className="w-full"
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.origin ? (
-                      <Field label="Origin" className="sm:col-span-2">
+                      <AgainFormField label="Origin">
                         <OriginCombobox
                           options={originOptions}
                           value={origin}
@@ -1255,10 +1257,11 @@ export function InventoryProductQuickAdd({
                           onList={() => setListOriginOpen(true)}
                           className="w-full"
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
+                    <AgainFormGroupTitle className="@xl:col-span-2">Inventory</AgainFormGroupTitle>
                     {fieldVisibility.manageStock ? (
-                      <Field label="Manage stock">
+                      <AgainFormField label="Manage stock">
                         <label className="flex h-8 items-center gap-2 border-b border-border/50 px-0.5 text-xs">
                           <input
                             type="checkbox"
@@ -1272,10 +1275,10 @@ export function InventoryProductQuickAdd({
                           />
                           Track quantity
                         </label>
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.notForSelling ? (
-                      <Field label="Not for selling">
+                      <AgainFormField label="Not for selling">
                         <label className="flex h-8 items-center gap-2 border-b border-border/50 px-0.5 text-xs">
                           <input
                             type="checkbox"
@@ -1285,10 +1288,10 @@ export function InventoryProductQuickAdd({
                           />
                           Hide from POS
                         </label>
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.alertQuantity && trackQuantity ? (
-                      <Field label="Alert quantity">
+                      <AgainFormField label="Alert quantity">
                         <Input
                           id="qa-alert-qty"
                           type="number"
@@ -1298,10 +1301,10 @@ export function InventoryProductQuickAdd({
                           onChange={(e) => setAlertQuantity(e.target.value)}
                           placeholder="0"
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.unitType ? (
-                      <Field label="Unit type">
+                      <AgainFormField label="Unit type">
                         <UnitTypeCombobox
                           options={unitTypeOptions}
                           value={unitType}
@@ -1310,10 +1313,10 @@ export function InventoryProductQuickAdd({
                           onList={() => setListUnitTypeOpen(true)}
                           className="w-full"
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.tracking ? (
-                      <Field label="Tracking">
+                      <AgainFormField label="Tracking">
                         <FilterSelect
                           value={trackingType}
                           onChange={(v) => setTrackingType(v as "none" | "serial" | "batch")}
@@ -1325,10 +1328,10 @@ export function InventoryProductQuickAdd({
                             { value: "batch", label: "Batch" },
                           ]}
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.businessLocations ? (
-                      <Field label="Business locations" className="sm:col-span-4">
+                      <AgainFormField label="Business locations" className="@xl:col-span-2">
                         <div className="relative" ref={locationAnchorRef}>
                           <div className="flex min-h-8 w-full flex-wrap items-center gap-1 border-b border-input bg-background px-1 py-1">
                             {locationIds.map((id) => {
@@ -1375,13 +1378,14 @@ export function InventoryProductQuickAdd({
                             }}
                           />
                         </div>
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                   </div>
 
-                  <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                    <AgainFormGroupTitle className="@xl:col-span-2">Pricing</AgainFormGroupTitle>
                     {fieldVisibility.costPrice ? (
-                      <Field label="Cost price">
+                      <AgainFormField label="Cost price">
                         <Input
                           id="qa-cost-price"
                           type="number"
@@ -1389,9 +1393,9 @@ export function InventoryProductQuickAdd({
                           value={purchasePrice}
                           onChange={(e) => setPurchasePrice(e.target.value)}
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
-                    <Field label="Sales price">
+                    <AgainFormField label="Sales price">
                       <Input
                         id="qa-sales-price"
                         type="number"
@@ -1408,8 +1412,8 @@ export function InventoryProductQuickAdd({
                         }}
                         placeholder="899"
                       />
-                    </Field>
-                    <Field label="Margin (%)">
+                    </AgainFormField>
+                    <AgainFormField label="Margin (%)">
                       <Input
                         id="qa-margin"
                         type="number"
@@ -1426,9 +1430,9 @@ export function InventoryProductQuickAdd({
                         placeholder={purchasePrice ? "0" : "Set cost price first"}
                         disabled={!purchasePrice}
                       />
-                    </Field>
+                    </AgainFormField>
                     {fieldVisibility.lastSellingPrice ? (
-                      <Field label="Last selling price">
+                      <AgainFormField label="Last selling price">
                         <Input
                           id="qa-last-selling-price"
                           type="number"
@@ -1436,20 +1440,20 @@ export function InventoryProductQuickAdd({
                           value={lastSellingPrice}
                           onChange={(e) => setLastSellingPrice(e.target.value)}
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.weight ? (
-                      <Field label="Weight">
+                      <AgainFormField label="Weight">
                         <Input
                           id="qa-weight"
                           value={weight}
                           onChange={(e) => setWeight(e.target.value)}
                           placeholder="e.g. 1.5 kg"
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.applicableTax ? (
-                      <Field label="Applicable tax">
+                      <AgainFormField label="Applicable tax">
                         <Input
                           id="qa-tax-rate"
                           type="number"
@@ -1459,10 +1463,10 @@ export function InventoryProductQuickAdd({
                           onChange={(e) => setTaxRate(e.target.value)}
                           placeholder="0"
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                     {fieldVisibility.taxType ? (
-                      <Field label="Selling price tax type">
+                      <AgainFormField label="Selling price tax type">
                         <FilterSelect
                           value={taxType}
                           onChange={setTaxType}
@@ -1473,37 +1477,37 @@ export function InventoryProductQuickAdd({
                             { value: "inclusive", label: "Inclusive" },
                           ]}
                         />
-                      </Field>
+                      </AgainFormField>
                     ) : null}
                   </div>
 
                   {supplierLink && fieldVisibility.supplierMapping ? (
                     <div className="space-y-3 border border-border p-3">
                       <p className="text-xs font-semibold">Supplier</p>
-                      <div className="grid gap-4 sm:grid-cols-4">
-                        <Field label="Supplier" className="sm:col-span-2">
+                      <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                        <AgainFormField label="Supplier">
                           <Input
                             value={supplierLink.supplierName || "Supplier"}
                             disabled
                             readOnly
                           />
-                        </Field>
-                        <Field label="SKU" className="sm:col-span-2">
+                        </AgainFormField>
+                        <AgainFormField label="SKU">
                           <Input
                             value={supplierSku}
                             onChange={(e) => setSupplierSku(e.target.value)}
                             placeholder={sku.trim() || "From product SKU"}
                             className="font-mono"
                           />
-                        </Field>
-                        <Field label="Title" className="sm:col-span-4">
+                        </AgainFormField>
+                        <AgainFormField label="Title" className="@xl:col-span-2">
                           <Input
                             value={supplierTitle}
                             onChange={(e) => setSupplierTitle(e.target.value)}
                             placeholder={name.trim() || "From product name"}
                           />
-                        </Field>
-                        <Field label="Price">
+                        </AgainFormField>
+                        <AgainFormField label="Price">
                           <Input
                             type="number"
                             min={0}
@@ -1511,8 +1515,8 @@ export function InventoryProductQuickAdd({
                             onChange={(e) => setSupplierPrice(e.target.value)}
                             placeholder={purchasePrice.trim() || "0"}
                           />
-                        </Field>
-                        <Field label="Stock">
+                        </AgainFormField>
+                        <AgainFormField label="Stock">
                           <Input
                             type="number"
                             min={0}
@@ -1520,8 +1524,8 @@ export function InventoryProductQuickAdd({
                             onChange={(e) => setSupplierStock(e.target.value)}
                             placeholder="0"
                           />
-                        </Field>
-                        <Field label="Status">
+                        </AgainFormField>
+                        <AgainFormField label="Status">
                           <Select
                             value={supplierStockStatus}
                             onChange={(e) =>
@@ -1536,24 +1540,24 @@ export function InventoryProductQuickAdd({
                               </option>
                             ))}
                           </Select>
-                        </Field>
-                        <Field label="Lead (days)">
+                        </AgainFormField>
+                        <AgainFormField label="Lead (days)">
                           <Input
                             type="number"
                             min={0}
                             value={supplierLeadDays}
                             onChange={(e) => setSupplierLeadDays(e.target.value)}
                           />
-                        </Field>
-                        <Field label="MOQ">
+                        </AgainFormField>
+                        <AgainFormField label="MOQ">
                           <Input
                             type="number"
                             min={1}
                             value={supplierMoq}
                             onChange={(e) => setSupplierMoq(e.target.value)}
                           />
-                        </Field>
-                        <Field label="Warranty">
+                        </AgainFormField>
+                        <AgainFormField label="Warranty">
                           <WarrantyCombobox
                             options={warrantyOptions}
                             value={supplierWarranty}
@@ -1564,8 +1568,8 @@ export function InventoryProductQuickAdd({
                             }}
                             placeholder={warranty.trim() || "Optional"}
                           />
-                        </Field>
-                        <Field label="Preferred" className="sm:col-span-2">
+                        </AgainFormField>
+                        <AgainFormField label="Preferred">
                           <label className="flex h-8 items-center gap-2 border-b border-border/50 px-0.5 text-xs">
                             <input
                               type="checkbox"
@@ -1575,13 +1579,14 @@ export function InventoryProductQuickAdd({
                             />
                             Default for new POs
                           </label>
-                        </Field>
+                        </AgainFormField>
                       </div>
                     </div>
                   ) : null}
 
-                  <Field label="Product type">
-                    <div className="flex h-8 w-full rounded-none border border-input bg-background shadow-sm">
+                  <AgainFormGroupTitle>Type</AgainFormGroupTitle>
+                  <AgainFormField label="Product type">
+                    <div className="odoo-keep-border flex h-8 w-full rounded-none border border-input bg-background shadow-sm">
                       {PRODUCT_TYPES.map((t) => (
                         <button
                           key={t}
@@ -1598,7 +1603,7 @@ export function InventoryProductQuickAdd({
                         </button>
                       ))}
                     </div>
-                  </Field>
+                  </AgainFormField>
                   {productType === "variable" && fieldVisibility.variants ? (
                     <div className="mt-4">
                       <ProductVariantEditor
@@ -1635,20 +1640,21 @@ export function InventoryProductQuickAdd({
                     </div>
                   ) : null}
 
+                  <AgainFormGroupTitle>Description</AgainFormGroupTitle>
                   {fieldVisibility.shortDescription ? (
-                    <div className="grid gap-4 sm:grid-cols-3">
-                      <Field label="Short description" className="sm:col-span-3">
+                    <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                      <AgainFormField label="Short description" className="@xl:col-span-2">
                         <Textarea
                           id="qa-short-desc"
                           rows={3}
                           value={shortDescription}
                           onChange={(e) => setShortDescription(e.target.value)}
                         />
-                      </Field>
+                      </AgainFormField>
                     </div>
                   ) : null}
 
-                  <Field label="Remarks" hint="Internal note — staff only, not shown on the website.">
+                  <AgainFormField label="Remarks" hint="Internal note — staff only, not shown on the website.">
                     <Textarea
                       id="qa-remarks"
                       value={remarks}
@@ -1657,7 +1663,7 @@ export function InventoryProductQuickAdd({
                       rows={2}
                       maxLength={2000}
                     />
-                  </Field>
+                  </AgainFormField>
                 </div>
               </div>
             </div>
@@ -1943,6 +1949,7 @@ export function InventoryProductQuickAdd({
               name: data.name ?? "",
               slug: data.slug ?? "",
               active: data.active ?? true,
+              status: data.status,
               description: data.description,
               websiteUrl: data.websiteUrl,
               logoUrl: data.logoUrl,
@@ -1974,27 +1981,5 @@ export function InventoryProductQuickAdd({
         onDelete={handleWarrantyDelete}
       />
     </>
-  );
-}
-
-function Field({
-  label,
-  required,
-  className,
-  children,
-}: {
-  label: ReactNode;
-  required?: boolean;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className={className}>
-      <Label className="text-[10px] font-medium text-muted-foreground">
-        {label}
-        {required ? <span className="text-destructive"> *</span> : null}
-      </Label>
-      <div className="mt-1">{children}</div>
-    </div>
   );
 }

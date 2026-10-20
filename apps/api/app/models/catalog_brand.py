@@ -25,6 +25,8 @@ class CatalogBrand(Base):
     slug: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # draft | published | unlisted | archived — like a product; only "published" is live (is_active mirrors it)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="published", server_default="published", index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     website: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     meta_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -36,6 +38,9 @@ class CatalogBrand(Base):
     banner_media_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     # Split admin Catalog vs Dropshipping (frontstore) brand lists — mirrors product channel.
     channel: Mapped[str] = mapped_column(String(20), nullable=False, default="catalog", index=True)
+    # stamped by services/audit_actor.py on every save
+    updated_by_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    updated_by_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,

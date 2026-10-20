@@ -14,6 +14,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -119,11 +120,316 @@ class RmaTicket(Base):
     replacement_sku: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     replacement_warehouse_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
 
+    # ── Complaint intake & approval (docs/RMA.md Stage A–B) ──
+    # Plain-language stock state: in_rma_store | with_supplier | replacement_received | delivered | null (not stocked yet)
+    custody_state: Mapped[Optional[str]] = mapped_column(String(24), nullable=True, index=True)
+    # Whether the unit is physically here (false while a remote request is `awaiting_return`).
+    unit_received: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    complaint_decision: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    complaint_decided_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    complaint_decided_by_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    complaint_decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    complaint_decision_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    assigned_to_user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    promised_delivery_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    charge_estimate: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    diagnosis_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    diagnosis_report: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Supplier / purchase traceability, resolved from the serial; `manual` needs an override reason.
+    supplier_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    supplier_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    purchase_receipt_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    purchase_receipt_no: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    purchase_bill_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    purchase_bill_no: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    vendor_invoice_no: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    supplier_source: Mapped[str] = mapped_column(String(10), nullable=False, default="none")  # traced | manual | none
+    supplier_override_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prior_rma_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # The serial actually held now, when a supplier sent back a different unit. `serial_number` is never overwritten.
+    received_serial_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
+    receipt_no: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    receipt_print_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    receipt_last_printed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     charges: Mapped[List["RmaCharge"]] = relationship(
         "RmaCharge", back_populates="ticket", cascade="all, delete-orphan"
     )
     supplier_job: Mapped[Optional["RmaSupplierJob"]] = relationship(
         "RmaSupplierJob", back_populates="ticket", uselist=False, cascade="all, delete-orphan"
+    )
+
+    # Work-queue read-outs (docs/RMA.md Phase 5); derived, never stored.
+    @property
+    def days_open(self) -> int:
+        from app.services.rma import queue_service
+
+        return queue_service.days_open(self)
+
+    @property
+    def overdue_days(self) -> int:
+        from app.services.rma import queue_service
+
+        return queue_service.days_overdue(self)
+
+    @property
+    def is_repeat(self) -> bool:
+        return (self.prior_rma_count or 0) > 0
+
+
+class RmaStockEvent(Base):
+    """One finalized stock posting of an RMA (intake, dispatch, receipt, delivery …).
+
+    The unique (rma_id, event_key) is the idempotency guard: an event can be posted once, so approving the same
+    document twice can never stock twice. `movement_id` points at the inventory ledger row it created.
+    """
+
+    __tablename__ = "rma_stock_events"
+    __table_args__ = (UniqueConstraint("rma_id", "event_key", name="uq_rma_stock_events_rma_event"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    rma_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("rma_tickets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    event_key: Mapped[str] = mapped_column(String(40), nullable=False)
+    movement_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    movement_type: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    warehouse_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # For a move between two places (dispatch, receipt ...): where the unit went; `warehouse_id` is where it left from.
+    dest_warehouse_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    custody_state: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    reversed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+
+class RmaSupplierClaim(Base):
+    """A replacement / repair claim lodged with a supplier for one RMA unit (docs/RMA.md Stage C).
+
+    Supplier, serial and purchase-invoice details are copied from the ticket when the claim is created and shown
+    read-only; the claim text, accessories and dispatch details are the editable part. Approving the claim and
+    dispatching the unit are separate steps: dispatch is what moves the unit out of the RMA store.
+    """
+
+    __tablename__ = "rma_supplier_claims"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    company_id: Mapped[str] = mapped_column(String(36), nullable=False, default="default", index=True)
+    rma_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("rma_tickets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    claim_number: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft", index=True)
+
+    supplier_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    supplier_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    supplier_reference: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    purchase_receipt_no: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    purchase_bill_no: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    vendor_invoice_no: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    sku: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    product_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    serial_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    problem: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    diagnosis: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    accessories_sent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    dispatch_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    courier: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    tracking_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    expected_return_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+
+    decision: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    decided_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    decided_by_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    decision_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    dispatched_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    dispatched_by_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    dispatched_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    transit_warehouse_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+
+    print_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_printed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class RmaSupplierReceipt(Base):
+    """What came back from the supplier for a dispatched claim (docs/RMA.md Stage D).
+
+    Approving it is the only thing that stocks the unit back into the RMA store; a draft, a pending or a rejected
+    receipt posts nothing. The actual received serial defaults to the serial that was sent; a different one needs the
+    serial-change permission, must not exist yet, and is linked to the original rather than replacing it.
+    """
+
+    __tablename__ = "rma_supplier_receipts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    company_id: Mapped[str] = mapped_column(String(36), nullable=False, default="default", index=True)
+    rma_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("rma_tickets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    claim_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("rma_supplier_claims.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    receipt_number: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft", index=True)
+
+    supplier_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    supplier_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    sent_serial: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    received_serial: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False, default="replacement")
+    outcome_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    supplier_delivery_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    received_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    received_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    condition_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    accessories_received: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    warehouse_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+
+    decision: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    decided_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    decided_by_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    decision_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    posted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    print_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_printed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class RmaDelivery(Base):
+    """A hand-over to the customer and/or a payment for an RMA (docs/RMA.md Stage E).
+
+    Two separate concepts, so a payment can never hand the product over by accident:
+    - physical action: `deliver_product` (the unit leaves the RMA store and the RMA is completed) or not;
+    - payment state: `none` (no charge), `received` (money taken now) or `due` (the amount stays owed).
+    The five familiar cases are presets of these two. Approving is the only step that posts: stock out, the payment and the
+    receivable, each exactly once; a draft, pending or rejected delivery posts nothing.
+    """
+
+    __tablename__ = "rma_deliveries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    company_id: Mapped[str] = mapped_column(String(36), nullable=False, default="default", index=True)
+    rma_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("rma_tickets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    delivery_number: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft", index=True)
+    preset: Mapped[str] = mapped_column(String(32), nullable=False, default="custom")
+
+    deliver_product: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    payment_state: Mapped[str] = mapped_column(String(10), nullable=False, default="none")  # none | received | due
+    amount_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_received: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    amount_due: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    payment_account_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    payment_reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+
+    delivery_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    delivered_to: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    serial_delivered: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    decision: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    decided_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    decided_by_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    decision_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # what approval posted (the links to the existing finance records and the stock ledger)
+    posted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    stock_posted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    payment_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    payment_number: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    receivable_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    receivable_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    print_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_printed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class RmaSettlement(Base):
+    """One money-in / money-out entry against an RMA (the "RMA Settlement" section).
+
+    Separate from the product delivery on purpose: a settlement never moves stock or the RMA status, and a delivery never
+    posts money. Several settlements can sit against one RMA and each keeps its own history. Nothing reaches the books until
+    it is approved; approval posts through the existing finance services (the RMA receivable for the RMA's own charges,
+    one guarded party payment for everything else) and records the links here (payment, journal entry, invoice).
+    """
+
+    __tablename__ = "rma_settlements"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    company_id: Mapped[str] = mapped_column(String(36), nullable=False, default="default", index=True)
+    rma_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("rma_tickets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    settlement_number: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft", index=True)
+
+    party_type: Mapped[str] = mapped_column(String(12), nullable=False, default="customer")  # customer|dealer|supplier|other
+    party_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)  # parties.id
+    party_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    direction: Mapped[str] = mapped_column(String(4), nullable=False, default="in")  # in | out
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False, default="parts_service")
+    purpose_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    payment_account_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    payment_method: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # the account's kind, kept as a snapshot
+    transaction_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    created_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_by_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    decision: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    decided_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    decided_by_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    decision_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # what approval posted: the links to the existing finance records
+    posted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    counter_account_code: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    payment_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    payment_number: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    journal_entry_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    journal_number: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    receivable_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    receivable_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    # A reversal is a new settlement that mirrors an approved one (opposite direction, same party / amount / account).
+    # `reverses_id` is set on the reversal, `reversed_by_id` on the original once the reversal is approved.
+    reverses_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    reversed_by_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
 

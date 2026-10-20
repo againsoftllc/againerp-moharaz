@@ -16,7 +16,7 @@ export const RMA_STAGES: {
     id: "complain",
     label: "Complain Receive",
     hint: "Customer brought a faulty unit — received, checked, waiting for a decision.",
-    statuses: ["draft", "pending_approval", "approved", "awaiting_return", "received", "diagnosing", "awaiting_approval", "in_repair", "on_hold"],
+    statuses: ["draft", "pending_approval", "correction_requested", "approved", "awaiting_return", "received", "diagnosing", "awaiting_approval", "in_repair", "on_hold"],
   },
   {
     id: "claim",

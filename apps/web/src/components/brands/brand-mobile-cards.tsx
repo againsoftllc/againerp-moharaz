@@ -1,7 +1,7 @@
 "use client";
 
 import { MoreHorizontal, Pencil, Archive } from "lucide-react";
-import type { Brand } from "@/lib/mock-data/brands";
+import { brandStatusOf, type Brand } from "@/lib/mock-data/brands";
 import { resolveMediaUrl } from "@/lib/media/resolve-media";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MobileCardActions } from "@/components/activity/mobile-card-actions";
 
-function ActiveBadge({ active }: { active: boolean }) {
-  return <Badge variant={active ? "success" : "muted"}>{active ? "On" : "Off"}</Badge>;
+function StatusBadge({ brand }: { brand: Brand }) {
+  const status = brandStatusOf(brand);
+  const variant = status === "published" ? "success" : status === "draft" ? "warning" : status === "unlisted" ? "outline" : "muted";
+  return (
+    <Badge variant={variant} className="capitalize">
+      {status}
+    </Badge>
+  );
 }
 
 type Props = {
@@ -49,7 +55,7 @@ export function BrandMobileCards({ brands, onEdit, onTurnOff }: Props) {
             <p className="truncate text-xs text-muted-foreground">/brands/{b.slug}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="text-xs">{b.productCount} products</span>
-              <ActiveBadge active={b.active} />
+              <StatusBadge brand={b} />
             </div>
           </div>
           <MobileCardActions
@@ -66,7 +72,7 @@ export function BrandMobileCards({ brands, onEdit, onTurnOff }: Props) {
                   <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onTurnOff(b)} className="text-destructive">
-                  <Archive className="mr-2 h-3.5 w-3.5" /> Turn off
+                  <Archive className="mr-2 h-3.5 w-3.5" /> Unlist
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

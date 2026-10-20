@@ -16,8 +16,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api/client";
 import {
   createFinanceCheque,
+  fetchAvailableChequeLeaves,
   fetchFinancePayablesForSupplier,
   fetchFinanceReceivables,
+  type ApiAvailableChequeLeaf,
   type ApiFinanceCheque,
   type ChequeDirection,
 } from "@/lib/api/finance";
@@ -58,10 +60,13 @@ export function ChequeFormDrawer({ open, onOpenChange, onCreated }: Props) {
   const [partnerRecord, setPartnerRecord] = React.useState<Customer | null>(null);
   const [partnerOpen, setPartnerOpen] = React.useState(false);
   const [supplierDrawerId, setSupplierDrawerId] = React.useState<string | null>(null);
+  const [leaves, setLeaves] = React.useState<ApiAvailableChequeLeaf[]>([]);
+  const [leafId, setLeafId] = React.useState("");
 
   React.useEffect(() => {
     if (!open) return;
     setDirection("received");
+    setLeafId("");
     setPartyId("");
     setDocId("");
     setBankName("");
@@ -83,6 +88,22 @@ export function ChequeFormDrawer({ open, onOpenChange, onCreated }: Props) {
       cancelled = true;
     };
   }, [open, direction]);
+
+  // issued cheques come from a cheque book when one is active (the leaf gives the number and the bank)
+  React.useEffect(() => {
+    setLeafId("");
+    setLeaves([]);
+    if (!open || direction !== "issued") return;
+    let cancelled = false;
+    fetchAvailableChequeLeaves()
+      .then((res) => !cancelled && setLeaves(res.data))
+      .catch(() => !cancelled && setLeaves([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [open, direction]);
+
+  const selectedLeaf = leaves.find((l) => l.leaf_id === leafId);
 
   React.useEffect(() => {
     setDocId("");
@@ -113,7 +134,10 @@ export function ChequeFormDrawer({ open, onOpenChange, onCreated }: Props) {
   const amountNum = Number(amount || 0);
   const overLimit = Boolean(selectedDoc) && amountNum > (selectedDoc?.balance ?? 0);
   const isValid =
-    Boolean(partyId) && bankName.trim() !== "" && chequeNumber.trim() !== "" && amountNum > 0 && !overLimit;
+    Boolean(partyId) &&
+    (selectedLeaf ? true : bankName.trim() !== "" && chequeNumber.trim() !== "") &&
+    amountNum > 0 &&
+    !overLimit;
 
   function pickDoc(id: string) {
     setDocId(id);
@@ -142,8 +166,9 @@ export function ChequeFormDrawer({ open, onOpenChange, onCreated }: Props) {
       const res = await createFinanceCheque({
         direction,
         party_id: partyId,
-        bank_name: bankName.trim(),
-        cheque_number: chequeNumber.trim(),
+        bank_name: selectedLeaf ? selectedLeaf.bank_name : bankName.trim(),
+        cheque_number: selectedLeaf ? selectedLeaf.cheque_number : chequeNumber.trim(),
+        cheque_leaf_id: selectedLeaf ? selectedLeaf.leaf_id : undefined,
         cheque_date: chequeDate,
         amount,
         receivable_id: direction === "received" && docId ? docId : undefined,
@@ -220,25 +245,54 @@ export function ChequeFormDrawer({ open, onOpenChange, onCreated }: Props) {
               disabled={saving}
             />
           </div>
+          {direction === "issued" && leaves.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              <Label>Cheque book leaf</Label>
+              <FilterSelect
+                value={leafId}
+                onChange={setLeafId}
+                options={[
+                  { value: "", label: "Type the bank and number by hand" },
+                  ...leaves.map((l) => ({ value: l.leaf_id, label: `${l.cheque_number} — ${l.bank_name} · ${l.book_number}` })),
+                ]}
+                searchThreshold={0}
+                placeholder="Select an unused cheque…"
+                searchPlaceholder="Search cheque no…"
+                width="w-full"
+                avoidCollisions
+                ariaLabel="Cheque book leaf"
+                disabled={saving}
+              />
+              {selectedLeaf ? (
+                <p className="text-[11px] text-muted-foreground">
+                  The number and bank come from {selectedLeaf.book_number}; the leaf is marked issued when you save.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <Label>Bank name</Label>
               <FilterSelect
-                value={bankName}
+                value={selectedLeaf ? selectedLeaf.bank_name : bankName}
                 onChange={setBankName}
-                options={BD_BANKS.map((bank) => ({ value: bank, label: bank }))}
+                options={(selectedLeaf && !BD_BANKS.includes(selectedLeaf.bank_name) ? [selectedLeaf.bank_name, ...BD_BANKS] : BD_BANKS).map((bank) => ({ value: bank, label: bank }))}
                 searchThreshold={0}
                 placeholder="Select bank…"
                 searchPlaceholder="Search bank…"
                 width="w-full"
               avoidCollisions
                 ariaLabel="Bank name"
-                disabled={saving}
+                disabled={saving || Boolean(selectedLeaf)}
               />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Cheque number</Label>
-              <Input value={chequeNumber} onChange={(e) => setChequeNumber(e.target.value)} disabled={saving} />
+              <Input
+                value={selectedLeaf ? selectedLeaf.cheque_number : chequeNumber}
+                onChange={(e) => setChequeNumber(e.target.value)}
+                disabled={saving || Boolean(selectedLeaf)}
+              />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Cheque date</Label>

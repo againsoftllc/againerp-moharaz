@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
+  AlertTriangle,
   CheckCircle2,
   ClipboardList,
   Factory,
   PackageCheck,
+  Repeat,
   Truck,
   Wrench,
 } from "lucide-react";
@@ -15,7 +17,10 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { Badge } from "@/components/ui/badge";
 import {
   fetchRmaDashboard,
+  fetchRmaQueues,
   fetchRmaTickets,
+  SUPPLIER_PENDING_LABEL,
+  type RmaQueues,
   RMA_STATUS_LABEL,
   RMA_STATUS_TONE,
   type RmaDashboard,
@@ -70,6 +75,7 @@ export default function RmaDashboardPage() {
   const range = useMemo(() => periodRange(period), [period]);
   const [tickets, setTickets] = useState<RmaTicket[] | null>(null);
   const [summary, setSummary] = useState<RmaDashboard | null>(null);
+  const [queues, setQueues] = useState<RmaQueues | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -78,6 +84,7 @@ export default function RmaDashboardPage() {
       const [list, dash] = await Promise.all([fetchRmaTickets(), fetchRmaDashboard()]);
       setTickets(list.data);
       setSummary(dash);
+      void fetchRmaQueues().then(setQueues).catch(() => setQueues(null));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't load the RMA summary", { id: "rma-dashboard-api" });
     } finally {
@@ -169,6 +176,84 @@ export default function RmaDashboardPage() {
             loading={loading}
           />
         ))}
+      </div>
+
+      {/* what needs someone's attention today: overdue, waiting on a supplier, coming back again */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Kpi
+          icon={<AlertTriangle className="h-4 w-4" />}
+          label="Overdue"
+          tone={(queues?.counts.overdue ?? 0) > 0 ? "bad" : "good"}
+          value={fmt(queues?.counts.overdue ?? summary?.overdue_count ?? 0)}
+          foot={<span className="text-muted-foreground">past the promised delivery date</span>}
+          href="/inventory/rma?queue=overdue"
+          loading={loading}
+        />
+        <Kpi
+          icon={<Factory className="h-4 w-4" />}
+          label="Waiting on a supplier"
+          tone={(queues?.counts.supplier_late ?? 0) > 0 ? "bad" : (queues?.counts.supplier_pending ?? 0) > 0 ? "warn" : "good"}
+          value={fmt(queues?.counts.supplier_pending ?? summary?.supplier_pending_count ?? 0)}
+          foot={
+            <span className={cn((queues?.counts.supplier_late ?? 0) > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground")}>
+              {fmt(queues?.counts.supplier_late ?? 0)} late
+            </span>
+          }
+          href="/inventory/rma?queue=supplier_pending"
+          loading={loading}
+        />
+        <Kpi
+          icon={<Repeat className="h-4 w-4" />}
+          label="Repeat RMAs"
+          tone={(queues?.counts.repeat ?? 0) > 0 ? "warn" : "good"}
+          value={fmt(queues?.counts.repeat ?? summary?.repeat_count ?? 0)}
+          foot={<span className="text-muted-foreground">open, with earlier claims</span>}
+          href="/inventory/rma?queue=repeat"
+          loading={loading}
+        />
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Panel title="Overdue" action={<Link href="/inventory/rma?queue=overdue" className="text-[11px] text-[#00a09d] hover:underline">See all</Link>}>
+          {!queues || queues.overdue.length === 0 ? (
+            <p className="py-6 text-center text-xs text-muted-foreground">Nothing is past its promised date.</p>
+          ) : (
+            <ul className="divide-y divide-border/60">
+              {queues.overdue.slice(0, 6).map((r) => (
+                <li key={r.rma_id}>
+                  <Link href={`/inventory/rma/${r.rma_id}`} className="flex items-center gap-3 py-1.5 text-xs hover:bg-muted/40">
+                    <span className="font-mono font-medium">{r.rma_number}</span>
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                      {r.customer_name} · {r.product_name}
+                    </span>
+                    <span className="shrink-0 border border-red-500/40 bg-red-500/10 px-1 text-[10px] font-medium text-red-600 dark:text-red-400">{r.days_overdue}d late</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+        <Panel title="Supplier pending" action={<Link href="/inventory/rma?queue=supplier_pending" className="text-[11px] text-[#00a09d] hover:underline">See all</Link>}>
+          {!queues || queues.supplier_pending.length === 0 ? (
+            <p className="py-6 text-center text-xs text-muted-foreground">No unit is waiting on a supplier.</p>
+          ) : (
+            <ul className="divide-y divide-border/60">
+              {queues.supplier_pending.slice(0, 6).map((r) => (
+                <li key={`${r.rma_id}:${r.state}`}>
+                  <Link href={`/inventory/rma/${r.rma_id}`} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 text-xs hover:bg-muted/40">
+                    <span className="font-mono font-medium">{r.rma_number}</span>
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                      {r.supplier_name || "Supplier not set"} · {SUPPLIER_PENDING_LABEL[r.state]}
+                    </span>
+                    <span className={cn("shrink-0 text-[11px]", r.is_late ? "font-medium text-red-600 dark:text-red-400" : "text-muted-foreground")}>
+                      {r.days_waiting}d{r.is_late ? " · late" : ""}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
       </div>
 
       {/* trend + stage share */}

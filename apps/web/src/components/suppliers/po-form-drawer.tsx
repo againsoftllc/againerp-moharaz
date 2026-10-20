@@ -28,6 +28,7 @@ import { SearchDropdown } from "@/components/again/again-search-dropdown";
 import { LineNumericInput } from "@/components/sales/sales-order-line-row-cells";
 import { cancelPurchaseOrder, confirmPurchaseOrder, createPurchaseOrder, updatePurchaseOrder, type ApiPurchaseOrder } from "@/lib/api/purchase-orders";
 import { createPurchaseReceipt, fetchPurchaseReceipts, postPurchaseReceipt, type ApiPurchaseReceipt } from "@/lib/api/purchase-receipts";
+import { fetchPurchaseReturns, type ApiPurchaseReturn } from "@/lib/api/purchase-returns";
 import {
   deleteSupplierPayment,
   fetchSupplierPayments,
@@ -57,7 +58,7 @@ import {
 import type { Product } from "@/lib/mock-data/products";
 import type { SupplierDetail } from "@/lib/mock-data/suppliers";
 import { purchasePaths, readPurchaseSettings, type PurchaseOrderPrefillLine } from "@/lib/purchase/purchase-paths";
-import { purchaseOrderIsReturnable } from "@/lib/mock-data/purchase-returns";
+import { purchaseOrderIsReturnable, RETURN_STATUS_LABELS, type ReturnStatus } from "@/lib/mock-data/purchase-returns";
 import {
   fallbackPurchasePrintCompany,
   purchasePrintHeading,
@@ -295,7 +296,7 @@ type ItemOption = {
 };
 
 type PurchaseStatusChoice = "" | "draft" | "ordered" | "pending" | "received";
-type NotebookTab = "lines" | "payment" | "receiving" | "others";
+type NotebookTab = "lines" | "payment" | "receiving" | "returns" | "others";
 
 const PAYMENT_TERM_OPTIONS = [
   { value: "due", label: "Due on receipt" },
@@ -683,6 +684,8 @@ export function PoFormDrawer({
   const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
   const supplierAnchorRef = useRef<HTMLDivElement | null>(null);
   const [linesTab, setLinesTab] = useState<NotebookTab>("lines");
+  // this order's purchase returns (the Returns tab)
+  const [poReturns, setPoReturns] = useState<ApiPurchaseReturn[] | null>(null);
   const [paymentTerms, setPaymentTerms] = useState("net30");
   const [paymentHistory, setPaymentHistory] = useState<PaymentEntry[]>([]);
   const [payDraftMethod, setPayDraftMethod] = useState<string>("Cash");
@@ -834,6 +837,21 @@ export function PoFormDrawer({
     // whole object: a fresh-but-same-PO object from a parent refetch (e.g. after posting a
     // receipt) must not wipe in-progress local state like poReceipts or paymentHistory.
   }, [open, supplierId, initialSupplierId, initialWarehouseId, initialLines, order?.id]);
+
+  useEffect(() => {
+    if (!open || !order?.id || linesTab !== "returns") return;
+    let cancelled = false;
+    void fetchPurchaseReturns({ purchase_order_id: order.id })
+      .then((res) => {
+        if (!cancelled) setPoReturns(res.data);
+      })
+      .catch(() => {
+        if (!cancelled) setPoReturns([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, order?.id, linesTab]);
 
   useEffect(() => {
     if (!open || !order?.id) return;
@@ -1922,6 +1940,7 @@ export function PoFormDrawer({
                 { id: "payment" as const, label: "Payment" },
                 { id: "others" as const, label: "Others" },
                 ...(isEdit ? [{ id: "receiving" as const, label: "Receiving" }] : []),
+                ...(isEdit ? [{ id: "returns" as const, label: "Returns" }] : []),
               ]}
               active={linesTab}
               onChange={setLinesTab}
@@ -2387,6 +2406,59 @@ export function PoFormDrawer({
                       </>
                     );
                   })()}
+                </div>
+              ) : linesTab === "returns" && order ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Goods sent back to the supplier against {order.po_number}.
+                    </p>
+                    {purchaseOrderIsReturnable(order) ? (
+                      <button
+                        type="button"
+                        className={cn(AGAIN_DRAWER_ACTION_BTN, "h-7 px-3 text-[11px]")}
+                        onClick={() => {
+                          onOpenChange(false);
+                          router.push(`${purchasePaths.returns}?order=${encodeURIComponent(order.id)}`);
+                        }}
+                      >
+                        New return
+                      </button>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">Receive goods first to return them.</p>
+                    )}
+                  </div>
+                  {poReturns === null ? (
+                    <p className="px-1 py-6 text-center text-xs text-muted-foreground">Loading returns…</p>
+                  ) : poReturns.length === 0 ? (
+                    <p className="border border-dashed border-border px-3 py-8 text-center text-xs text-muted-foreground">
+                      No returns on this order yet.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-border border border-border">
+                      {poReturns.map((ret) => (
+                        <li key={ret.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-xs">
+                          <button
+                            type="button"
+                            className="font-medium text-primary hover:underline"
+                            onClick={() => {
+                              onOpenChange(false);
+                              router.push(`${purchasePaths.returns}?order=${encodeURIComponent(order.id)}`);
+                            }}
+                          >
+                            {ret.return_number}
+                          </button>
+                          <span className="text-muted-foreground">{String(ret.return_date ?? "").slice(0, 10)}</span>
+                          <span className="border border-border px-1.5 py-0.5 text-[10px]">
+                            {RETURN_STATUS_LABELS[ret.status as ReturnStatus] ?? ret.status}
+                          </span>
+                          <span className="ml-auto tabular-nums font-medium">
+                            {formatCurrency(Number(ret.credit_amount || 0))}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ) : linesTab === "others" ? (
                 <div className="space-y-1.5">

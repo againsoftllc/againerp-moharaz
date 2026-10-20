@@ -181,6 +181,74 @@ export async function fetchFinanceDashboard() {
   return apiFetch<{ data: ApiFinanceDashboard }>(`${BASE}/dashboard`);
 }
 
+export type FinancePeriodTotals = {
+  money_in: number;
+  money_out: number;
+  net_cash: number;
+  payment_count: number;
+  invoiced: number;
+  invoice_count: number;
+  billed: number;
+  bill_count: number;
+  expenses: number;
+  expense_count: number;
+};
+
+export type FinanceDashboardPeriod = {
+  date_from: string | null;
+  date_to: string | null;
+  snapshot: {
+    receivable_balance: number;
+    receivable_count: number;
+    payable_balance: number;
+    payable_count: number;
+    cash_total: number;
+    net_tax_payable: number;
+    overdue_receivable: number;
+    overdue_receivable_count: number;
+    overdue_payable: number;
+    overdue_payable_count: number;
+  };
+  attention: {
+    unposted_receivables: number;
+    unposted_payables: number;
+    failed_postings: number;
+    cheques_moving: number;
+    expenses_to_approve: number;
+    overdue_receivables: number;
+  };
+  cash_accounts: { id: string; name: string; kind: string; balance: number }[];
+  top_receivables: { party_id: string; name: string; balance: number; count: number }[];
+  top_payables: { party_id: string; name: string; balance: number; count: number }[];
+  current: FinancePeriodTotals;
+  previous: FinancePeriodTotals | null;
+  series: { date: string; label: string; money_in: number; money_out: number }[];
+  by_month: boolean;
+  by_method: { method: string; amount: number; count: number }[];
+  expenses_by_category: { name: string; total: number; count: number }[];
+  recent_payments: {
+    id: string;
+    date: string | null;
+    payment_number: string;
+    direction: "inbound" | "outbound";
+    amount: number;
+    method: string;
+    account: string | null;
+    party: string | null;
+    reference: string | null;
+  }[];
+};
+
+/** The Finance landing dashboard: balances right now and money in / out over the chosen period. */
+export async function fetchFinanceDashboardPeriod(dateFrom?: string, dateTo?: string): Promise<FinanceDashboardPeriod> {
+  const params = new URLSearchParams();
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
+  const q = params.toString();
+  const res = await apiFetch<{ data: FinanceDashboardPeriod }>(`${BASE}/dashboard/period${q ? `?${q}` : ""}`);
+  return res.data;
+}
+
 export async function fetchFinanceTaxSummary() {
   return apiFetch<{ data: ApiFinanceTaxSummary }>(`${BASE}/tax-summary`);
 }
@@ -432,6 +500,8 @@ export async function createFinanceCheque(input: {
   party_id: string;
   bank_name: string;
   cheque_number: string;
+  /** An issued cheque taken from a cheque book leaf: the leaf gives the number and the book's bank. */
+  cheque_leaf_id?: string;
   cheque_date: string;
   amount: string;
   receivable_id?: string;
@@ -473,5 +543,118 @@ export async function updateFinanceCheque(
   return apiFetch<{ data: ApiFinanceChequeDetail }>(`${BASE}/cheques/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+// ── Cheque books ─────────────────────────────────────────────────────────
+
+export type ChequeBookState = "draft" | "active" | "closed";
+export type ChequeLeafDisplayStatus = "unused" | "void" | "not_treated" | "cleared" | "bounced" | "cancelled";
+
+export type ApiChequeLeaf = {
+  id: string;
+  book_id: string;
+  cheque_number: string;
+  status: "unused" | "issued" | "void";
+  display_status: ChequeLeafDisplayStatus;
+  cheque_id: string | null;
+  issue_date: string | null;
+  party_name: string | null;
+  payment_number: string | null;
+  amount: string;
+  cheque_type: string;
+  remarks: string | null;
+};
+
+export type ApiChequeBook = {
+  id: string;
+  company_id: string;
+  book_number: string;
+  payment_account_id: string;
+  payment_account_name: string | null;
+  bank_name: string;
+  branch_name: string | null;
+  routing_number: string | null;
+  cheque_prefix: string;
+  number_from: number;
+  number_to: number;
+  state: ChequeBookState;
+  remarks: string | null;
+  leaf_count: number;
+  unused_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ApiChequeBookDetail = ApiChequeBook & { leaves: ApiChequeLeaf[] };
+
+export type ApiAvailableChequeLeaf = {
+  leaf_id: string;
+  cheque_number: string;
+  book_id: string;
+  book_number: string;
+  bank_name: string;
+  payment_account_id: string;
+};
+
+export type ChequeBookInput = {
+  payment_account_id: string;
+  bank_name: string;
+  branch_name?: string | null;
+  routing_number?: string | null;
+  cheque_prefix: string;
+  number_from: number;
+  number_to: number;
+  remarks?: string | null;
+};
+
+export async function fetchChequeBooks(params?: { state?: string; payment_account_id?: string }) {
+  const q = new URLSearchParams();
+  if (params?.state) q.set("state", params.state);
+  if (params?.payment_account_id) q.set("payment_account_id", params.payment_account_id);
+  const s = q.toString();
+  return apiFetch<{ data: ApiChequeBook[] }>(`${BASE}/cheque-books${s ? `?${s}` : ""}`, { cache: "no-store" });
+}
+
+export async function fetchChequeBook(id: string) {
+  return apiFetch<{ data: ApiChequeBookDetail }>(`${BASE}/cheque-books/${id}`, { cache: "no-store" });
+}
+
+export async function fetchAvailableChequeLeaves(paymentAccountId?: string) {
+  const s = paymentAccountId ? `?payment_account_id=${encodeURIComponent(paymentAccountId)}` : "";
+  return apiFetch<{ data: ApiAvailableChequeLeaf[] }>(`${BASE}/cheque-books/available-leaves${s}`, { cache: "no-store" });
+}
+
+export async function createChequeBook(input: ChequeBookInput) {
+  return apiFetch<{ data: ApiChequeBookDetail }>(`${BASE}/cheque-books`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function updateChequeBook(id: string, input: Partial<ChequeBookInput>) {
+  return apiFetch<{ data: ApiChequeBookDetail }>(`${BASE}/cheque-books/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export async function deleteChequeBook(id: string) {
+  return apiFetch<void>(`${BASE}/cheque-books/${id}`, { method: "DELETE" });
+}
+
+export async function generateChequeBookLeaves(id: string) {
+  return apiFetch<{ data: ApiChequeBookDetail; count: number }>(`${BASE}/cheque-books/${id}/generate`, { method: "POST" });
+}
+
+export async function deleteUnusedChequeBookLeaves(id: string) {
+  return apiFetch<{ data: ApiChequeBookDetail; count: number }>(`${BASE}/cheque-books/${id}/delete-unused`, { method: "POST" });
+}
+
+export async function setChequeBookState(id: string, state: ChequeBookState) {
+  return apiFetch<{ data: ApiChequeBookDetail }>(`${BASE}/cheque-books/${id}/state`, {
+    method: "POST",
+    body: JSON.stringify({ state }),
+  });
+}
+
+export async function voidChequeLeaf(leafId: string, voided: boolean) {
+  return apiFetch<{ data: ApiChequeBookDetail }>(`${BASE}/cheque-books/leaves/${leafId}/void`, {
+    method: "POST",
+    body: JSON.stringify({ void: voided }),
   });
 }

@@ -60,6 +60,7 @@ DEFAULT_SEQUENCES: Dict[str, SequenceSpec] = {
     "finance.journal": SequenceSpec("Journal entry", "JE-"),
     "finance.payment": SequenceSpec("Payment", "PAY-"),
     "finance.expense": SequenceSpec("Expense", "EXP-"),
+    "finance.cheque_book": SequenceSpec("Cheque book", "CBR/{YYYY}/", 5, "yearly"),
     "finance.payment.customer": SequenceSpec("Customer payment", "PAY-CUS-"),
     "finance.payment.supplier": SequenceSpec("Supplier payment", "PAY-SUP-"),
     # Service / CRM

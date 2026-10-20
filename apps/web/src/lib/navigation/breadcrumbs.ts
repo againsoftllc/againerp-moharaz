@@ -57,6 +57,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   journal: "Journal",
   accounts: "Chart of Accounts",
   "payment-accounts": "Payment Accounts",
+  "cheque-books": "Cheque Books",
   "trial-balance": "Trial Balance",
   "profit-loss": "Profit & Loss",
   "balance-sheet": "Balance Sheet",
