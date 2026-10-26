@@ -21,6 +21,8 @@ from app.models.auth_user import AuthUser
 from app.models.auth_role import AuthRole  # noqa: F401 — register metadata
 from app.models.auth_role_permission import AuthRolePermission  # noqa: F401
 from app.models.auth_user_role import AuthUserRole  # noqa: F401
+from app.models.auth_user_warehouse import AuthUserWarehouse  # noqa: F401
+from app.models.approval_request import ApprovalRequest  # noqa: F401
 from app.models.storefront_cart import StorefrontCart, StorefrontCartItem
 from app.models.website_wishlist import WebsiteWishlist, WebsiteWishlistItem  # noqa: F401 — register metadata
 from app.models.website_contact_submission import WebsiteContactSubmission  # noqa: F401 — register metadata
@@ -3194,6 +3196,24 @@ def ensure_role_export_column() -> None:
         ))
 
 
+def ensure_role_approve_column() -> None:
+    """auth_role_permissions.can_approve (docs/approval.md). Added once, off for every existing role: approvals are opt-in per role."""
+    with engine.begin() as conn:
+        conn.execute(text(
+            "DO $$ BEGIN "
+            "IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'auth_role_permissions' AND column_name = 'can_approve') THEN "
+            "ALTER TABLE auth_role_permissions ADD COLUMN can_approve BOOLEAN NOT NULL DEFAULT FALSE; "
+            "END IF; END $$;"
+        ))
+
+
+def ensure_approval_request_target_columns() -> None:
+    """approval_requests.target_kind / target_id (docs/approval.md): the record whose own drawer the Approve screen opens."""
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS target_kind VARCHAR(32)"))
+        conn.execute(text("ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS target_id VARCHAR(64)"))
+
+
 def seed_vendor_types(db) -> int:
     """SPEC.md §5 — example types, seeded so the admin UI isn't empty on day one."""
     existing_codes = {code for code, in db.query(VendorType.code).all()}
@@ -4983,6 +5003,15 @@ def ensure_purchase_receipt_serial_columns() -> None:
             conn.execute(text(stmt))
 
 
+def ensure_purchase_return_serial_columns() -> None:
+    statements = [
+        "ALTER TABLE purchase_return_lines ADD COLUMN IF NOT EXISTS serials_json TEXT NOT NULL DEFAULT '[]'",
+    ]
+    with engine.begin() as conn:
+        for stmt in statements:
+            conn.execute(text(stmt))
+
+
 def ensure_purchase_order_line_return_columns() -> None:
     statements = [
         "ALTER TABLE purchase_order_lines ADD COLUMN IF NOT EXISTS quantity_returned INTEGER NOT NULL DEFAULT 0",
@@ -6438,6 +6467,8 @@ def main() -> None:
     ensure_catalog_product_updated_by_columns()
     ensure_role_publish_column()
     ensure_role_export_column()
+    ensure_role_approve_column()
+    ensure_approval_request_target_columns()
     try:  # trigram indexes for the AI's record search (ai.md step 2.1) - optional, never blocks startup
         from scripts.ensure_search_indexes import ensure_search_indexes
 
@@ -6471,6 +6502,7 @@ def main() -> None:
     ensure_seo_audit_run_columns()
     ensure_seo_url_record_columns()
     ensure_purchase_receipt_serial_columns()
+    ensure_purchase_return_serial_columns()
     ensure_purchase_order_line_return_columns()
     ensure_sales_columns()
     ensure_sales_order_stage_and_shipping_columns()

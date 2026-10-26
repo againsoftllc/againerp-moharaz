@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   X, Shield, Mail, AtSign, User, Save, Trash2, Lock, UserPlus,
-  LogIn, Settings, UserCheck, UserX, KeyRound, Activity,
+  LogIn, Settings, UserCheck, UserX, KeyRound, Activity, Warehouse as WarehouseIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -15,6 +15,8 @@ import { cn, formatDate } from "@/lib/utils";
 import type { AdminUser } from "@/lib/store/admin-auth-store";
 import { fetchUserActivity, type ActivityEntry, type ApiUserCreate } from "@/lib/api/auth-users";
 import { fetchAuthRoles, type AuthRoleRecord } from "@/lib/api/auth-roles";
+import { listWarehouses } from "@/lib/api/inventory";
+import type { Warehouse } from "@/lib/mock-data/inventory";
 
 function roleVariant(role: string) {
   if (role === "admin" || role === "system_manager") return "default" as const;
@@ -58,6 +60,8 @@ const ACTION_META: Record<string, { icon: React.ReactNode; label: string; color?
   reactivated_user:  { icon: <UserCheck className="h-3.5 w-3.5" />, label: "Reactivated user",       color: "text-green-500" },
   role_changed:      { icon: <Shield className="h-3.5 w-3.5" />,    label: "Role changed",           color: "text-yellow-500" },
   changed_role:      { icon: <Shield className="h-3.5 w-3.5" />,    label: "Changed role",           color: "text-yellow-500" },
+  warehouse_changed: { icon: <WarehouseIcon className="h-3.5 w-3.5" />, label: "Warehouse access changed", color: "text-yellow-500" },
+  changed_warehouse: { icon: <WarehouseIcon className="h-3.5 w-3.5" />, label: "Changed warehouse access", color: "text-yellow-500" },
   deleted_account:   { icon: <UserX className="h-3.5 w-3.5" />,     label: "Removed user",           color: "text-red-500" },
   password_changed:  { icon: <KeyRound className="h-3.5 w-3.5" />,  label: "Password changed",       color: "text-muted-foreground" },
 };
@@ -139,6 +143,8 @@ type EditProps = {
     username?: string;
     role?: string;
     role_ids?: string[];
+    warehouse_ids?: string[];
+    default_warehouse_id?: string;
     is_active?: boolean;
     password?: string;
   }) => Promise<void>;
@@ -158,6 +164,10 @@ export function UserDrawer(props: Props) {
   const [password, setPassword] = React.useState("");
   const [roleIds, setRoleIds] = React.useState<string[]>([]);
   const [availableRoles, setAvailableRoles] = React.useState<AuthRoleRecord[]>([]);
+  // none ticked = unrestricted; otherwise the warehouses the user may work in, one of them the default
+  const [warehouseIds, setWarehouseIds] = React.useState<string[]>([]);
+  const [defaultWarehouseId, setDefaultWarehouseId] = React.useState("");
+  const [availableWarehouses, setAvailableWarehouses] = React.useState<Warehouse[]>([]);
   const [isActive, setIsActive] = React.useState(true);
   const [showPassword, setShowPassword] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -176,6 +186,9 @@ export function UserDrawer(props: Props) {
         }
       })
       .catch(() => setAvailableRoles([]));
+    void listWarehouses()
+      .then((rows) => setAvailableWarehouses(rows.filter((w) => w.active)))
+      .catch(() => setAvailableWarehouses([]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.open]);
 
@@ -188,6 +201,8 @@ export function UserDrawer(props: Props) {
       setPassword("");
       setShowPassword(false);
       setRoleIds(props.user.role_ids?.length ? [...props.user.role_ids] : []);
+      setWarehouseIds(props.user.warehouse_ids ? [...props.user.warehouse_ids] : []);
+      setDefaultWarehouseId(props.user.default_warehouse_id ?? "");
       setIsActive(props.user.is_active);
       setTab("info");
     }
@@ -200,12 +215,18 @@ export function UserDrawer(props: Props) {
       setName(""); setUsername(""); setEmail(""); setPassword(""); setShowPassword(false); setTab("info");
       const staff = availableRoles.find((r) => r.slug === "staff");
       setRoleIds(staff ? [staff.id] : []);
+      setWarehouseIds([]);
+      setDefaultWarehouseId("");
     }
   }, [isCreate, props.open, availableRoles]);
 
   const editUser = isCreate ? null : (props as EditProps).user;
   const isSelf   = isCreate ? false : (props as EditProps).isSelf;
   const originalRoleIds = editUser?.role_ids ?? [];
+  const originalWarehouseIds = editUser?.warehouse_ids ?? [];
+  const warehousesChanged =
+    !sameIds(warehouseIds, originalWarehouseIds) ||
+    (warehouseIds.length > 0 && defaultWarehouseId !== (editUser?.default_warehouse_id ?? ""));
 
   const isDirty = isCreate
     ? name.trim().length > 0 && email.trim().length > 0 && username.trim().length >= 3 && password.length >= 6 && roleIds.length > 0
@@ -216,6 +237,7 @@ export function UserDrawer(props: Props) {
           email.trim().toLowerCase() !== editUser.email ||
           (password.length > 0 && password.length >= 6) ||
           !sameIds(roleIds, originalRoleIds) ||
+          warehousesChanged ||
           isActive !== editUser.is_active
         )
       : false;
@@ -230,6 +252,18 @@ export function UserDrawer(props: Props) {
     });
   }
 
+  function toggleWarehouse(id: string) {
+    setWarehouseIds((prev) => {
+      if (prev.includes(id)) {
+        const next = prev.filter((x) => x !== id);
+        setDefaultWarehouseId((d) => (d === id ? (next[0] ?? "") : d));
+        return next;
+      }
+      setDefaultWarehouseId((d) => d || id);
+      return [...prev, id];
+    });
+  }
+
   async function handleCreate() {
     setSaving(true);
     try {
@@ -238,6 +272,7 @@ export function UserDrawer(props: Props) {
         email: email.trim().toLowerCase(),
         username: username.trim().toLowerCase(),
         role_ids: roleIds,
+        ...(warehouseIds.length ? { warehouse_ids: warehouseIds, default_warehouse_id: defaultWarehouseId || warehouseIds[0] } : {}),
         password,
       });
       toast.success(`${name} added`);
@@ -258,6 +293,8 @@ export function UserDrawer(props: Props) {
         email?: string;
         username?: string;
         role_ids?: string[];
+        warehouse_ids?: string[];
+        default_warehouse_id?: string;
         is_active?: boolean;
         password?: string;
       } = {};
@@ -265,6 +302,10 @@ export function UserDrawer(props: Props) {
       if (email.trim().toLowerCase() !== editUser.email) patch.email = email.trim().toLowerCase();
       if (username !== editUser.username) patch.username = username.trim().toLowerCase();
       if (!sameIds(roleIds, originalRoleIds)) patch.role_ids = roleIds;
+      if (warehousesChanged) {
+        patch.warehouse_ids = warehouseIds;
+        if (warehouseIds.length) patch.default_warehouse_id = defaultWarehouseId || warehouseIds[0];
+      }
       if (isActive !== editUser.is_active) patch.is_active = isActive;
       if (password.length >= 6) patch.password = password;
       await (props as EditProps).onSave(editUser.id, patch);
@@ -497,6 +538,63 @@ export function UserDrawer(props: Props) {
                       </div>
                     </div>
                   )}
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="flex items-center gap-1.5">
+                      <WarehouseIcon className="h-3.5 w-3.5" /> Warehouse access
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      {warehouseIds.length === 0
+                        ? "None ticked — this user can use every warehouse. Tick the ones they may work in to limit them."
+                        : "Sales and purchases start in the default warehouse. The user can switch only between the ticked ones."}
+                    </p>
+                    <div className="space-y-1.5">
+                      {availableWarehouses.map((w) => {
+                        const checked = warehouseIds.includes(w.id);
+                        const isDefault = checked && defaultWarehouseId === w.id;
+                        return (
+                          <label
+                            key={w.id}
+                            className={cn(
+                              "flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors",
+                              checked
+                                ? "border-primary bg-primary/5"
+                                : "border-input hover:border-muted-foreground/40",
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 accent-primary"
+                              checked={checked}
+                              disabled={saving}
+                              onChange={() => toggleWarehouse(w.id)}
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-medium text-foreground">{w.name}</span>
+                              <span className="block text-[10px] text-muted-foreground">{w.code}</span>
+                            </span>
+                            {checked && warehouseIds.length > 1 ? (
+                              isDefault ? (
+                                <Badge variant="default">Default</Badge>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={saving}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    setDefaultWarehouseId(w.id);
+                                  }}
+                                  className="text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                                >
+                                  Make default
+                                </button>
+                              )
+                            ) : null}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
 
                   {!isCreate && !isSelf && (
                     <div className="flex items-center justify-between rounded-lg border border-input px-4 py-3">

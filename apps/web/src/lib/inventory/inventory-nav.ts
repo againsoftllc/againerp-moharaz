@@ -213,6 +213,14 @@ export const INVENTORY_NAV_MENUS: InventoryNavMenu[] = [
     children: [],
   },
   {
+    // finalizing actions held for an approver (docs/approval.md); sits left of Reports
+    id: "approve",
+    label: "Approve",
+    direct: true,
+    href: "/inventory/approve",
+    children: [],
+  },
+  {
     id: "reports",
     label: "Reports",
     href: "/inventory/reports",

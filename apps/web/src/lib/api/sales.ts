@@ -782,7 +782,7 @@ export function apiSalesOrderToOrder(row: ApiSalesOrder): Order & SalesRecordMet
 export function apiSalesQuotationToOrder(row: ApiSalesQuotation): Order & SalesRecordMeta {
   const products = mapQuotationLines(row.lines ?? []);
   const { notes, items } = unpackOrderItemsWithLineLayout(row.notes, products);
-  return baseOrderFields(
+  const order = baseOrderFields(
     { ...row, notes: notes ?? null },
     row.quotation_number,
     row.quote_date,
@@ -790,6 +790,7 @@ export function apiSalesQuotationToOrder(row: ApiSalesQuotation): Order & SalesR
     items,
     "quotation",
   );
+  return { ...order, expiration: row.valid_until?.slice(0, 10) || undefined };
 }
 
 export function isSalesQuotation(order: Order & Partial<SalesRecordMeta>): boolean {
@@ -1040,6 +1041,7 @@ export function orderToQuotationPayload(order: Order): CreateSalesQuotationInput
     customer_id: order.customer.id,
     warehouse_id: order.warehouseId,
     quote_date: order.orderDate.slice(0, 10),
+    valid_until: order.expiration || undefined,
     sales_rep: order.assignedStaff,
     notes: packSalesOrderNotes(order.notes, order.items, paymentMetaFromOrder(order)),
     lines: order.items.filter(isProductOrderLine).map(quotationLineInput),

@@ -16,6 +16,9 @@ export type ApiUserCreate = {
   name: string;
   role?: string;
   role_ids?: string[];
+  /** Warehouses the user may work in; omit or empty = every warehouse. */
+  warehouse_ids?: string[];
+  default_warehouse_id?: string;
   password: string;
 };
 
@@ -25,6 +28,8 @@ export type ApiUserUpdate = {
   name?: string;
   role?: string;
   role_ids?: string[];
+  warehouse_ids?: string[];
+  default_warehouse_id?: string;
   is_active?: boolean;
   password?: string;
 };

@@ -73,9 +73,11 @@ export type ProductSalesMeta = ProductHistoryMeta & {
 
 export async function fetchProductSales(
   itemId: string,
-  params: PagedParams & DateRangeParams = {},
+  params: PagedParams & DateRangeParams & { customerId?: string } = {},
 ): Promise<{ data: ProductSalesLine[]; meta: ProductSalesMeta }> {
-  return apiFetch(`${BASE}/${itemId}/sales${pagedQuery(pageParams(params))}`);
+  return apiFetch(
+    `${BASE}/${itemId}/sales${pagedQuery({ ...pageParams(params), customer_id: params.customerId })}`,
+  );
 }
 
 // ------------------------------------------------------------ Purchases
@@ -95,6 +97,10 @@ export type ProductPurchaseLine = {
 };
 
 export type ProductPurchaseMeta = ProductHistoryMeta & {
+  /** Lowest, highest and average (total spent / total quantity) unit cost over the period; null with no purchases. */
+  min_cost?: string | number | null;
+  max_cost?: string | number | null;
+  avg_cost?: string | number | null;
   sum_qty: number;
   sum_total: string | number;
 };

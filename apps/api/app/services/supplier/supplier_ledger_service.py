@@ -6,6 +6,7 @@ and supplier payments share one source of truth with the rest of finance.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -53,6 +54,7 @@ def list_payments(
             reference=p.reference,
             notes=p.notes,
             applied_to=[],
+            direction=p.direction or "outbound",
             created_at=p.created_at,
         )
         for p in rows
@@ -239,6 +241,85 @@ def _next_payment_number(db: Session, company_id: str) -> str:
     )
 
 
+def _record_supplier_refund(
+    db: Session,
+    supplier_id: str,
+    payload: SupplierPaymentCreate,
+    *,
+    company_id: str,
+) -> SupplierPaymentRead:
+    """Money coming back from a supplier - the "return due" after goods were returned or an advance was overpaid.
+
+    Posted like any other receipt of money: debit the cash / bank account, credit Accounts Payable (the supplier's account
+    goes back toward zero). It settles the supplier's open credit notes (return credits), oldest first, and is limited to what
+    the supplier really owes, so a refund can never open a bill the other way round.
+    """
+    amount = payload.amount
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Enter the amount received back from the supplier")
+
+    payables = _payables(db, supplier_id)
+    billed = sum((p.amount or ZERO for p in payables), ZERO)
+    paid = net_payments(_payments(db, supplier_id), paid_direction="outbound")
+    owed_by_supplier = max(paid - billed, ZERO)
+    if amount > owed_by_supplier:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The supplier owes only {owed_by_supplier:.2f}; a refund cannot be more than that.",
+        )
+
+    from app.services.finance.finance_service import FinanceService
+
+    reference = payload.reference or "Supplier refund"
+    payment, _entry = FinanceService(db).post_party_payment(
+        company_id=company_id,
+        direction="inbound",
+        amount=amount,
+        payment_account_id=payload.payment_account_id,
+        payment_date=payload.payment_date,
+        source_type="supplier_refund",
+        source_id=str(uuid.uuid4()),
+        counter_code="2100",
+        description=f"Refund received from supplier ({reference})",
+        party_type="supplier",
+        party_id=supplier_id,
+        line_party_type="supplier",
+        reference=payload.reference,
+        notes=payload.notes,
+    )
+
+    # the refund settles the return credits (negative bills) it stands for, oldest first
+    remaining = amount
+    applied: list[str] = []
+    for row in payables:
+        due = _line_due(row)
+        if due >= 0:
+            continue
+        take = min(-due, remaining)
+        row.amount_paid = (row.amount_paid or ZERO) - take
+        row.balance = due + take
+        row.status = "paid" if row.balance == 0 else "partial"
+        applied.append(row.reference_number)
+        remaining -= take
+        if remaining <= 0:
+            break
+
+    db.commit()
+    db.refresh(payment)
+    return SupplierPaymentRead(
+        id=payment.id,
+        payment_number=payment.payment_number,
+        payment_date=payment.payment_date,
+        amount=amount,
+        payment_method=payment.payment_method,
+        reference=payment.reference,
+        notes=payment.notes,
+        applied_to=applied,
+        direction="inbound",
+        created_at=payment.created_at,
+    )
+
+
 def record_payment(
     db: Session,
     supplier_id: str,
@@ -251,6 +332,9 @@ def record_payment(
     Any leftover (advance / overpayment) stays on the account as credit and is
     allocated to the next bill that is posted.
     """
+    if payload.direction == "inbound":
+        return _record_supplier_refund(db, supplier_id, payload, company_id=company_id)
+
     write_off_amount = payload.write_off_amount or ZERO
     if payload.amount <= 0 and write_off_amount <= 0:
         raise HTTPException(status_code=400, detail="Enter a payment amount or a discount/write-off amount")
@@ -347,6 +431,11 @@ def record_payment(
 def delete_payment(db: Session, supplier_id: str, payment_id: str) -> None:
     """Remove a payment and rebuild FIFO allocations from the remaining payments."""
     payment = db.get(FinancePayment, payment_id)
+    if payment and payment.party_id == supplier_id and payment.direction == "inbound":
+        raise HTTPException(
+            status_code=400,
+            detail="A refund received from the supplier is posted to the books and cannot be deleted.",
+        )
     if not payment or payment.party_id != supplier_id or payment.direction != "outbound":
         raise HTTPException(status_code=404, detail="Payment not found for this supplier")
 

@@ -172,11 +172,11 @@ export function PurchaseOrderPrintDocument({ data }: Props) {
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#00a09d]">{heading}</p>
           <p className="mt-1 text-[18px] font-bold leading-none">{heading}</p>
           <p className="mt-2 text-[11px] text-[#495057]">
-            {layout.number_label || "PO No."} {data.documentNumber}
+            {data.labels?.number || layout.number_label || "PO No."} {data.documentNumber}
           </p>
           {data.orderDate ? (
             <p className="text-[11px] text-[#495057]">
-              {layout.date_label || "Order Date"} {formatPrintDate(data.orderDate)}
+              {data.labels?.date || layout.date_label || "Order Date"} {formatPrintDate(data.orderDate)}
               {layout.show_time
                 ? ` ${formatTime(`${data.orderDate}T12:00:00`)}`
                 : ""}
@@ -206,7 +206,10 @@ export function PurchaseOrderPrintDocument({ data }: Props) {
         <div className="grid grid-cols-2 gap-3 text-[12px]">
           {layout.show_buyer ? <InfoCell label={layout.buyer_label || "Buyer"} value={data.buyerName} /> : null}
           {layout.show_reference ? (
-            <InfoCell label={layout.reference_label || "Your Order Reference"} value={data.referenceNo} />
+            <InfoCell
+              label={data.labels?.reference || layout.reference_label || "Your Order Reference"}
+              value={data.referenceNo}
+            />
           ) : null}
           {layout.show_expected ? (
             <InfoCell
@@ -215,8 +218,14 @@ export function PurchaseOrderPrintDocument({ data }: Props) {
             />
           ) : null}
           {layout.show_warehouse ? (
-            <InfoCell label={layout.warehouse_label || "Warehouse"} value={data.warehouseName} />
+            <InfoCell
+              label={data.labels?.warehouse || layout.warehouse_label || "Warehouse"}
+              value={data.warehouseName}
+            />
           ) : null}
+          {(data.extraInfo ?? []).map((cell) => (
+            <InfoCell key={cell.label} label={cell.label} value={cell.value} />
+          ))}
         </div>
       </div>
 
@@ -268,7 +277,12 @@ export function PurchaseOrderPrintDocument({ data }: Props) {
               <tr key={`${line.sku || line.name}-${idx}`} className="align-top">
                 <td className="border-b border-[#e9ecef] px-2 py-2">
                   <p className="font-medium">{line.name}</p>
-                  {layout.show_sku && line.sku ? (
+                  {line.serialNumbers?.length ? (
+                    // a serial product shows its serial numbers where the SKU would be (same as the sales documents)
+                    <p className="mt-0.5 whitespace-normal break-all font-mono text-[10px] leading-snug text-[#6c757d]">
+                      S/N: {line.serialNumbers.join(", ")}
+                    </p>
+                  ) : layout.show_sku && line.sku ? (
                     <p className="mt-0.5 text-[11px] text-[#6c757d]">{line.sku}</p>
                   ) : null}
                 </td>
@@ -319,6 +333,13 @@ export function PurchaseOrderPrintDocument({ data }: Props) {
           <span className="tabular-nums">{money(data.total, currency)}</span>
         </div>
       </div>
+
+      {data.note?.trim() ? (
+        <p className="mt-4 text-[12px]">
+          <span className="font-semibold">Note: </span>
+          {data.note.trim()}
+        </p>
+      ) : null}
 
       {layout.show_payment_terms && data.paymentTerms ? (
         <p className="mt-6 text-[12px]">

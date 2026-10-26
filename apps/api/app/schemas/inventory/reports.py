@@ -189,6 +189,11 @@ class ProductReportTotals(BaseModel):
     cogs: Decimal
     profit: Decimal
     margin_pct: Optional[Decimal] = None
+    # Serial / IMEI units sold in the period, by where their warranty stands today: still running, run out, or no expiry stamped
+    # (the product's warranty text could not be read at the sale). All 0 for a product that is not serial-tracked.
+    warranty_active_qty: int = 0
+    warranty_expired_qty: int = 0
+    warranty_unknown_qty: int = 0
 
 
 class ProductReportMeta(BaseModel):

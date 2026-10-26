@@ -57,6 +57,7 @@ def _role_read(db: Session, role: AuthRole) -> RoleRead:
                     can_delete=p.can_delete,
                     can_publish=bool(getattr(p, "can_publish", False)),
                     can_export=bool(getattr(p, "can_export", False)),
+                    can_approve=bool(getattr(p, "can_approve", False)),
                 )
             )
         else:
@@ -218,8 +219,9 @@ def put_role_permissions(
         row.can_delete = bool(flags.can_delete)
         row.can_publish = bool(flags.can_publish)
         row.can_export = bool(flags.can_export)
-        # create/write/delete/publish imply read
-        if row.can_create or row.can_write or row.can_delete or row.can_publish or row.can_export:
+        row.can_approve = bool(flags.can_approve)
+        # create/write/delete/publish/approve imply read
+        if row.can_create or row.can_write or row.can_delete or row.can_publish or row.can_export or row.can_approve:
             row.can_read = True
 
     db.commit()

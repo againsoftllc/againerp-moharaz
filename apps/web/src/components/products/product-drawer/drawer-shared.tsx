@@ -22,6 +22,47 @@ export function DateRangeFilter({
   return <DateRangePresetPicker value={value} onChange={onChange} buttonClassName="h-7" />;
 }
 
+/** One smart-stat box: the figure on top, what it is underneath (the product header's look). `tone` colours the figure. */
+export function StatBox({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+  tone?: "good" | "bad";
+}) {
+  return (
+    <div className="min-w-[8rem] flex-1 border border-border/80 bg-background px-3 py-1.5" title={hint}>
+      <p
+        className={cn(
+          "text-[15px] font-semibold leading-tight tabular-nums text-foreground",
+          tone === "good" && "text-emerald-600 dark:text-emerald-400",
+          tone === "bad" && "text-red-600 dark:text-red-400",
+        )}
+      >
+        {value}
+      </p>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+/** A titled group of stat boxes (same small uppercase title with a rule as the fact lists). */
+export function StatSection({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-2 flex items-baseline justify-between gap-3 border-b border-border/80 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span>{title}</span>
+        {note ? <span className="font-normal normal-case tracking-normal">{note}</span> : null}
+      </h3>
+      <div className="flex flex-wrap items-stretch gap-2">{children}</div>
+    </section>
+  );
+}
+
 /** One-line totals strip above a history grid (Total sold qty · Total sales). */
 export function SummaryLine({
   items,

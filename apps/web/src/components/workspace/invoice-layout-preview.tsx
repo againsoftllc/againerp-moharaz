@@ -150,7 +150,8 @@ function compactQty(value: number): string {
 
 function productCell(line: InvoiceDocumentLine, layout: InvoiceLayout): string {
   const bits = [line.name];
-  if (layout.show_sku && line.sku) bits.push(line.sku);
+  // a serial product shows its serial numbers (the S/N line under the name) instead of the SKU
+  if (layout.show_sku && line.sku && !line.serialNumbers?.length) bits.push(line.sku);
   if (layout.show_brand && line.brand) bits.push(line.brand);
   if (layout.show_category && line.category) bits.push(line.category);
   return bits.join(" · ");

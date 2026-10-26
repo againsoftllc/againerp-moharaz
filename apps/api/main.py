@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.deps.auth import get_current_user, require_admin_user
 from app.services.r2_static import R2FallbackStaticFiles
+from app.middleware.approval_gate import ApprovalGateMiddleware
 from app.middleware.rbac_guard import RbacGuardMiddleware
 from app.routers import (
     auth,
@@ -79,6 +80,7 @@ from app.routers import (
     finance_periods,
     core_sequences,
     approval_limits,
+    approvals,
     ai_gateway,
     ai_billing,
     crm,
@@ -248,6 +250,8 @@ def _bootstrap() -> None:
         from app.models.auth_role import AuthRole  # noqa: F401
         from app.models.auth_role_permission import AuthRolePermission  # noqa: F401
         from app.models.auth_user_role import AuthUserRole  # noqa: F401
+        from app.models.auth_user_warehouse import AuthUserWarehouse  # noqa: F401
+        from app.models.approval_request import ApprovalRequest  # noqa: F401
         from scripts.ensure_hrm_asset_columns import ensure_hrm_asset_columns
         from scripts.ensure_hrm_employee_columns import ensure_hrm_employee_columns
         from app.models.builder_plugin import BuilderPlugin  # noqa: F401
@@ -262,6 +266,8 @@ def _bootstrap() -> None:
             ensure_catalog_category_columns,
             ensure_catalog_product_pos_fields_columns,
             ensure_catalog_product_updated_by_columns,
+            ensure_approval_request_target_columns,
+            ensure_role_approve_column,
             ensure_role_export_column,
             ensure_role_publish_column,
             ensure_catalog_review_columns,
@@ -277,6 +283,7 @@ def _bootstrap() -> None:
             ensure_vendor_terms_columns,
             ensure_purchase_receipt_serial_columns,
             ensure_purchase_order_line_return_columns,
+            ensure_purchase_return_serial_columns,
             ensure_seo_audit_run_columns,
             ensure_seo_url_record_columns,
             ensure_website_menu_columns,
@@ -388,6 +395,8 @@ def _bootstrap() -> None:
         ensure_catalog_product_updated_by_columns()
         ensure_role_publish_column()
         ensure_role_export_column()
+        ensure_role_approve_column()
+        ensure_approval_request_target_columns()
         ensure_product_variant_elim_columns()
         ensure_ai_audit_log_columns()
         ensure_auth_role_slug_scope()
@@ -406,6 +415,7 @@ def _bootstrap() -> None:
         ensure_seo_url_record_columns()
         ensure_purchase_receipt_serial_columns()
         ensure_purchase_order_line_return_columns()
+        ensure_purchase_return_serial_columns()
         ensure_website_menu_columns()
         ensure_website_page_columns()
         ensure_zkteco_plugin_columns()
@@ -652,6 +662,8 @@ async def lifespan(_app: FastAPI):
         from scripts.init_db import (
             ensure_catalog_product_pos_fields_columns,
             ensure_catalog_product_updated_by_columns,
+            ensure_approval_request_target_columns,
+            ensure_role_approve_column,
             ensure_role_export_column,
             ensure_role_publish_column,
         )
@@ -660,6 +672,8 @@ async def lifespan(_app: FastAPI):
         ensure_catalog_product_updated_by_columns()
         ensure_role_publish_column()
         ensure_role_export_column()
+        ensure_role_approve_column()
+        ensure_approval_request_target_columns()
     except Exception:
         logger.exception("Could not ensure the catalog / role columns")
     try:
@@ -741,6 +755,7 @@ class SiteAwareCORSMiddleware(CORSMiddleware):
 
 
 # Added before CORS so the CORS middleware stays outermost and still decorates 403s.
+app.add_middleware(ApprovalGateMiddleware)
 app.add_middleware(RbacGuardMiddleware)
 
 # JSON lists (products, orders…) shrink ~5-10x; Starlette leaves text/event-stream
@@ -840,6 +855,8 @@ app.include_router(finance_allocation.router, prefix="/api/v1", dependencies=req
 app.include_router(finance_periods.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(core_sequences.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(approval_limits.router, prefix="/api/v1", dependencies=require_admin)
+# open to every signed-in user: makers see their own requests, approvers see the queue they can decide
+app.include_router(approvals.router, prefix="/api/v1")
 app.include_router(ai_gateway.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(ai_billing.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_expenses.router, prefix="/api/v1", dependencies=require_admin)

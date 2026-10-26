@@ -67,6 +67,11 @@ class ProductPurchaseRow(BaseModel):
 class ProductPurchaseMeta(PageMeta):
     sum_qty: int
     sum_total: Decimal
+    # Over every counted purchase line in the period (not just this page): the cheapest and dearest unit cost paid, and the
+    # average cost per unit (total spent / total quantity, so a big order weighs more than a small one). Null with no purchases.
+    min_cost: Optional[Decimal] = None
+    max_cost: Optional[Decimal] = None
+    avg_cost: Optional[Decimal] = None
 
 
 class ProductPurchaseResponse(BaseModel):

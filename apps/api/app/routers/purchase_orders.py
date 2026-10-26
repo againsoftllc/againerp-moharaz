@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_permission, get_current_company_id
 from app.models.auth_user import AuthUser
+from app.services.auth_user_warehouses import resolve_user_warehouse
 from app.schemas.purchase.order import (
     PurchaseBulkDeleteRequest,
     PurchaseBulkDeleteResponse,
@@ -254,7 +255,7 @@ def create_order(
     ]
     order = service.create_order(
         supplier_id=payload.supplier_id,
-        warehouse_id=payload.warehouse_id,
+        warehouse_id=resolve_user_warehouse(db, user, payload.warehouse_id) or payload.warehouse_id,
         lines=lines,
         company_id=company_id,
         order_date=payload.order_date,
@@ -289,10 +290,13 @@ def update_order(
         )
         for line in payload.lines
     ]
+    current = db.get(PurchaseOrder, order_id)
     order = service.update_order(
         order_id,
         supplier_id=payload.supplier_id,
-        warehouse_id=payload.warehouse_id,
+        warehouse_id=resolve_user_warehouse(
+            db, user, payload.warehouse_id, current.warehouse_id if current else None
+        ) or payload.warehouse_id,
         lines=lines,
         order_date=payload.order_date,
         expected_date=payload.expected_date,

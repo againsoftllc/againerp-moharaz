@@ -12,7 +12,8 @@ import {
   type ReactNode,
 } from "react";
 import type { ColDef, GridApi, ICellRendererParams } from "ag-grid-community";
-import { Ban, CheckCircle2, Eye, Wallet } from "lucide-react";
+import { Ban, CheckCircle2, Eye, Printer, Wallet } from "lucide-react";
+import { printPurchaseReturn } from "@/lib/purchase/purchase-return-print";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -354,6 +355,18 @@ export const PurchaseReturnGrid = forwardRef<
       items.push(
         <DropdownMenuItem key="open" onClick={() => openViewedReturn(data)}>
           <Eye className="mr-1.5 h-3 w-3" /> Open
+        </DropdownMenuItem>,
+      );
+      items.push(
+        <DropdownMenuItem
+          key="print"
+          onClick={() =>
+            void printPurchaseReturn(data.id).catch((err) =>
+              toast.error(err instanceof Error ? err.message : "Could not open the return for printing"),
+            )
+          }
+        >
+          <Printer className="mr-1.5 h-3 w-3" /> Print
         </DropdownMenuItem>,
       );
       if (canWrite && data.status === "requested") {

@@ -16,7 +16,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Check, GripVertical, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { CUSTOMER_GROUP_LABELS, type Customer } from "@/lib/mock-data/customers";
 import {
@@ -62,31 +62,21 @@ import {
   parsePartnerExtraAddresses,
   parsePartnerRelatedContacts,
   partnerFormToPayload,
-  EMPTY_FORM,
   type PartnerExtraAddress,
   type PartnerFormState,
   type PartnerNotebookTab,
   type PartnerRelatedContact,
 } from "@/components/customers/partner-form-sheet";
 import { normalizeBdPhone } from "@/lib/customers/phone";
-import { clearDraft, draftAgeLabel, readDraft, writeDraft } from "@/lib/hooks/use-drawer-draft";
-
-const DRAFT_KEY = "customer";
-
-type CustomerDraftPayload = {
-  form: PartnerFormState;
-  relatedContacts: PartnerRelatedContact[];
-  extraAddresses: PartnerExtraAddress[];
-};
+import { useDrawerDraft } from "@/lib/hooks/use-drawer-draft";
 import {
+  AgainDrawerButton,
+  AgainDrawerCloseButton,
   AgainDrawerControlBar,
   AgainDrawerLayout,
   AgainDrawerPanel,
   AgainDrawerScrollBody,
-  AGAIN_DRAWER_ACTION_BTN,
   AGAIN_DRAWER_FIELD_SHEET_CLASS,
-  AGAIN_DRAWER_PRIMARY_BTN,
-  AGAIN_DRAWER_PRIMARY_COLOR,
 } from "@/components/again/again-drawer";
 import { cn, formatCurrency } from "@/lib/utils";
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
@@ -97,7 +87,6 @@ import {
   type PartyCommerceRole,
 } from "@/lib/api/party-commerce";
 import { PartyRolePicker } from "@/components/shared/party-role-picker";
-import { Button } from "@/components/ui/button";
 
 /** Default Again demo contact (Riyad / againsoft) */
 export const AGAIN_DEMO_PARTNER: Customer = partnerDrawerSeed[0];
@@ -107,30 +96,52 @@ export const ODOO_DEMO_PARTNER = AGAIN_DEMO_PARTNER;
 
 export type PartnerFormMode = "create" | "edit";
 
-/** Load full customer (order history, wallet, …) — list endpoints omit nested feeds. */
+/** What the user typed into the drawer: kept as a draft and compared with the loaded record to tell "unsaved". */
+type PartnerValues = {
+  form: PartnerFormState;
+  relatedContacts: PartnerRelatedContact[];
+  extraAddresses: PartnerExtraAddress[];
+};
+
+/** Related-contact and address ids are random per row, so they stay out of the "anything to save?" comparison. */
+function partnerSignature({ form, relatedContacts, extraAddresses }: PartnerValues): string {
+  return JSON.stringify({
+    form,
+    relatedContacts: relatedContacts.map((c) => [c.name, c.email, c.phone, c.jobPosition, c.addressLabel, c.city, c.country]),
+    extraAddresses: extraAddresses.map((a) => [a.label, a.street, a.city, a.region, a.zip, a.country]),
+  });
+}
+
+/** Load full customer (order history, wallet, …) — list endpoints omit nested feeds. `loaded` flips once the full record is in. */
 function useLivePartnerCustomer(
   customer: Customer | null | undefined,
   opts: { open?: boolean; mode: PartnerFormMode },
 ) {
   const open = opts.open ?? true;
   const [liveCustomer, setLiveCustomer] = useState<Customer | null>(customer ?? null);
+  const [loaded, setLoaded] = useState(opts.mode === "create" || !customer?.id);
 
   useEffect(() => {
     if (!open) return;
 
     if (opts.mode === "create" || !customer?.id) {
       setLiveCustomer(customer ?? null);
+      setLoaded(true);
       return;
     }
 
+    setLoaded(false);
     setLiveCustomer(customer);
     let cancelled = false;
     void getCommerceCustomer(customer.id)
       .then((full) => {
-        if (!cancelled) setLiveCustomer(full);
+        if (cancelled) return;
+        setLiveCustomer(full);
+        setLoaded(true);
       })
       .catch(() => {
         /* keep list/snapshot customer */
+        if (!cancelled) setLoaded(true);
       });
 
     return () => {
@@ -138,7 +149,7 @@ function useLivePartnerCustomer(
     };
   }, [open, opts.mode, customer?.id]);
 
-  return [liveCustomer, setLiveCustomer] as const;
+  return [liveCustomer, setLiveCustomer, loaded] as const;
 }
 
 type UsePartnerFormOptions = {
@@ -239,7 +250,6 @@ function usePartnerForm({
   const [hiddenGroups, setHiddenGroups] = useState<string[]>([]);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const photoObjectUrlRef = useRef<string | null>(null);
-  const [restoredDraftAt, setRestoredDraftAt] = useState<string | null>(null);
 
   const clearPhotoObjectUrl = useCallback(() => {
     if (photoObjectUrlRef.current) {
@@ -256,13 +266,9 @@ function usePartnerForm({
   // name, street, and notes all live on that deferred data and would otherwise
   // stay stuck blank for the whole edit (and a save would silently wipe them).
   const profileHydratedForRef = useRef<string | null>(null);
-  // Edit mode: what the form was last hydrated from, so an accidental close can
-  // ask before throwing away unsaved edits (create mode autosaves a draft instead).
-  const baselineRef = useRef<{
-    form: PartnerFormState;
-    relatedContacts: PartnerRelatedContact[];
-    extraAddresses: PartnerExtraAddress[];
-  } | null>(null);
+  // What the form was last loaded with: "unsaved changes" are measured against it and Discard goes back to it.
+  // (A draft kept by an accidental close is put back by the drawer, through `useDrawerDraft`, after this reset.)
+  const [baseline, setBaseline] = useState<PartnerValues | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -270,27 +276,15 @@ function usePartnerForm({
     let storedGroups = readCustomCustomerGroupLabels();
     if (mode === "create") {
       const base = customerToPartnerForm(null);
-      const savedDraft =
-        !initialName && !initialEmail && !initialPhone
-          ? readDraft<CustomerDraftPayload>(DRAFT_KEY)
-          : null;
-      if (savedDraft) {
-        setForm(savedDraft.values.form);
-        setRelatedContacts(savedDraft.values.relatedContacts);
-        setExtraAddresses(savedDraft.values.extraAddresses);
-        setRestoredDraftAt(savedDraft.savedAt);
-      } else {
-        setForm(
-          applyCreateDraft(base, {
-            name: initialName,
-            email: initialEmail,
-            phone: initialPhone,
-          }),
-        );
-        setRelatedContacts([]);
-        setExtraAddresses([]);
-        setRestoredDraftAt(null);
-      }
+      const fresh = applyCreateDraft(base, {
+        name: initialName,
+        email: initialEmail,
+        phone: initialPhone,
+      });
+      setForm(fresh);
+      setRelatedContacts([]);
+      setExtraAddresses([]);
+      setBaseline({ form: fresh, relatedContacts: [], extraAddresses: [] });
       clearPhotoObjectUrl();
       setPhotoPreview(null);
       setPhotoFile(null);
@@ -322,7 +316,7 @@ function usePartnerForm({
     setForm(hydrated.form);
     setRelatedContacts(hydrated.relatedContacts);
     setExtraAddresses(hydrated.extraAddresses);
-    baselineRef.current = hydrated;
+    setBaseline(hydrated);
     clearPhotoObjectUrl();
     setPhotoPreview(source.profileImage ?? null);
     setPhotoFile(null);
@@ -345,27 +339,37 @@ function usePartnerForm({
     setForm(hydrated.form);
     setRelatedContacts(hydrated.relatedContacts);
     setExtraAddresses(hydrated.extraAddresses);
-    baselineRef.current = hydrated;
+    setBaseline(hydrated);
     profileHydratedForRef.current = customer.id;
   }, [customer, open, mode]);
 
-  const isDirty = useCallback(() => {
-    if (mode === "create") return false;
-    const base = baselineRef.current;
-    if (!base) return false;
-    return (
-      photoFile !== null ||
-      JSON.stringify(form) !== JSON.stringify(base.form) ||
-      JSON.stringify(relatedContacts) !== JSON.stringify(base.relatedContacts) ||
-      JSON.stringify(extraAddresses) !== JSON.stringify(base.extraAddresses)
-    );
-  }, [mode, form, relatedContacts, extraAddresses, photoFile]);
+  /** The user typed something that is not saved yet (a picked photo counts too). */
+  const dirty =
+    photoFile !== null ||
+    (baseline !== null && partnerSignature({ form, relatedContacts, extraAddresses }) !== partnerSignature(baseline));
 
   /** Fields persisted outside Save (verify-contact etc.) no longer count as unsaved. */
   const markFormSaved = useCallback((saved: Partial<PartnerFormState>) => {
-    const base = baselineRef.current;
-    if (base) baselineRef.current = { ...base, form: { ...base.form, ...saved } };
+    setBaseline((base) => (base ? { ...base, form: { ...base.form, ...saved } } : base));
   }, []);
+
+  /** Put a draft kept by an accidental close back on screen. */
+  const restoreValues = useCallback((values: PartnerValues) => {
+    setForm(values.form);
+    setRelatedContacts(values.relatedContacts);
+    setExtraAddresses(values.extraAddresses);
+  }, []);
+
+  /** Back to the record as it was loaded (Discard). */
+  const revert = useCallback(
+    (profileImage?: string | null) => {
+      if (baseline) restoreValues(baseline);
+      clearPhotoObjectUrl();
+      setPhotoPreview(profileImage ?? null);
+      setPhotoFile(null);
+    },
+    [baseline, restoreValues, clearPhotoObjectUrl],
+  );
 
   useEffect(() => () => clearPhotoObjectUrl(), [clearPhotoObjectUrl]);
 
@@ -524,7 +528,6 @@ function usePartnerForm({
   return {
     form,
     setForm,
-    restoredDraftAt,
     relatedContacts,
     extraAddresses,
     photoPreview,
@@ -537,7 +540,9 @@ function usePartnerForm({
     setRelatedContacts,
     setExtraAddresses,
     handlePhotoSelect,
-    isDirty,
+    dirty,
+    revert,
+    restoreValues,
     markFormSaved,
     groupOptions,
     addGroup,
@@ -770,33 +775,11 @@ function CustomerGroupDrawer({
       widthStorageKey="again-customer-group-drawer-width"
     >
       <AgainDrawerLayout>
-        <AgainDrawerControlBar>
-          <button
-            type="button"
-            className={cn(AGAIN_DRAWER_PRIMARY_BTN)}
-            style={{ backgroundColor: AGAIN_DRAWER_PRIMARY_COLOR }}
-            onClick={submit}
-          >
+        <AgainDrawerControlBar trailing={<AgainDrawerCloseButton onClick={() => onOpenChange(false)} />}>
+          <AgainDrawerButton variant="primary" onClick={submit}>
             Save
-          </button>
-          <button
-            type="button"
-            className={AGAIN_DRAWER_ACTION_BTN}
-            onClick={() => onOpenChange(false)}
-          >
-            Discard
-          </button>
-          <div className="ml-auto">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-none"
-              aria-label="Close"
-              onClick={() => onOpenChange(false)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+          </AgainDrawerButton>
+          <AgainDrawerButton onClick={() => onOpenChange(false)}>Discard</AgainDrawerButton>
         </AgainDrawerControlBar>
 
         <AgainDrawerScrollBody className={AGAIN_DRAWER_FIELD_SHEET_CLASS}>
@@ -936,33 +919,11 @@ function CountryDrawer({
       widthStorageKey="again-country-drawer-width"
     >
       <AgainDrawerLayout>
-        <AgainDrawerControlBar>
-          <button
-            type="button"
-            className={cn(AGAIN_DRAWER_PRIMARY_BTN)}
-            style={{ backgroundColor: AGAIN_DRAWER_PRIMARY_COLOR }}
-            onClick={submit}
-          >
+        <AgainDrawerControlBar trailing={<AgainDrawerCloseButton onClick={() => onOpenChange(false)} />}>
+          <AgainDrawerButton variant="primary" onClick={submit}>
             Save
-          </button>
-          <button
-            type="button"
-            className={AGAIN_DRAWER_ACTION_BTN}
-            onClick={() => onOpenChange(false)}
-          >
-            Discard
-          </button>
-          <div className="ml-auto">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-none"
-              aria-label="Close"
-              onClick={() => onOpenChange(false)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+          </AgainDrawerButton>
+          <AgainDrawerButton onClick={() => onOpenChange(false)}>Discard</AgainDrawerButton>
         </AgainDrawerControlBar>
 
         <AgainDrawerScrollBody className={AGAIN_DRAWER_FIELD_SHEET_CLASS}>
@@ -1180,41 +1141,11 @@ function WalletRechargeDrawer({
       widthStorageKey="again-wallet-recharge-drawer-width"
     >
       <AgainDrawerLayout>
-        <AgainDrawerControlBar>
-          <button
-            type="button"
-            className={cn(AGAIN_DRAWER_PRIMARY_BTN)}
-            style={{ backgroundColor: AGAIN_DRAWER_PRIMARY_COLOR }}
-            disabled={!canSubmit}
-            onClick={() => void submit()}
-          >
-            {saving ? (
-              <span className="inline-flex items-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Recharging…
-              </span>
-            ) : (
-              "Confirm recharge"
-            )}
-          </button>
-          <button
-            type="button"
-            className={AGAIN_DRAWER_ACTION_BTN}
-            onClick={() => onOpenChange(false)}
-          >
-            Discard
-          </button>
-          <div className="ml-auto">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 rounded-none"
-              aria-label="Close"
-              onClick={() => onOpenChange(false)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+        <AgainDrawerControlBar trailing={<AgainDrawerCloseButton onClick={() => onOpenChange(false)} />}>
+          <AgainDrawerButton variant="primary" disabled={!canSubmit} aria-busy={saving} onClick={() => void submit()}>
+            {saving ? "Recharging…" : "Confirm recharge"}
+          </AgainDrawerButton>
+          <AgainDrawerButton onClick={() => onOpenChange(false)}>Discard</AgainDrawerButton>
         </AgainDrawerControlBar>
 
         <AgainDrawerScrollBody className={AGAIN_DRAWER_FIELD_SHEET_CLASS}>
@@ -1492,32 +1423,11 @@ export function PartnerDrawerBody({
   return (
     <>
       {onSaved && !readOnly ? (
-        <div className="mb-0 flex flex-wrap items-center gap-2 border-b border-border/80 py-1">
-          <button
-            type="button"
-            className={cn(AGAIN_DRAWER_PRIMARY_BTN, "h-6 px-2 text-[11px]")}
-            style={{ backgroundColor: AGAIN_DRAWER_PRIMARY_COLOR }}
-            disabled={saving}
-            onClick={() => void handleSave()}
-          >
-            {saving ? (
-              <span className="inline-flex items-center gap-2">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Saving…
-              </span>
-            ) : (
-              "Save"
-            )}
-          </button>
-          {onDiscard ? (
-            <button
-              type="button"
-              className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]")}
-              onClick={onDiscard}
-            >
-              Discard
-            </button>
-          ) : null}
+        <div className="mb-0 flex flex-wrap items-center gap-1.5 border-b border-border/80 py-1">
+          <AgainDrawerButton variant="primary" disabled={saving} aria-busy={saving} onClick={() => void handleSave()}>
+            {saving ? "Saving…" : "Save"}
+          </AgainDrawerButton>
+          {onDiscard ? <AgainDrawerButton onClick={onDiscard}>Discard</AgainDrawerButton> : null}
         </div>
       ) : null}
       <input
@@ -1613,6 +1523,8 @@ type AgainPartnerDrawerProps = {
   moduleLabel?: string;
   nested?: boolean;
   originRole?: PartyCommerceRole;
+  /** The tab to open on (Overview by default): a screen that points at the ledger opens it there. */
+  initialTab?: PartnerNotebookTab;
 };
 
 export function AgainPartnerDrawer({
@@ -1627,6 +1539,7 @@ export function AgainPartnerDrawer({
   moduleLabel: _moduleLabel = "Contacts",
   nested = false,
   originRole = "customer",
+  initialTab,
 }: AgainPartnerDrawerProps) {
   const canWrite = useAdminCanWrite();
   const readOnly = !canWrite;
@@ -1636,7 +1549,7 @@ export function AgainPartnerDrawer({
   /** Roles already active when the drawer opened — locked in the picker since
    * there's no "disable role" API, only `enablePartyCommerceRole` (additive). */
   const [existingRoles, setExistingRoles] = useState<PartyCommerceRole[]>(["customer"]);
-  const [liveCustomer, setLiveCustomer] = useLivePartnerCustomer(customer, {
+  const [liveCustomer, setLiveCustomer, customerLoaded] = useLivePartnerCustomer(customer, {
     open,
     mode,
   });
@@ -1644,6 +1557,9 @@ export function AgainPartnerDrawer({
   const [walletSaving, setWalletSaving] = useState(false);
   const [verifyingContact, setVerifyingContact] = useState<"phone" | "email" | null>(null);
   const [verifyingWhatsApp, setVerifyingWhatsApp] = useState(false);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+  const pendingScrollRef = useRef<number | null>(null);
+  const [restoredTick, setRestoredTick] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -1678,8 +1594,6 @@ export function AgainPartnerDrawer({
 
   const {
     form,
-    setForm,
-    restoredDraftAt,
     relatedContacts,
     extraAddresses,
     photoPreview,
@@ -1689,7 +1603,6 @@ export function AgainPartnerDrawer({
     patch,
     showLogoPlaceholder,
     setTab,
-    setRelatedContacts,
     setExtraAddresses,
     handlePhotoSelect,
     groupOptions,
@@ -1707,7 +1620,9 @@ export function AgainPartnerDrawer({
     createCountry,
     renameCountry,
     deleteCountry,
-    isDirty,
+    dirty: valuesDirty,
+    revert,
+    restoreValues,
     markFormSaved,
   } = usePartnerForm({
     customer: liveCustomer,
@@ -1716,10 +1631,12 @@ export function AgainPartnerDrawer({
     initialName,
     initialEmail,
     initialPhone,
+    initialTab,
   });
 
   const displayCustomer = mode === "create" ? null : (liveCustomer ?? customer);
   const commerceRecordId = liveCustomer?.id ?? customer?.id ?? null;
+  const roleNoun = originRole === "supplier" ? "supplier" : originRole === "vendor" ? "vendor" : "customer";
   const drawerTitle =
     mode === "create"
       ? originRole === "supplier"
@@ -1727,7 +1644,80 @@ export function AgainPartnerDrawer({
         : originRole === "vendor"
           ? "New vendor"
           : "New contact"
-      : "Edit contact";
+      : originRole === "supplier"
+        ? "Edit supplier"
+        : originRole === "vendor"
+          ? "Edit vendor"
+          : "Edit contact";
+
+  // "Also register as" is part of a new record, so ticking one counts as something typed
+  const rolesDirty = mode === "create" && [...roles].sort().join() !== originRole;
+  const dirty = !readOnly && open && customerLoaded && (valuesDirty || rolesDirty);
+  const savedPhoto = liveCustomer?.profileImage ?? customer?.profileImage ?? null;
+
+  // docs/common/drawercommon.md §4: a drawer closed by accident keeps what was typed - for a new record and for editing one.
+  // One draft per record ("partner-supplier:new" for a new supplier); a record prefilled by the caller ("Create 'x'") keeps none.
+  const draftKey = readOnly
+    ? null
+    : mode === "create"
+      ? initialName || initialEmail || initialPhone
+        ? null
+        : `partner-${originRole}:new`
+      : commerceRecordId
+        ? `partner:${commerceRecordId}`
+        : null;
+  const { saveDraftIfDirty, clear: clearDraft } = useDrawerDraft<
+    PartnerValues & { roles: PartyCommerceRole[]; tab: PartnerNotebookTab; scrollTop: number }
+  >({
+    key: draftKey,
+    ready: open && customerLoaded,
+    dirty,
+    getValues: () => ({
+      form,
+      relatedContacts,
+      extraAddresses,
+      roles,
+      tab,
+      scrollTop: bodyScrollRef.current?.scrollTop ?? 0,
+    }),
+    restore: (values) => {
+      restoreValues(values);
+      if (mode === "create" && values.roles?.length) setRoles(values.roles);
+      if (values.tab) setTab(values.tab);
+      pendingScrollRef.current = values.scrollTop;
+      setRestoredTick((t) => t + 1);
+    },
+    onDiscard: () => {
+      revert(savedPhoto);
+      if (mode === "create") setRoles([originRole]);
+    },
+    label: roleNoun,
+  });
+
+  // a restored draft: go back to where the user was (after the tab has rendered)
+  useEffect(() => {
+    if (!open || pendingScrollRef.current == null) return;
+    const top = pendingScrollRef.current;
+    pendingScrollRef.current = null;
+    const timer = window.setTimeout(() => bodyScrollRef.current?.scrollTo({ top }), 150);
+    return () => window.clearTimeout(timer);
+  }, [open, restoredTick]);
+
+  // every dismissal (outside click, Esc, the X) goes through here and keeps a draft; Save and Cancel close directly
+  const handleOpenChange = (next: boolean) => {
+    if (!next) saveDraftIfDirty();
+    onOpenChange(next);
+  };
+
+  /** Edit: back to the saved record. New: cancel (the draft goes too). */
+  const discard = () => {
+    clearDraft();
+    if (mode === "create") {
+      onOpenChange(false);
+      return;
+    }
+    revert(savedPhoto);
+  };
 
   const openWalletRecharge = () => {
     if (mode === "create" || !liveCustomer?.id) {
@@ -1844,7 +1834,7 @@ export function AgainPartnerDrawer({
         }
       }
       setLiveCustomer(saved);
-      if (mode === "create") clearDraft(DRAFT_KEY);
+      clearDraft();
       const kindLabel =
         originRole === "supplier" ? "Supplier" : originRole === "vendor" ? "Vendor" : "Customer";
       toast.success(mode === "create" ? `${kindLabel} created` : `${kindLabel} saved`);
@@ -1857,114 +1847,46 @@ export function AgainPartnerDrawer({
     }
   };
 
-  const saveDraftIfDirty = () => {
-    if (mode !== "create") return;
-    const dirty =
-      JSON.stringify(form) !== JSON.stringify(EMPTY_FORM) ||
-      relatedContacts.length > 0 ||
-      extraAddresses.length > 0;
-    if (!dirty) return;
-    writeDraft<CustomerDraftPayload>(DRAFT_KEY, { form, relatedContacts, extraAddresses });
-  };
-
-  // Edit mode has no draft store, so an outside click / Esc / Discard asks
-  // before unsaved edits are thrown away. Radix can raise pointer-down and
-  // focus-outside for one click; a fresh decline answers the second one.
-  const declinedAtRef = useRef(0);
-  const confirmDiscard = () => {
-    if (mode === "create" || readOnly || !isDirty()) return true;
-    if (Date.now() - declinedAtRef.current < 500) return false;
-    const ok = window.confirm("Discard unsaved changes?");
-    if (!ok) declinedAtRef.current = Date.now();
-    return ok;
-  };
-  const requestClose = () => {
-    if (confirmDiscard()) onOpenChange(false);
-  };
-  const handleDismiss = (event: Event) => {
-    if (mode === "create") {
-      saveDraftIfDirty();
-      return;
-    }
-    if (!confirmDiscard()) event.preventDefault();
-  };
-
-  const toastedDraftRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!open || !restoredDraftAt || toastedDraftRef.current === restoredDraftAt) return;
-    toastedDraftRef.current = restoredDraftAt;
-    toast.info(`Restored unsaved customer draft from ${draftAgeLabel(restoredDraftAt)}`, {
-      action: {
-        label: "Discard",
-        onClick: () => {
-          clearDraft(DRAFT_KEY);
-          setForm(EMPTY_FORM);
-          setRelatedContacts([]);
-          setExtraAddresses([]);
-        },
-      },
-    });
-  }, [open, restoredDraftAt, setForm, setRelatedContacts, setExtraAddresses]);
-
   return (
     <AgainDrawerPanel
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       title={drawerTitle}
       nested={nested}
       resizable
       defaultWidth={720}
+      defaultWidthRatio={0.6} // a lot of information: 60 % of the screen until the user drags it
       minWidth={420}
       widthStorageKey="again-partner-drawer-width"
-      onPointerDownOutside={() => saveDraftIfDirty()}
-      onInteractOutside={handleDismiss}
-      onEscapeKeyDown={handleDismiss}
     >
       <AgainDrawerLayout>
-        <AgainDrawerControlBar>
-          {!readOnly ? (
-            <button
-              type="button"
-              className={cn(AGAIN_DRAWER_PRIMARY_BTN, "h-6 px-2 text-[11px]")}
-              style={{ backgroundColor: AGAIN_DRAWER_PRIMARY_COLOR }}
-              disabled={saving}
-              onClick={() => void handleSave()}
-            >
-              {saving ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Saving…
+        <AgainDrawerControlBar trailing={<AgainDrawerCloseButton onClick={() => handleOpenChange(false)} />}>
+          {readOnly ? (
+            <AgainDrawerButton onClick={() => handleOpenChange(false)}>Close</AgainDrawerButton>
+          ) : (
+            <>
+              <AgainDrawerButton variant="primary" disabled={saving} aria-busy={saving} onClick={() => void handleSave()}>
+                {saving ? "Saving…" : mode === "create" ? "Create" : "Save"}
+              </AgainDrawerButton>
+              <AgainDrawerButton disabled={saving || (mode === "edit" && !dirty)} onClick={discard}>
+                {mode === "create" ? "Cancel" : "Discard"}
+              </AgainDrawerButton>
+              {dirty ? (
+                <span className="ml-1 text-[11px] text-amber-700 dark:text-amber-400">
+                  Unsaved changes · closing keeps a draft
                 </span>
-              ) : (
-                "Save"
-              )}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]")}
-            onClick={requestClose}
-          >
-            {readOnly ? "Close" : "Discard"}
-          </button>
-          <div className="ml-auto">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 rounded-none"
-              aria-label="Close"
-              onClick={requestClose}
-            >
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          </div>
+              ) : null}
+            </>
+          )}
         </AgainDrawerControlBar>
 
         <AgainDrawerScrollBody
+          scrollRef={bodyScrollRef}
           className={cn(
             AGAIN_DRAWER_FIELD_SHEET_CLASS,
             "pt-0",
-            (tab === "sales" || tab === "ledger") && "flex flex-col overflow-hidden",
+            // the tabs that hold a full-height grid; the others scroll
+            (tab === "sales" || tab === "ledger" || tab === "purchases" || tab === "catalog") && "flex flex-col overflow-hidden",
           )}
         >
           <input

@@ -185,7 +185,7 @@ export type RenderLineCellCtx = {
   onProductOpenIdChange: (id: string | null) => void;
   onApplyProduct: (lineId: string, product: ProductOption) => void;
   onToggleDescription: (lineId: string) => void;
-  onOpenProductView: (name: string) => void;
+  onOpenProductView: (name: string, itemId?: string) => void;
   onAddNewProduct?: (lineId: string) => void;
   /** When set, product cell shows this label instead of the product name (grouped variant row). */
   productDisplayOverride?: string | null;
@@ -292,7 +292,7 @@ export function renderSalesOrderLineCell(col: LineDataCol, ctx: RenderLineCellCt
                 aria-label="View product"
                 title="View product"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => ctx.onOpenProductView(line.name)}
+                onClick={() => ctx.onOpenProductView(line.name, line.itemId)}
               >
                 <Eye className="h-3.5 w-3.5" />
               </button>

@@ -13,6 +13,8 @@ export type ApiPurchaseReturnLine = {
   line_total: string;
   reason: string | null;
   notes: string | null;
+  /** The serial units that went back (serial-tracked products). */
+  serial_numbers?: string[];
 };
 
 export type ApiPurchaseReturn = {
@@ -57,6 +59,8 @@ export type ApiPurchaseReturnResponse = {
 export type CreatePurchaseReturnInput = {
   purchase_order_id: string;
   purchase_receipt_id?: string;
+  /** The location the goods go back from (default: the order's warehouse). */
+  warehouse_id?: string;
   reason: ReturnReason;
   return_date?: string;
   requested_by?: string;
@@ -66,6 +70,8 @@ export type CreatePurchaseReturnInput = {
     quantity_returned: number;
     reason?: ReturnReason;
     notes?: string;
+    /** One serial per returned unit, for serial-tracked products. */
+    serial_numbers?: string[];
   }[];
 };
 

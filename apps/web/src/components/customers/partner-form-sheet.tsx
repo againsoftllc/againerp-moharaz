@@ -1,34 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  BadgeCheck,
-  Building2,
-  Camera,
-  Crown,
-  Mail,
-  MapPin,
-  Phone,
-  Plus,
-  Smartphone,
-  Star,
-  Calendar,
-  CreditCard,
-  Receipt,
-  Tag,
-  User,
-  UserCog,
-  Users,
-  Wallet,
-  X,
-  Loader2,
-} from "lucide-react";
+import { BadgeCheck, Building2, Camera, Crown, Loader2, Plus, Trash2, User, X } from "lucide-react";
 import { CUSTOMER_STATUS_LABELS, type Customer } from "@/lib/mock-data/customers";
-import {
-  buildCustomerGroupOptions,
-  resolveCustomerGroupLabel,
-  type CustomerGroupOption,
-} from "@/lib/customers/customer-group-options";
+import { resolveCustomerGroupLabel, type CustomerGroupOption } from "@/lib/customers/customer-group-options";
 import {
   fetchCustomerCases,
   type CreateCustomerInput,
@@ -38,26 +13,28 @@ import { useCustomerFeatureFlags } from "@/lib/customers/use-customer-settings";
 import { normalizeBdPhone, phonesMatch } from "@/lib/customers/phone";
 import { cn, formatCurrency, formatQuantity } from "@/lib/utils";
 import {
-  AgainUnderlineField,
-  AgainUnderlineInput,
+  AgainFormField,
+  AgainFormGroupTitle,
+  AgainFormRecordTitle,
 } from "@/components/again/again-form-sheet";
 import {
   AgainFormNotebook,
   AgainFormSheet,
   AgainFormSheetBg,
-  AgainFormTitle,
   type AgainNotebookTab,
 } from "@/components/again/again-form-sheet-layout";
-import { Select } from "@/components/ui/native-select";
 import {
   PartnerHistoryRows,
   PartnerKpiGrid,
   PartnerOverviewPanel,
   PartnerRewardRows,
   PartnerSectionTitle,
+  PartnerStatButton,
   PartnerStatusPill,
   PartnerTabEmpty,
 } from "@/components/customers/partner-customer-sections";
+import { SupplierOverviewPanel } from "@/components/suppliers/supplier-overview-panel";
+import { useCommerceSupplierDetail } from "@/lib/api/use-commerce-supplier-detail";
 import { PartnerCustomerOrdersPanel } from "@/components/customers/partner-customer-orders-panel";
 import { CustomerLedgerPanel } from "@/components/customers/customer-ledger-panel";
 import { PartnerPaymentsPanel } from "@/components/customers/partner-payments-panel";
@@ -72,7 +49,7 @@ import { WhatsAppIcon } from "@/components/customers/whatsapp-icon";
 import { whatsappChatUrl } from "@/lib/customers/whatsapp";
 import { PartyExpenseTab } from "@/components/shared/party-expense-tab";
 import { PartnerPurchasesPanel } from "@/components/customers/partner-purchases-panel";
-import { PartnerStockReportPanel } from "@/components/customers/partner-stock-report-panel";
+import { PartnerCatalogPanel } from "@/components/customers/partner-catalog-panel";
 import { PartnerDocumentsPanel } from "@/components/customers/partner-documents-panel";
 import { FieldHelpTip } from "@/components/sales/field-help-tip";
 import { useMentionableUsers } from "@/lib/api/use-mentionable-users";
@@ -83,7 +60,7 @@ export type PartnerNotebookTab =
   | "profile"
   | "ledger"
   | "purchases"
-  | "stockReport"
+  | "catalog"
   | "sales"
   | "documents"
   | "finance"
@@ -154,7 +131,7 @@ const NOTEBOOK_TABS: { id: PartnerNotebookTab; label: string }[] = [
   { id: "profile", label: "Profile" },
   { id: "ledger", label: "Ledger" },
   { id: "purchases", label: "Purchases" },
-  { id: "stockReport", label: "Stock Report" },
+  { id: "catalog", label: "Catalog" },
   { id: "sales", label: "Sales" },
   { id: "documents", label: "Documents & Note" },
   { id: "finance", label: "Payments" },
@@ -162,6 +139,21 @@ const NOTEBOOK_TABS: { id: PartnerNotebookTab; label: string }[] = [
   { id: "expense", label: "Expense" },
   { id: "cases", label: "Support" },
   { id: "loyalty", label: "Loyalty" },
+];
+
+const SUPPLIER_TAB_ORDER: PartnerNotebookTab[] = [
+  "overview",
+  "profile",
+  "purchases",
+  "catalog",
+  "ledger",
+  "finance",
+  "documents",
+  "expense",
+  "history",
+  "sales",
+  "cases",
+  "loyalty",
 ];
 
 /** Pay term is stored as a plain string ("30 days") so no backend/schema change
@@ -209,7 +201,7 @@ export const EMPTY_FORM: PartnerFormState = {
   city: "Dhaka",
   region: "Dhaka",
   zip: "",
-  country: "",
+  country: "Bangladesh",
   stateCode: "",
   taxId: "",
   jobPosition: "",
@@ -580,6 +572,12 @@ export function PartnerFormSheet({
     customer: originRole === "customer",
     supplier: originRole === "supplier",
   });
+  // opened from the Suppliers list: the Overview, the header boxes and the tab order speak supplier
+  const supplierView = originRole === "supplier";
+  const supplierId = customer?.linkedSupplierId?.trim() || null;
+  const { detail: supplierDetail, loading: supplierLoading } = useCommerceSupplierDetail(
+    linkedRoles.supplier ? supplierId : null,
+  );
 
   useEffect(() => {
     setShowAdditionalPhone(Boolean(form.additionalPhone.trim()));
@@ -652,9 +650,9 @@ export function PartnerFormSheet({
       overview: featureFlags.tabOverview,
       profile: true,
       ledger: true,
-      // AgainPOS: Purchases/Stock Report only apply to parties also registered as a supplier.
+      // Purchases and the Catalog of what a supplier has only apply to parties also registered as a supplier.
       purchases: linkedRoles.supplier,
-      stockReport: linkedRoles.supplier,
+      catalog: linkedRoles.supplier,
       sales: featureFlags.tabOrders,
       documents: true,
       finance: featureFlags.tabPayment,
@@ -663,12 +661,18 @@ export function PartnerFormSheet({
       loyalty: featureFlags.tabLoyalty,
       history: featureFlags.tabHistory,
     };
-    return NOTEBOOK_TABS.filter((t) => tabEnabled[t.id]).map((t) =>
+    // a supplier's drawer puts what is bought from them first; the customer tabs follow
+    const ordered = supplierView
+      ? SUPPLIER_TAB_ORDER.map((id) => NOTEBOOK_TABS.find((t) => t.id === id)).filter(
+          (t): t is (typeof NOTEBOOK_TABS)[number] => Boolean(t),
+        )
+      : NOTEBOOK_TABS;
+    return ordered.filter((t) => tabEnabled[t.id]).map((t) =>
       t.id === "cases" && pendingCustomerReplies > 0
         ? { ...t, badge: pendingCustomerReplies, badgeTone: "warning" as const }
         : t,
     );
-  }, [featureFlags, pendingCustomerReplies, linkedRoles.supplier]);
+  }, [featureFlags, pendingCustomerReplies, linkedRoles.supplier, supplierView]);
 
   useEffect(() => {
     if (!notebookTabs.some((t) => t.id === tab) && notebookTabs[0]) {
@@ -685,17 +689,13 @@ export function PartnerFormSheet({
     setTagInput("");
   };
 
-  const companyLine =
-    form.companyType === "company"
-      ? "Company"
-      : form.parentCompany.trim() || "Company Employer";
   const isNewRecord = !commerceCustomerId;
   const fillNotebook =
     variant === "drawer" &&
     (tab === "sales" ||
       tab === "ledger" ||
       tab === "purchases" ||
-      tab === "stockReport" ||
+      tab === "catalog" ||
       tab === "documents");
   const newRecordLabel =
     originRole === "supplier" ? "New supplier" : originRole === "vendor" ? "New vendor" : "New contact";
@@ -754,6 +754,19 @@ export function PartnerFormSheet({
   const initial = (form.name.trim() || "C").charAt(0).toUpperCase();
   const points = customer?.rewardPoints ?? 0;
   const walletBalance = customer?.walletBalance ?? 0;
+  // a supplier who is also a customer keeps the wallet / points boxes only when there is something on them
+  const showCustomerStats = !supplierView || (linkedRoles.customer && (points > 0 || walletBalance > 0));
+  const titlePlaceholder =
+    originRole === "supplier" ? "Supplier name" : originRole === "vendor" ? "Vendor name" : "Name";
+  const primaryAddress: PartnerAddressValue = {
+    label: form.addressTitle,
+    street: form.street,
+    city: form.city,
+    region: form.region,
+    zip: form.zip,
+    country: form.country,
+  };
+  const payTerm = parsePayTerm(form.defaultPaymentTerms);
 
   const sheet = (
     <>
@@ -763,26 +776,29 @@ export function PartnerFormSheet({
           variant === "drawer" && fillNotebook && "flex min-h-0 flex-1 flex-col",
         )}
       >
+        {/* record header: avatar, big title, one line of contact, smart stat boxes on the right (docs/common/formcommon.md) */}
         <div className="shrink-0 border-b border-border bg-background px-4 py-3 sm:px-6">
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-start gap-3">
             <button
               type="button"
               onClick={() => onTabChange("profile")}
-              className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-none border border-border/80 bg-[#00a09d] text-[18px] font-bold text-white"
+              className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-none border border-border/80 bg-[#00a09d] text-[20px] font-bold text-white"
               aria-label="Open profile"
             >
               {photoPreview ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={photoPreview} alt="" className="absolute inset-0 h-full w-full object-cover" />
-              ) : (
+              ) : form.name.trim() ? (
                 initial
+              ) : (
+                <User className="h-7 w-7" strokeWidth={1.5} />
               )}
             </button>
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <p className="min-w-0 truncate text-[15px] font-semibold text-foreground">
+            <div className="min-w-0 flex-1 basis-56">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <h2 className="min-w-0 max-w-full truncate text-[20px] font-bold leading-tight tracking-tight text-foreground">
                   {displayName}
-                </p>
+                </h2>
                 {linkedRoles.customer ? (
                   <PartnerStatusPill tone="info" className="shrink-0 uppercase tracking-wide">
                     Customer
@@ -793,22 +809,15 @@ export function PartnerFormSheet({
                     Supplier
                   </PartnerStatusPill>
                 ) : null}
-                {(form.status === "vip" || customer?.status === "vip") ? (
-                  <Crown
-                    className="h-4 w-4 shrink-0 text-yellow-500"
-                    aria-label="VIP"
-                    title="VIP"
-                  />
+                {form.status === "vip" || customer?.status === "vip" ? (
+                  <Crown className="h-4 w-4 shrink-0 text-yellow-500" aria-label="VIP" />
                 ) : null}
               </div>
               {featureFlags.fieldPhone && displayPhone ? (
-                <p className="flex min-w-0 items-center gap-1 truncate text-[12px] text-muted-foreground">
+                <p className="mt-0.5 flex min-w-0 items-center gap-1 truncate text-[12px] text-muted-foreground">
                   <span className="truncate">{displayPhone}</span>
                   {phoneVerified ? (
-                    <BadgeCheck
-                      className="h-3.5 w-3.5 shrink-0 text-[#00a09d]"
-                      aria-label="Phone verified"
-                    />
+                    <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-[#00a09d]" aria-label="Phone verified" />
                   ) : null}
                   {whatsappVerified ? (
                     <button
@@ -827,32 +836,51 @@ export function PartnerFormSheet({
                 <p className="flex min-w-0 items-center gap-1 truncate text-[12px] text-muted-foreground">
                   <span className="truncate">{displayEmail}</span>
                   {emailVerified ? (
-                    <BadgeCheck
-                      className="h-3.5 w-3.5 shrink-0 text-[#00a09d]"
-                      aria-label="Email verified"
-                    />
+                    <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-[#00a09d]" aria-label="Email verified" />
                   ) : null}
                 </p>
               ) : null}
-              {!(featureFlags.fieldPhone && displayPhone) &&
-              !(featureFlags.fieldEmail && displayEmail) ? (
-                <p className="truncate text-[12px] text-muted-foreground">—</p>
+              {!(featureFlags.fieldPhone && displayPhone) && !(featureFlags.fieldEmail && displayEmail) ? (
+                <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
+                  {isNewRecord ? "Fill in the profile, then save." : "No phone or email on file"}
+                </p>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {featureFlags.rewardPoints ? (
-                <button
-                  type="button"
-                  onClick={() => onTabChange(featureFlags.tabLoyalty ? "loyalty" : "overview")}
-                  className="inline-flex h-6 items-center gap-1 rounded-none border border-[#00a09d]/25 bg-[#00a09d]/10 px-2 text-[11px] font-semibold text-[#00a09d] transition-colors hover:bg-[#00a09d]/15"
-                >
-                  <Star className="h-3 w-3" />
-                  {formatQuantity(points)} Points
-                </button>
+            <div className="flex flex-wrap items-stretch gap-1.5">
+              {supplierView && !isNewRecord ? (
+                <>
+                  <PartnerStatButton
+                    value={supplierDetail ? supplierDetail.totalPos : "—"}
+                    label="Purchase orders"
+                    onClick={() => onTabChange("purchases")}
+                  />
+                  <PartnerStatButton
+                    value={supplierDetail ? supplierDetail.openPos : "—"}
+                    label="Open orders"
+                    onClick={() => onTabChange("purchases")}
+                  />
+                  <PartnerStatButton
+                    value={supplierDetail ? formatCurrency(supplierDetail.spendYtd) : "—"}
+                    label="Spend YTD"
+                    tone="brand"
+                    onClick={() => onTabChange("ledger")}
+                  />
+                </>
               ) : null}
-              {featureFlags.wallet ? (
-                <button
-                  type="button"
+              {showCustomerStats && featureFlags.rewardPoints ? (
+                <PartnerStatButton
+                  value={formatQuantity(points)}
+                  label="Points"
+                  tone="brand"
+                  onClick={() => onTabChange(featureFlags.tabLoyalty ? "loyalty" : "overview")}
+                />
+              ) : null}
+              {showCustomerStats && featureFlags.wallet ? (
+                <PartnerStatButton
+                  value={formatCurrency(walletBalance)}
+                  label={readOnly ? "Wallet" : "Wallet · recharge"}
+                  tone="purple"
+                  title={readOnly ? "Wallet balance" : "Recharge wallet"}
                   onClick={() => {
                     if (!readOnly && onOpenWalletRecharge) {
                       onOpenWalletRecharge();
@@ -860,704 +888,515 @@ export function PartnerFormSheet({
                     }
                     onTabChange(featureFlags.tabPayment ? "finance" : "overview");
                   }}
-                  title={readOnly ? "Wallet balance" : "Recharge wallet"}
-                  className="inline-flex h-6 items-center gap-1 rounded-none border border-[#714B67]/25 bg-[#714B67]/10 px-2 text-[11px] font-semibold text-[#714B67] transition-colors hover:bg-[#714B67]/15"
-                >
-                  <Wallet className="h-3 w-3" />
-                  {formatCurrency(walletBalance)}
-                </button>
+                />
               ) : null}
-              <button
-                type="button"
-                onClick={() => onTabChange("profile")}
-                className={cn(
-                  "inline-flex h-6 items-center gap-1 rounded-none border px-2 text-[11px] font-semibold transition-colors",
-                  tab === "profile"
-                    ? "border-[#714B67] bg-[#714B67] text-white"
-                    : "border-border bg-background text-foreground hover:border-[#00a09d] hover:text-[#00a09d]",
-                )}
-              >
-                <User className="h-3 w-3" />
-                Profile
-              </button>
             </div>
           </div>
         </div>
 
-      <AgainFormNotebook
-        tabs={notebookTabs}
-        active={tab}
-        onChange={onTabChange}
-        className={cn("border-t-0", fillNotebook && "min-h-0 flex-1")}
-        contentClassName={cn(
-          variant === "drawer" && "bg-transparent dark:bg-transparent",
-          fillNotebook && "flex min-h-0 flex-1 flex-col overflow-y-auto py-3",
-          tab === "stockReport" && "px-0 py-0 sm:px-0 overflow-y-hidden",
-        )}
-      >
+        <AgainFormNotebook
+          tabs={notebookTabs}
+          active={tab}
+          onChange={onTabChange}
+          className={cn("border-t-0", fillNotebook && "min-h-0 flex-1")}
+          tabsClassName="px-2 sm:px-4"
+          contentClassName={cn(
+            "@container",
+            variant === "drawer" && "bg-transparent dark:bg-transparent",
+            fillNotebook && "flex min-h-0 flex-1 flex-col overflow-y-auto py-3",
+          )}
+        >
           {tab === "overview" ? (
             isNewRecord || !customer ? (
               <PartnerTabEmpty
-                title="Save this contact to unlock overview"
-                description="Order metrics, wallet, points, and recent activity appear after the customer is created."
+                title={supplierView ? "Save this supplier to unlock the overview" : "Save this contact to unlock overview"}
+                description={
+                  supplierView
+                    ? "Open orders, spend, lead time and the delivery record appear after the supplier is created."
+                    : "Order metrics, wallet, points, and recent activity appear after the customer is created."
+                }
               />
+            ) : supplierView && supplierId ? (
+              <SupplierOverviewPanel supplier={supplierDetail} supplierId={supplierId} loading={supplierLoading} />
             ) : (
               <PartnerOverviewPanel customer={customer} />
             )
           ) : null}
 
           {tab === "profile" ? (
-      <>
-      {rolePicker}
-      <AgainFormTitle className="mb-0">
-        {featureFlags.fieldPhoto ? (
-        <button
-          type="button"
-          onClick={onPhotoClick}
-          disabled={readOnly || !onPhotoClick}
-          title={readOnly ? undefined : "Update profile photo"}
-          aria-label={readOnly ? "Profile photo" : "Update profile photo"}
-          className="group relative flex h-[90px] w-[90px] shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-none border border-border/80 bg-muted/20 text-muted-foreground hover:bg-muted/40 disabled:pointer-events-none disabled:opacity-100"
-        >
-          {photoPreview ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={photoPreview} alt="" className="absolute inset-0 h-full w-full object-cover" />
-          ) : showLogoPlaceholder ? (
-            <div className="flex h-full w-full flex-col items-center justify-center bg-[#1a3a5c] px-1">
-              <span className="text-[11px] font-bold leading-tight text-white">again</span>
-              <span className="text-[9px] text-white/80">soft</span>
-            </div>
-          ) : form.companyType === "company" ? (
-            <div className="flex h-full w-full items-center justify-center bg-[#e8ecf3] dark:bg-[#2a3040]">
-              <Building2 className="h-9 w-9 text-[#8fa3c7]" strokeWidth={1.5} />
-            </div>
-          ) : (
-            <div className="flex h-full w-full items-center justify-center bg-[#fbe3d8] dark:bg-[#3a2e2a]">
-              <User className="h-10 w-10 fill-[#f7cbb4] text-[#e8926a] dark:fill-[#5c4a42] dark:text-[#c98a6a]" strokeWidth={1.25} />
-            </div>
-          )}
-          {!readOnly && onPhotoClick ? (
-            <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-black/55 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-              <Camera className="h-3 w-3" strokeWidth={2} />
-              Edit
-            </span>
-          ) : null}
-        </button>
-        ) : null}
+            <div className="space-y-5">
+              {rolePicker}
 
-        <div className="min-w-0 flex-1 space-y-1 pt-0.5">
-          <div className="flex items-center gap-2 text-[13px] text-foreground">
-            <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <AgainUnderlineInput
-              value={form.name}
-              onChange={(v) => onPatch("name", v)}
-              readOnly={readOnly}
-              placeholder="Name"
-              className="min-w-0 flex-1"
-            />
-          </div>
-          {featureFlags.fieldPhone ? (
-            <div className="flex items-center gap-2 text-[13px] text-foreground">
-              <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              {readOnly ? (
-                <AgainUnderlineField className="flex min-w-0 flex-1 items-center gap-0.5">
-                  <p className="min-h-[28px] min-w-0 flex-1 py-1 text-[13px] leading-[1.3]">
-                    {form.phone || "—"}
-                  </p>
-                  {phoneVerified ? (
-                    <BadgeCheck
-                      className="h-4 w-4 shrink-0 text-[#00a09d]"
-                      aria-label="Phone verified"
-                    />
-                  ) : null}
-                  {showWhatsAppVerify ? (
-                    <button
-                      type="button"
-                      title="Check if this number has WhatsApp"
-                      aria-label="Verify WhatsApp"
-                      disabled={verifyingWhatsApp || readOnly}
-                      onClick={handleWhatsAppVerify}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none border border-[#25D366]/30 bg-[#25D366]/10 text-[#128C7E] transition-colors hover:bg-[#25D366] hover:text-white disabled:opacity-60"
-                    >
-                      {verifyingWhatsApp ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <WhatsAppIcon />
-                      )}
-                    </button>
-                  ) : null}
-                </AgainUnderlineField>
-              ) : (
-                <AgainUnderlineField className="flex min-w-0 flex-1 items-center gap-0.5">
-                  <input
-                    value={form.phone ?? ""}
-                    onChange={(e) => onPatch("phone", e.target.value)}
-                    placeholder="Phone"
-                    className="h-8 min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
-                  />
-                  {phoneVerified ? (
-                    <BadgeCheck
-                      className="h-4 w-4 shrink-0 text-[#00a09d]"
-                      aria-label="Phone verified"
-                    />
-                  ) : canVerifyPhone ? (
-                    <button
-                      type="button"
-                      title="Mark phone verified"
-                      aria-label="Mark phone verified"
-                      disabled={verifyingContact === "phone"}
-                      onClick={() => void onVerifyContact?.("phone", form.phone.trim())}
-                      className="inline-flex h-7 shrink-0 items-center gap-1 rounded-none border border-[#00a09d]/30 bg-[#00a09d]/10 px-1.5 text-[11px] font-medium text-[#00a09d] transition-colors hover:bg-[#00a09d] hover:text-white disabled:opacity-60"
-                    >
-                      <BadgeCheck className="h-3.5 w-3.5" />
-                      {verifyingContact === "phone" ? "…" : "Verify"}
-                    </button>
-                  ) : null}
-                  {showWhatsAppVerify ? (
-                    <button
-                      type="button"
-                      title="Check if this number has WhatsApp"
-                      aria-label="Verify WhatsApp"
-                      disabled={verifyingWhatsApp}
-                      onClick={handleWhatsAppVerify}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none border border-[#25D366]/30 bg-[#25D366]/10 text-[#128C7E] transition-colors hover:bg-[#25D366] hover:text-white disabled:opacity-60"
-                    >
-                      {verifyingWhatsApp ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <WhatsAppIcon />
-                      )}
-                    </button>
-                  ) : null}
-                  {featureFlags.fieldAdditionalPhone && !showAdditionalPhone ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowAdditionalPhone(true)}
-                      title="Add additional number"
-                      aria-label="Add additional number"
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none bg-[#00a09d]/10 text-[#00a09d] transition-colors hover:bg-[#00a09d] hover:text-white"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                  ) : null}
-                </AgainUnderlineField>
-              )}
-            </div>
-          ) : null}
-          {featureFlags.fieldAdditionalPhone &&
-          (showAdditionalPhone || (readOnly && form.additionalPhone)) ? (
-            <div className="flex items-center gap-2 text-[13px] text-foreground">
-              <Smartphone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              {readOnly ? (
-                <AgainUnderlineInput
-                  value={form.additionalPhone}
-                  readOnly
-                  placeholder="Additional number"
-                  className="min-w-0 flex-1"
-                />
-              ) : (
-                <AgainUnderlineField className="flex min-w-0 flex-1 items-center gap-0.5">
-                  <input
-                    value={form.additionalPhone ?? ""}
-                    onChange={(e) => onPatch("additionalPhone", e.target.value)}
-                    placeholder="Additional number"
-                    className="h-8 min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
-                  />
+              <div className="flex items-start gap-4">
+                {featureFlags.fieldPhoto ? (
                   <button
                     type="button"
-                    title="Remove additional number"
-                    aria-label="Remove additional number"
-                    onClick={() => {
-                      onPatch("additionalPhone", "");
-                      setShowAdditionalPhone(false);
-                    }}
-                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
+                    onClick={onPhotoClick}
+                    disabled={readOnly || !onPhotoClick}
+                    title={readOnly ? undefined : "Update profile photo"}
+                    aria-label={readOnly ? "Profile photo" : "Update profile photo"}
+                    className="group relative flex h-[84px] w-[84px] shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-none border border-border/80 bg-muted/20 text-muted-foreground hover:bg-muted/40 disabled:pointer-events-none disabled:opacity-100"
                   >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </AgainUnderlineField>
-              )}
-            </div>
-          ) : null}
-          {featureFlags.fieldEmail ? (
-            <div className="flex items-center gap-2 text-[13px] text-foreground">
-              <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              {readOnly ? (
-                <AgainUnderlineField className="flex min-w-0 flex-1 items-center gap-0.5">
-                  <p className="min-h-[28px] min-w-0 flex-1 py-1 text-[13px] leading-[1.3]">
-                    {form.email || "—"}
-                  </p>
-                  {emailVerified ? (
-                    <BadgeCheck
-                      className="h-4 w-4 shrink-0 text-[#00a09d]"
-                      aria-label="Email verified"
-                    />
-                  ) : null}
-                </AgainUnderlineField>
-              ) : (
-                <AgainUnderlineField className="flex min-w-0 flex-1 items-center gap-0.5">
-                  <input
-                    value={form.email ?? ""}
-                    onChange={(e) => onPatch("email", e.target.value)}
-                    placeholder="Email"
-                    className="h-8 min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
-                  />
-                  {emailVerified ? (
-                    <BadgeCheck
-                      className="h-4 w-4 shrink-0 text-[#00a09d]"
-                      aria-label="Email verified"
-                    />
-                  ) : canVerifyEmail ? (
-                    <button
-                      type="button"
-                      title="Mark email verified"
-                      aria-label="Mark email verified"
-                      disabled={verifyingContact === "email"}
-                      onClick={() => void onVerifyContact?.("email", form.email.trim())}
-                      className="inline-flex h-7 shrink-0 items-center gap-1 rounded-none border border-[#00a09d]/30 bg-[#00a09d]/10 px-1.5 text-[11px] font-medium text-[#00a09d] transition-colors hover:bg-[#00a09d] hover:text-white disabled:opacity-60"
-                    >
-                      <BadgeCheck className="h-3.5 w-3.5" />
-                      {verifyingContact === "email" ? "…" : "Verify"}
-                    </button>
-                  ) : null}
-                </AgainUnderlineField>
-              )}
-            </div>
-          ) : null}
-          {featureFlags.fieldCompany ? (
-          <div className="flex items-center gap-2 text-[13px] text-foreground">
-              <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              {readOnly ? (
-                <span>{companyLine}</span>
-              ) : (
-                <AgainUnderlineInput
-                  value={form.parentCompany}
-                  onChange={(v) => onPatch("parentCompany", v)}
-                  placeholder="Company name..."
-                  className="min-w-0 flex-1"
-                />
-              )}
-            </div>
-          ) : null}
-          <div className="flex items-center gap-2 text-[13px] text-foreground">
-            <UserCog className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            {readOnly ? (
-              <span className="py-1">{form.assignedStaff || "—"}</span>
-            ) : (
-              <AgainUnderlineField className="flex min-w-0 flex-1 items-center">
-                <Select
-                  value={form.assignedStaff}
-                  onChange={(e) => onPatch("assignedStaff", e.target.value)}
-                  className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 text-[13px] shadow-none outline-none"
-                >
-                  <option value="">Assigned to…</option>
-                  {form.assignedStaff &&
-                  !mentionableUsers.some((u) => u.name === form.assignedStaff) ? (
-                    <option value={form.assignedStaff}>{form.assignedStaff}</option>
-                  ) : null}
-                  {mentionableUsers.map((u) => (
-                    <option key={u.id} value={u.name}>
-                      {u.name}
-                    </option>
-                  ))}
-                </Select>
-              </AgainUnderlineField>
-            )}
-          </div>
-
-          {featureFlags.fieldGroup ? (
-            <div className="flex items-center gap-2 text-[13px] text-foreground">
-              <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              {readOnly ? (
-                <span className="py-1">
-                  {resolveCustomerGroupLabel(
-                    form.group,
-                    Object.fromEntries(groupOptions.map((o) => [o.id, o.label])),
-                  )}
-                </span>
-              ) : (
-                <AgainUnderlineField className="flex min-w-0 flex-1 items-center gap-0.5">
-                  <Select
-                    value={form.group}
-                    onChange={(e) => onPatch("group", e.target.value)}
-                    className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 text-[13px] shadow-none outline-none"
-                  >
-                    {groupOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </Select>
-                  <button
-                    type="button"
-                    title="Clear group"
-                    aria-label="Clear group"
-                    onClick={() => onPatch("group", "retail")}
-                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onAddGroup}
-                    title="Add customer group"
-                    aria-label="Add customer group"
-                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none bg-[#00a09d]/10 text-[#00a09d] transition-colors hover:bg-[#00a09d] hover:text-white"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </AgainUnderlineField>
-              )}
-            </div>
-          ) : null}
-
-          {featureFlags.fieldStatus ? (
-            <div className="flex items-center gap-2 text-[13px] text-foreground">
-              <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              {readOnly ? (
-                <span className="py-1">
-                  {CUSTOMER_STATUS_LABELS[form.status as keyof typeof CUSTOMER_STATUS_LABELS] ??
-                    form.status}
-                </span>
-              ) : (
-                <AgainUnderlineField className="flex min-w-0 flex-1 items-center">
-                  <Select
-                    value={form.status}
-                    onChange={(e) => onPatch("status", e.target.value)}
-                    className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 text-[13px] shadow-none outline-none"
-                  >
-                    {Object.entries(CUSTOMER_STATUS_LABELS).map(([id, label]) => (
-                      <option key={id} value={id}>
-                        {label}
-                      </option>
-                    ))}
-                  </Select>
-                </AgainUnderlineField>
-              )}
-            </div>
-          ) : null}
-
-          <div className="flex items-center gap-2 text-[13px] text-foreground">
-            <Receipt className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            {readOnly ? (
-              <span className="py-1">{form.taxId || "—"}</span>
-            ) : (
-              <AgainUnderlineInput
-                value={form.taxId}
-                onChange={(v) => onPatch("taxId", v)}
-                placeholder="Tax number..."
-                className="min-w-0 flex-1"
-              />
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 text-[13px] text-foreground">
-            <Wallet className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            {readOnly ? (
-              <span className="py-1">{form.openingBalance || "0"}</span>
-            ) : (
-              <AgainUnderlineInput
-                value={form.openingBalance}
-                onChange={(v) => onPatch("openingBalance", v.replace(/[^\d.-]/g, ""))}
-                placeholder="Opening balance"
-                className="min-w-0 flex-1"
-                inputClassName="tabular-nums"
-              />
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 text-[13px] text-foreground">
-            <CreditCard className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            {readOnly ? (
-              <span className="py-1">{form.creditLimit || "—"}</span>
-            ) : (
-              <AgainUnderlineInput
-                value={form.creditLimit}
-                onChange={(v) => onPatch("creditLimit", v.replace(/[^\d.]/g, ""))}
-                placeholder="Credit limit (blank = no limit)"
-                className="min-w-0 flex-1"
-                inputClassName="tabular-nums"
-              />
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 text-[13px] text-foreground">
-            <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            {(() => {
-              const payTerm = parsePayTerm(form.defaultPaymentTerms);
-              return readOnly ? (
-                <span className="py-1">
-                  {payTerm.number ? `${payTerm.number} ${payTerm.unit}` : "—"}
-                </span>
-              ) : (
-                <AgainUnderlineField className="flex min-w-0 flex-1 items-center gap-0.5">
-                  <input
-                    value={payTerm.number}
-                    onChange={(e) =>
-                      onPatch(
-                        "defaultPaymentTerms",
-                        formatPayTerm(e.target.value.replace(/[^\d]/g, ""), payTerm.unit),
-                      )
-                    }
-                    placeholder="Pay term"
-                    className="h-8 w-16 shrink-0 bg-transparent text-[13px] tabular-nums text-foreground outline-none placeholder:text-muted-foreground/70"
-                  />
-                  <Select
-                    value={payTerm.unit}
-                    onChange={(e) =>
-                      onPatch(
-                        "defaultPaymentTerms",
-                        formatPayTerm(payTerm.number, e.target.value as "days" | "months"),
-                      )
-                    }
-                    className="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 text-[13px] shadow-none outline-none"
-                  >
-                    <option value="days">Days</option>
-                    <option value="months">Months</option>
-                  </Select>
-                  <FieldHelpTip label="Payments to be paid for purchases/sales within the given time period. Upcoming or due payments show on the dashboard's Payment Due section." />
-                </AgainUnderlineField>
-              );
-            })()}
-          </div>
-
-          <div className="flex items-center gap-2 text-[13px] text-foreground">
-            <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            {readOnly ? (
-              <span className="py-1">{form.paymentSchedule || "—"}</span>
-            ) : (
-              <AgainUnderlineInput
-                value={form.paymentSchedule}
-                onChange={(v) => onPatch("paymentSchedule", v)}
-                placeholder="Payment schedule..."
-                className="min-w-0 flex-1"
-              />
-            )}
-          </div>
-
-          {featureFlags.fieldTags ? (
-            <div className="flex items-start gap-2 text-[13px] text-foreground">
-              <Tag className="mt-2 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 border-b border-border/50 pb-1 focus-within:border-[#00a09d]">
-                {form.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center gap-1 rounded-none bg-[#00a09d]/10 px-1.5 py-0.5 text-[12px] text-[#00867e]"
-                  >
-                    {tag}
-                    {!readOnly ? (
-                      <button
-                        type="button"
-                        aria-label={`Remove tag ${tag}`}
-                        onClick={() => onRemoveTag(tag)}
-                        className="text-[#00867e]/70 transition-colors hover:text-red-500"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    ) : null}
-                  </span>
-                ))}
-                {!readOnly ? (
-                  <input
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === ",") {
-                        e.preventDefault();
-                        commitTag();
-                      } else if (e.key === "Backspace" && !tagInput && form.tags.length) {
-                        onRemoveTag(form.tags[form.tags.length - 1]);
-                      }
-                    }}
-                    onBlur={commitTag}
-                    placeholder={form.tags.length ? "" : "Tags…"}
-                    className="h-7 min-w-[80px] flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
-                  />
-                ) : form.tags.length === 0 ? (
-                  <span className="py-1 text-muted-foreground">—</span>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          {featureFlags.fieldAddresses ? (
-            <div className="rounded-none border border-border/80 bg-background/70 p-2.5">
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground">
-                  <MapPin className="h-3.5 w-3.5 shrink-0" />
-                  Addresses
-                </div>
-                {!readOnly ? (
-                  <button
-                    type="button"
-                    onClick={onAddAddress}
-                    title="Add address"
-                    aria-label="Add address"
-                    className="inline-flex h-7 items-center gap-1 rounded-none bg-[#00a09d]/10 px-2 text-[12px] font-medium text-[#00a09d] transition-colors hover:bg-[#00a09d] hover:text-white"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    Add
-                  </button>
-                ) : null}
-              </div>
-
-              <div className="space-y-2">
-                <div className="space-y-0">
-                  {readOnly ? (
-                    <p className="min-h-[28px] py-1 text-[13px] font-medium text-foreground">
-                      {form.addressTitle || "Home"}
-                    </p>
-                  ) : (
-                    <div className="flex min-w-0 items-center gap-1">
-                      <Select
-                        value={
-                          (ADDRESS_TITLE_PRESETS as readonly string[]).includes(form.addressTitle)
-                            ? form.addressTitle
-                            : "Other"
-                        }
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          onPatch("addressTitle", next === "Other" ? "" : next);
-                        }}
-                        className="h-7 w-[104px] shrink-0 border-0 bg-transparent px-0 text-[13px] shadow-none outline-none"
-                      >
-                        {ADDRESS_TITLE_PRESETS.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </Select>
-                      {!(ADDRESS_TITLE_PRESETS as readonly string[]).includes(form.addressTitle) ? (
-                        <AgainUnderlineInput
-                          value={form.addressTitle}
-                          onChange={(v) => onPatch("addressTitle", v)}
-                          placeholder="Custom title…"
-                          className="min-w-0 flex-1"
+                    {photoPreview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={photoPreview} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                    ) : showLogoPlaceholder ? (
+                      <div className="flex h-full w-full flex-col items-center justify-center bg-[#1a3a5c] px-1">
+                        <span className="text-[11px] font-bold leading-tight text-white">again</span>
+                        <span className="text-[9px] text-white/80">soft</span>
+                      </div>
+                    ) : form.companyType === "company" ? (
+                      <div className="flex h-full w-full items-center justify-center bg-[#e8ecf3] dark:bg-[#2a3040]">
+                        <Building2 className="h-9 w-9 text-[#8fa3c7]" strokeWidth={1.5} />
+                      </div>
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-[#fbe3d8] dark:bg-[#3a2e2a]">
+                        <User
+                          className="h-10 w-10 fill-[#f7cbb4] text-[#e8926a] dark:fill-[#5c4a42] dark:text-[#c98a6a]"
+                          strokeWidth={1.25}
                         />
-                      ) : null}
-                    </div>
-                  )}
-                  <AgainUnderlineInput
-                    value={form.street}
-                    onChange={(v) => onPatch("street", v)}
+                      </div>
+                    )}
+                    {!readOnly && onPhotoClick ? (
+                      <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-black/55 py-1 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                        <Camera className="h-3 w-3" strokeWidth={2} />
+                        Edit
+                      </span>
+                    ) : null}
+                  </button>
+                ) : null}
+                <div className="min-w-0 flex-1 pt-1">
+                  <AgainFormRecordTitle
+                    value={form.name}
+                    onChange={(v) => onPatch("name", v.replace(/\n/g, " "))}
                     readOnly={readOnly}
-                    placeholder="Street..."
+                    placeholder={titlePlaceholder}
                   />
-                  <div className="flex flex-wrap gap-x-2">
-                    <AgainUnderlineInput
-                      value={form.city}
-                      onChange={(v) => onPatch("city", v)}
-                      readOnly={readOnly}
-                      placeholder="City"
-                      className="min-w-[56px] flex-1"
-                    />
-                    <AgainUnderlineInput
-                      value={form.region}
-                      onChange={(v) => onPatch("region", v)}
-                      readOnly={readOnly}
-                      placeholder="State"
-                      className="min-w-[56px] flex-1"
-                    />
-                    <AgainUnderlineInput
-                      value={form.zip}
-                      onChange={(v) => onPatch("zip", v)}
-                      readOnly={readOnly}
-                      placeholder="ZIP"
-                      className="w-14 shrink-0"
-                    />
-                  </div>
                 </div>
+              </div>
 
-                {extraAddresses.map((addr) => (
-                  <div
-                    key={addr.id}
-                    className="space-y-0 border-t border-border/60 pt-2"
-                  >
-                    <div className="flex items-center gap-0.5">
+              {/* Odoo form: label left, underline control right, titled groups, two columns by the drawer's own width */}
+              <div className="again-odoo-form space-y-5">
+                <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                  <AgainFormGroupTitle className="@xl:col-span-2">Contact</AgainFormGroupTitle>
+
+                  {featureFlags.fieldPhone ? (
+                    <AgainFormField label="Phone" className={ROW}>
                       {readOnly ? (
-                        <span className="min-w-0 flex-1 py-1 text-[13px] font-medium text-foreground">
-                          {addr.label || "Other"}
-                        </span>
+                        <ReadValue>
+                          {form.phone || "—"}
+                          {phoneVerified ? (
+                            <BadgeCheck className="h-4 w-4 shrink-0 text-[#00a09d]" aria-label="Phone verified" />
+                          ) : null}
+                        </ReadValue>
                       ) : (
-                        <div className="flex min-w-0 flex-1 items-center gap-1">
-                          <Select
-                            value={
-                              (ADDRESS_TITLE_PRESETS as readonly string[]).includes(addr.label)
-                                ? addr.label
-                                : "Other"
-                            }
-                            onChange={(e) => {
-                              const next = e.target.value;
-                              onPatchAddress(addr.id, "label", next === "Other" ? "" : next);
-                            }}
-                            className="h-7 w-[104px] shrink-0 border-0 bg-transparent px-0 text-[13px] shadow-none outline-none"
-                          >
-                            {ADDRESS_TITLE_PRESETS.map((opt) => (
-                              <option key={opt} value={opt}>
-                                {opt}
-                              </option>
-                            ))}
-                          </Select>
-                          {!(ADDRESS_TITLE_PRESETS as readonly string[]).includes(addr.label) ? (
-                            <AgainUnderlineInput
-                              value={addr.label}
-                              onChange={(v) => onPatchAddress(addr.id, "label", v)}
-                              placeholder="Custom title…"
-                              className="min-w-0 flex-1"
-                            />
+                        <div className={ENTRY_WRAP}>
+                          <input
+                            value={form.phone ?? ""}
+                            onChange={(e) => onPatch("phone", e.target.value)}
+                            placeholder="+8801…"
+                            className={FIELD_INPUT}
+                          />
+                          {phoneVerified ? (
+                            <BadgeCheck className="mx-1 h-4 w-4 shrink-0 text-[#00a09d]" aria-label="Phone verified" />
+                          ) : canVerifyPhone ? (
+                            <button
+                              type="button"
+                              title="Mark phone verified"
+                              aria-label="Mark phone verified"
+                              disabled={verifyingContact === "phone"}
+                              onClick={() => void onVerifyContact?.("phone", form.phone.trim())}
+                              className={VERIFY_BTN}
+                            >
+                              <BadgeCheck className="h-3.5 w-3.5" />
+                              {verifyingContact === "phone" ? "…" : "Verify"}
+                            </button>
+                          ) : null}
+                          {showWhatsAppVerify ? (
+                            <button
+                              type="button"
+                              title="Check if this number has WhatsApp"
+                              aria-label="Verify WhatsApp"
+                              disabled={verifyingWhatsApp}
+                              onClick={handleWhatsAppVerify}
+                              className={WHATSAPP_BTN}
+                            >
+                              {verifyingWhatsApp ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <WhatsAppIcon />}
+                            </button>
+                          ) : null}
+                          {featureFlags.fieldAdditionalPhone && !showAdditionalPhone ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowAdditionalPhone(true)}
+                              title="Add additional number"
+                              aria-label="Add additional number"
+                              className={ICON_BTN}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </button>
                           ) : null}
                         </div>
                       )}
-                      {!readOnly ? (
-                        <button
-                          type="button"
-                          title="Remove address"
-                          aria-label="Remove address"
-                          onClick={() => onRemoveAddress(addr.id)}
-                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      ) : null}
-                    </div>
-                    <AgainUnderlineInput
-                      value={addr.street}
-                      onChange={(v) => onPatchAddress(addr.id, "street", v)}
+                    </AgainFormField>
+                  ) : null}
+
+                  {featureFlags.fieldEmail ? (
+                    <AgainFormField label="Email" className={ROW}>
+                      {readOnly ? (
+                        <ReadValue>
+                          {form.email || "—"}
+                          {emailVerified ? (
+                            <BadgeCheck className="h-4 w-4 shrink-0 text-[#00a09d]" aria-label="Email verified" />
+                          ) : null}
+                        </ReadValue>
+                      ) : (
+                        <div className={ENTRY_WRAP}>
+                          <input
+                            value={form.email ?? ""}
+                            onChange={(e) => onPatch("email", e.target.value)}
+                            placeholder="name@company.com"
+                            className={FIELD_INPUT}
+                          />
+                          {emailVerified ? (
+                            <BadgeCheck className="mx-1 h-4 w-4 shrink-0 text-[#00a09d]" aria-label="Email verified" />
+                          ) : canVerifyEmail ? (
+                            <button
+                              type="button"
+                              title="Mark email verified"
+                              aria-label="Mark email verified"
+                              disabled={verifyingContact === "email"}
+                              onClick={() => void onVerifyContact?.("email", form.email.trim())}
+                              className={VERIFY_BTN}
+                            >
+                              <BadgeCheck className="h-3.5 w-3.5" />
+                              {verifyingContact === "email" ? "…" : "Verify"}
+                            </button>
+                          ) : null}
+                        </div>
+                      )}
+                    </AgainFormField>
+                  ) : null}
+
+                  {featureFlags.fieldAdditionalPhone && (showAdditionalPhone || (readOnly && form.additionalPhone)) ? (
+                    <AgainFormField label="Additional phone" className={ROW}>
+                      {readOnly ? (
+                        <ReadValue>{form.additionalPhone || "—"}</ReadValue>
+                      ) : (
+                        <div className={ENTRY_WRAP}>
+                          <input
+                            value={form.additionalPhone ?? ""}
+                            onChange={(e) => onPatch("additionalPhone", e.target.value)}
+                            placeholder="Additional number"
+                            className={FIELD_INPUT}
+                          />
+                          <button
+                            type="button"
+                            title="Remove additional number"
+                            aria-label="Remove additional number"
+                            onClick={() => {
+                              onPatch("additionalPhone", "");
+                              setShowAdditionalPhone(false);
+                            }}
+                            className={REMOVE_BTN}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </AgainFormField>
+                  ) : null}
+
+                  <TextRow
+                    label="Website"
+                    value={form.website}
+                    onChange={(v) => onPatch("website", v)}
+                    readOnly={readOnly}
+                    placeholder="https://"
+                  />
+                  {featureFlags.fieldCompany ? (
+                    <TextRow
+                      label="Company"
+                      value={form.parentCompany}
+                      onChange={(v) => onPatch("parentCompany", v)}
                       readOnly={readOnly}
-                      placeholder="Street..."
+                      placeholder="Company name"
                     />
-                    <div className="flex flex-wrap gap-x-2">
-                      <AgainUnderlineInput
-                        value={addr.city}
-                        onChange={(v) => onPatchAddress(addr.id, "city", v)}
-                        readOnly={readOnly}
-                        placeholder="City"
-                        className="min-w-[56px] flex-1"
-                      />
-                      <AgainUnderlineInput
-                        value={addr.region}
-                        onChange={(v) => onPatchAddress(addr.id, "region", v)}
-                        readOnly={readOnly}
-                        placeholder="State"
-                        className="min-w-[56px] flex-1"
-                      />
-                      <AgainUnderlineInput
-                        value={addr.zip}
-                        onChange={(v) => onPatchAddress(addr.id, "zip", v)}
-                        readOnly={readOnly}
-                        placeholder="ZIP"
-                        className="w-14 shrink-0"
-                      />
-                    </div>
+                  ) : null}
+                  <TextRow
+                    label="Job position"
+                    value={form.jobPosition}
+                    onChange={(v) => onPatch("jobPosition", v)}
+                    readOnly={readOnly}
+                    placeholder="e.g. Procurement manager"
+                  />
+                  <AgainFormField label={supplierView ? "Buyer" : "Assigned to"} className={ROW}>
+                    {readOnly ? (
+                      <ReadValue>{form.assignedStaff || "—"}</ReadValue>
+                    ) : (
+                      <select
+                        value={form.assignedStaff}
+                        onChange={(e) => onPatch("assignedStaff", e.target.value)}
+                        className={FIELD_INPUT}
+                      >
+                        <option value="">{supplierView ? "Who owns this relationship…" : "Assigned to…"}</option>
+                        {form.assignedStaff && !mentionableUsers.some((u) => u.name === form.assignedStaff) ? (
+                          <option value={form.assignedStaff}>{form.assignedStaff}</option>
+                        ) : null}
+                        {mentionableUsers.map((u) => (
+                          <option key={u.id} value={u.name}>
+                            {u.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </AgainFormField>
+                </div>
+
+                {featureFlags.fieldAddresses ? (
+                  <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                    <AgainFormGroupTitle className="@xl:col-span-2">Address</AgainFormGroupTitle>
+                    <AddressFields
+                      value={primaryAddress}
+                      onChange={(key, value) => {
+                        if (key === "label") onPatch("addressTitle", value);
+                        else if (key === "street") onPatch("street", value);
+                        else if (key === "city") onPatch("city", value);
+                        else if (key === "region") onPatch("region", value);
+                        else if (key === "zip") onPatch("zip", value);
+                        else onPatch("country", value);
+                      }}
+                      readOnly={readOnly}
+                      countryOptions={countryOptions}
+                      onOpenCountryDrawer={onOpenCountryDrawer}
+                    />
+                    {extraAddresses.map((addr, index) => (
+                      <div key={addr.id} className="@xl:col-span-2">
+                        <div className="mt-3 flex items-center justify-between border-b border-border/60 pb-0.5">
+                          <span className="text-[11px] font-medium text-muted-foreground">Address {index + 2}</span>
+                          {!readOnly ? (
+                            <button
+                              type="button"
+                              title="Remove address"
+                              aria-label="Remove address"
+                              onClick={() => onRemoveAddress(addr.id)}
+                              className={REMOVE_BTN}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                        </div>
+                        <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                          <AddressFields
+                            value={{
+                              label: addr.label,
+                              street: addr.street,
+                              city: addr.city,
+                              region: addr.region,
+                              zip: addr.zip,
+                              country: addr.country,
+                            }}
+                            onChange={(key, value) => onPatchAddress(addr.id, key, value)}
+                            readOnly={readOnly}
+                            countryOptions={countryOptions}
+                            onOpenCountryDrawer={onOpenCountryDrawer}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    {!readOnly ? (
+                      <div className="@xl:col-span-2">
+                        <button type="button" className={cn(LINK_BTN, "mt-1.5")} onClick={onAddAddress}>
+                          Add an address
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
-                ))}
+                ) : null}
+
+                <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                  <AgainFormGroupTitle className="@xl:col-span-2">Accounting</AgainFormGroupTitle>
+                  <AgainFormField label="Payment terms" className={ROW}>
+                    {readOnly ? (
+                      <ReadValue>{payTerm.number ? `${payTerm.number} ${payTerm.unit}` : "—"}</ReadValue>
+                    ) : (
+                      <div className="flex min-w-0 items-center gap-1">
+                        <input
+                          value={payTerm.number}
+                          onChange={(e) =>
+                            onPatch(
+                              "defaultPaymentTerms",
+                              formatPayTerm(e.target.value.replace(/[^\d]/g, ""), payTerm.unit),
+                            )
+                          }
+                          inputMode="numeric"
+                          placeholder="0"
+                          className="h-8 w-16 shrink-0 bg-transparent px-1 text-[13px] tabular-nums outline-none"
+                        />
+                        <select
+                          value={payTerm.unit}
+                          onChange={(e) =>
+                            onPatch(
+                              "defaultPaymentTerms",
+                              formatPayTerm(payTerm.number, e.target.value as "days" | "months"),
+                            )
+                          }
+                          className={FIELD_INPUT}
+                        >
+                          <option value="days">Days</option>
+                          <option value="months">Months</option>
+                        </select>
+                        <FieldHelpTip label="Payments to be paid for purchases/sales within the given time period. Upcoming or due payments show on the dashboard's Payment Due section." />
+                      </div>
+                    )}
+                  </AgainFormField>
+                  <TextRow
+                    label="Payment schedule"
+                    value={form.paymentSchedule}
+                    onChange={(v) => onPatch("paymentSchedule", v)}
+                    readOnly={readOnly}
+                    placeholder="e.g. Monthly"
+                  />
+                  <TextRow
+                    label="Opening balance"
+                    value={form.openingBalance}
+                    onChange={(v) => onPatch("openingBalance", v)}
+                    readOnly={readOnly}
+                    placeholder="0"
+                    numeric
+                    negative
+                  />
+                  <TextRow
+                    label="Credit limit"
+                    value={form.creditLimit}
+                    onChange={(v) => onPatch("creditLimit", v)}
+                    readOnly={readOnly}
+                    placeholder="Blank = no limit"
+                    numeric
+                  />
+                  <TextRow
+                    label="Tax ID"
+                    value={form.taxId}
+                    onChange={(v) => onPatch("taxId", v)}
+                    readOnly={readOnly}
+                    placeholder="Optional"
+                  />
+                </div>
+
+                {featureFlags.fieldGroup || featureFlags.fieldStatus || featureFlags.fieldTags ? (
+                  <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                    <AgainFormGroupTitle className="@xl:col-span-2">Classification</AgainFormGroupTitle>
+                    {featureFlags.fieldGroup ? (
+                      <AgainFormField label="Customer group" className={ROW}>
+                        {readOnly ? (
+                          <ReadValue>
+                            {resolveCustomerGroupLabel(
+                              form.group,
+                              Object.fromEntries(groupOptions.map((o) => [o.id, o.label])),
+                            )}
+                          </ReadValue>
+                        ) : (
+                          <div className="flex min-w-0 items-center gap-1">
+                            <select
+                              value={form.group}
+                              onChange={(e) => onPatch("group", e.target.value)}
+                              className={FIELD_INPUT}
+                            >
+                              {groupOptions.map((opt) => (
+                                <option key={opt.id} value={opt.id}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              title="Clear group"
+                              aria-label="Clear group"
+                              onClick={() => onPatch("group", "retail")}
+                              className={REMOVE_BTN}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={onAddGroup}
+                              title="Add customer group"
+                              aria-label="Add customer group"
+                              className={ICON_BTN}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </button>
+                          </div>
+                        )}
+                      </AgainFormField>
+                    ) : null}
+                    {featureFlags.fieldStatus ? (
+                      <AgainFormField label="Status" className={ROW}>
+                        {readOnly ? (
+                          <ReadValue>
+                            {CUSTOMER_STATUS_LABELS[form.status as keyof typeof CUSTOMER_STATUS_LABELS] ?? form.status}
+                          </ReadValue>
+                        ) : (
+                          <select
+                            value={form.status}
+                            onChange={(e) => onPatch("status", e.target.value)}
+                            className={FIELD_INPUT}
+                          >
+                            {Object.entries(CUSTOMER_STATUS_LABELS).map(([id, label]) => (
+                              <option key={id} value={id}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </AgainFormField>
+                    ) : null}
+                    {featureFlags.fieldTags ? (
+                      <AgainFormField label="Tags" className={cn(ROW, "@xl:col-span-2")}>
+                        <div className={cn(ENTRY_WRAP, "min-h-8 flex-wrap gap-1 px-1 py-0.5")}>
+                          {form.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="inline-flex items-center gap-1 rounded-none bg-[#00a09d]/10 px-1.5 py-0.5 text-[12px] text-[#00867e]"
+                            >
+                              {tag}
+                              {!readOnly ? (
+                                <button
+                                  type="button"
+                                  aria-label={`Remove tag ${tag}`}
+                                  onClick={() => onRemoveTag(tag)}
+                                  className="text-[#00867e]/70 transition-colors hover:text-red-500"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              ) : null}
+                            </span>
+                          ))}
+                          {!readOnly ? (
+                            <input
+                              value={tagInput}
+                              onChange={(e) => setTagInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === ",") {
+                                  e.preventDefault();
+                                  commitTag();
+                                } else if (e.key === "Backspace" && !tagInput && form.tags.length) {
+                                  onRemoveTag(form.tags[form.tags.length - 1]);
+                                }
+                              }}
+                              onBlur={commitTag}
+                              placeholder={form.tags.length ? "" : "Type a tag and press Enter"}
+                              className="h-6 min-w-[8rem] flex-1 bg-transparent px-1 text-[13px] outline-none placeholder:text-muted-foreground/70"
+                            />
+                          ) : form.tags.length === 0 ? (
+                            <span className="px-1 py-1 text-[13px] text-muted-foreground">—</span>
+                          ) : null}
+                        </div>
+                      </AgainFormField>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
-          ) : null}
-
-        </div>
-      </AgainFormTitle>
-      </>
           ) : null}
 
           {tab === "sales" ? (
@@ -1637,17 +1476,17 @@ export function PartnerFormSheet({
             </div>
           ) : null}
 
-          {tab === "stockReport" ? (
+          {tab === "catalog" ? (
             <div className={cn(variant === "drawer" ? "flex min-h-0 flex-1 flex-col" : "space-y-4")}>
               {customer?.linkedSupplierId ? (
-                <PartnerStockReportPanel
+                <PartnerCatalogPanel
                   supplierId={customer.linkedSupplierId}
                   fillHeight={variant === "drawer"}
                 />
               ) : (
                 <PartnerTabEmpty
-                  title="No stock report yet"
-                  description="Save this contact as a supplier to see what's been purchased from them."
+                  title="No catalog yet"
+                  description="Save this contact as a supplier to see the products they have."
                 />
               )}
             </div>
@@ -1803,7 +1642,7 @@ export function PartnerFormSheet({
               <PartnerHistoryRows rows={customer.timeline ?? []} />
             )
           ) : null}
-      </AgainFormNotebook>
+        </AgainFormNotebook>
       </div>
     </>
   );
@@ -1817,4 +1656,172 @@ export function PartnerFormSheet({
   }
 
   return sheet;
+}
+
+/* ---------------------------------------------------------------------------------------------------------------------
+ * Odoo form pieces (docs/common/formcommon.md): label left, underline control right. The `.again-odoo-form` container turns
+ * every plain input / select into the underline; a control with a trailing button sits in an `ENTRY_WRAP` so the underline
+ * runs under both.
+ * ------------------------------------------------------------------------------------------------------------------- */
+
+/** Label column wide enough that "Additional phone" and "Payment schedule" stay on one line. */
+const ROW = "grid-cols-[8.5rem_minmax(0,1fr)]";
+const FIELD_INPUT = "h-8 w-full min-w-0 bg-transparent px-1 text-[13px] outline-none";
+/** A bordered wrapper: `.again-odoo-form` draws the underline on it and strips the border from the input inside. */
+const ENTRY_WRAP = "flex min-w-0 items-center gap-0.5 border border-input";
+const ICON_BTN =
+  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-none text-[#00a09d] transition-colors hover:bg-[#00a09d]/10 disabled:opacity-60";
+const REMOVE_BTN =
+  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500";
+const VERIFY_BTN =
+  "inline-flex h-6 shrink-0 items-center gap-1 rounded-none border border-[#00a09d]/30 bg-[#00a09d]/10 px-1.5 text-[11px] font-medium text-[#00a09d] transition-colors hover:bg-[#00a09d] hover:text-white disabled:opacity-60";
+const WHATSAPP_BTN =
+  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-none border border-[#25D366]/30 bg-[#25D366]/10 text-[#128C7E] transition-colors hover:bg-[#25D366] hover:text-white disabled:opacity-60";
+const LINK_BTN = "text-[13px] font-normal text-[#00a09d] hover:text-[#00c4bf] hover:underline";
+
+/** The value of a field in a read-only drawer: plain text where the input would be. */
+function ReadValue({ children }: { children: React.ReactNode }) {
+  return <p className="flex min-h-[28px] items-center gap-1 px-1 text-[13px] leading-[1.3]">{children}</p>;
+}
+
+/** One text row: label left, underline input right (plain text when the drawer is read-only). */
+function TextRow({
+  label,
+  value,
+  onChange,
+  readOnly,
+  placeholder,
+  numeric,
+  negative,
+  className,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  readOnly?: boolean;
+  placeholder?: string;
+  /** Digits (and one dot) only; `negative` also allows a minus sign. */
+  numeric?: boolean;
+  negative?: boolean;
+  className?: string;
+}) {
+  return (
+    <AgainFormField label={label} className={cn(ROW, className)}>
+      {readOnly ? (
+        <ReadValue>
+          <span className={cn(numeric && "tabular-nums")}>{value?.trim() ? value : "—"}</span>
+        </ReadValue>
+      ) : (
+        <input
+          value={value ?? ""}
+          onChange={(e) =>
+            onChange(numeric ? e.target.value.replace(negative ? /[^\d.-]/g : /[^\d.]/g, "") : e.target.value)
+          }
+          inputMode={numeric ? "decimal" : undefined}
+          placeholder={placeholder}
+          className={cn(FIELD_INPUT, numeric && "tabular-nums")}
+        />
+      )}
+    </AgainFormField>
+  );
+}
+
+type PartnerAddressValue = {
+  label: string;
+  street: string;
+  city: string;
+  region: string;
+  zip: string;
+  country: string;
+};
+
+/** The fields of one address (the main one and every extra one share it): type, street, city, state, ZIP, country. */
+function AddressFields({
+  value,
+  onChange,
+  readOnly,
+  countryOptions,
+  onOpenCountryDrawer,
+}: {
+  value: PartnerAddressValue;
+  onChange: (key: keyof PartnerAddressValue, value: string) => void;
+  readOnly?: boolean;
+  countryOptions: string[];
+  onOpenCountryDrawer: () => void;
+}) {
+  const isPreset = (ADDRESS_TITLE_PRESETS as readonly string[]).includes(value.label);
+  const countries =
+    value.country && !countryOptions.includes(value.country) ? [value.country, ...countryOptions] : countryOptions;
+
+  return (
+    <>
+      <AgainFormField label="Type" className={ROW}>
+        {readOnly ? (
+          <ReadValue>{value.label || "Home"}</ReadValue>
+        ) : (
+          <div className="flex min-w-0 items-center gap-1">
+            <select
+              value={isPreset ? value.label : "Other"}
+              onChange={(e) => onChange("label", e.target.value === "Other" ? "" : e.target.value)}
+              className={cn(FIELD_INPUT, !isPreset && "w-28 shrink-0")}
+            >
+              {ADDRESS_TITLE_PRESETS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+            {!isPreset ? (
+              <input
+                value={value.label}
+                onChange={(e) => onChange("label", e.target.value)}
+                placeholder="Custom title…"
+                className={FIELD_INPUT}
+              />
+            ) : null}
+          </div>
+        )}
+      </AgainFormField>
+      <TextRow
+        label="Street"
+        value={value.street}
+        onChange={(v) => onChange("street", v)}
+        readOnly={readOnly}
+        placeholder="Street, building"
+        className="@xl:col-span-2"
+      />
+      <TextRow label="City" value={value.city} onChange={(v) => onChange("city", v)} readOnly={readOnly} />
+      <TextRow label="State" value={value.region} onChange={(v) => onChange("region", v)} readOnly={readOnly} />
+      <TextRow label="ZIP" value={value.zip} onChange={(v) => onChange("zip", v)} readOnly={readOnly} />
+      <AgainFormField label="Country" className={ROW}>
+        {readOnly ? (
+          <ReadValue>{value.country || "—"}</ReadValue>
+        ) : (
+          <div className="flex min-w-0 items-center gap-1">
+            <select
+              value={value.country}
+              onChange={(e) => onChange("country", e.target.value)}
+              className={FIELD_INPUT}
+            >
+              <option value="">Select a country…</option>
+              {countries.map((country) => (
+                <option key={country} value={country}>
+                  {country}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={onOpenCountryDrawer}
+              title="Manage countries"
+              aria-label="Manage countries"
+              className={ICON_BTN}
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </AgainFormField>
+    </>
+  );
 }

@@ -12,7 +12,8 @@ how PurchaseOrderService.post_receipt posts a payable when goods come in.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
@@ -20,10 +21,16 @@ from typing import Any, Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.models.inventory_item import InventoryItem
+from app.models.inventory_serial import InventorySerial
+from app.models.inventory_stock_level import InventoryStockLevel
+from app.models.inventory_warehouse import InventoryWarehouse
 from app.models.purchase_order import PurchaseOrder, PurchaseOrderLine
-from app.models.purchase_receipt import PurchaseReceipt
+from app.models.inventory_stock_transfer import InventoryStockTransfer, InventoryStockTransferLine
+from app.models.purchase_receipt import PurchaseReceipt, PurchaseReceiptLine
 from app.models.purchase_return import PurchaseReturn, PurchaseReturnLine
-from app.services.inventory.constants import MOVEMENT_PURCHASE_RETURN
+from app.services.inventory import serial_service
+from app.services.inventory.constants import MOVEMENT_PURCHASE_RETURN, TRACKING_SERIAL, tracking_type_of
 from app.services.inventory.stock_movement_service import MovementInput, StockMovementService
 from app.services.purchase.constants import RETURN_REASONS, RETURN_STATUS_TRANSITIONS
 from app.services.core.sequence_service import next_number as allocate_number
@@ -35,6 +42,8 @@ class ReturnLineInput:
     quantity_returned: int
     reason: Optional[str] = None
     notes: Optional[str] = None
+    # serial-tracked products: one serial per returned unit
+    serial_numbers: tuple[str, ...] = field(default_factory=tuple)
 
 
 class PurchaseReturnService:
@@ -90,6 +99,7 @@ class PurchaseReturnService:
         lines: list[ReturnLineInput],
         *,
         purchase_receipt_id: Optional[str] = None,
+        warehouse_id: Optional[str] = None,
         reason: str = "other",
         return_date: Optional[date] = None,
         requested_by: Optional[str] = None,
@@ -97,6 +107,14 @@ class PurchaseReturnService:
         actor_id: Optional[str] = None,
     ) -> PurchaseReturn:
         order = self._require_order(purchase_order_id)
+        # the goods go back from where they are now - the order's warehouse unless the caller names another location
+        return_warehouse = self._require_warehouse(warehouse_id or order.warehouse_id, order.company_id)
+        po_receipt_ids = {
+            rid
+            for (rid,) in self._db.query(PurchaseReceipt.id)
+            .filter(PurchaseReceipt.purchase_order_id == order.id)
+            .all()
+        }
         if not lines:
             raise HTTPException(status_code=400, detail="At least one return line is required")
         if reason not in RETURN_REASONS:
@@ -116,7 +134,7 @@ class PurchaseReturnService:
             purchase_order_id=order.id,
             purchase_receipt_id=receipt.id if receipt else None,
             supplier_id=order.supplier_id,
-            warehouse_id=order.warehouse_id,
+            warehouse_id=return_warehouse.id,
             status="requested",
             reason=reason,
             return_date=return_date or date.today(),
@@ -128,6 +146,7 @@ class PurchaseReturnService:
 
         subtotal = Decimal("0")
         tax_total = Decimal("0")
+        taken_serials: set[str] = set()  # one serial cannot go back on two lines
         for line_in in lines:
             if line_in.quantity_returned <= 0:
                 continue
@@ -148,6 +167,16 @@ class PurchaseReturnService:
             if line_in.reason and line_in.reason not in RETURN_REASONS:
                 raise HTTPException(status_code=400, detail=f"Invalid reason: {line_in.reason}")
 
+            serials = self._validate_line_stock(
+                po_line,
+                line_in,
+                order=order,
+                warehouse=return_warehouse,
+                po_receipt_ids=po_receipt_ids,
+                company_id=order.company_id,
+                taken=taken_serials,
+            )
+
             qty = Decimal(line_in.quantity_returned)
             ordered = Decimal(po_line.quantity_ordered or 1)
             discount_per_unit = po_line.discount_amount / ordered
@@ -167,6 +196,7 @@ class PurchaseReturnService:
                     tax_rate=po_line.tax_rate,
                     reason=line_in.reason,
                     notes=line_in.notes,
+                    serials_json=json.dumps(serials),
                 ),
             )
 
@@ -247,6 +277,19 @@ class PurchaseReturnService:
                     detail=f"Cannot credit {po_line.sku}: only {returnable} returnable now",
                 )
 
+        # the serials going back must still be sitting in stock at the return's warehouse
+        serial_rows: dict[str, list[InventorySerial]] = {}
+        for rline in lines:
+            serial_rows[rline.id] = []
+            for number in self._line_serials(rline):
+                row = self._find_serial(number, ret.company_id)
+                if row is None or row.status != "in_stock" or row.warehouse_id != ret.warehouse_id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Serial {number} is no longer in stock at the return location.",
+                    )
+                serial_rows[rline.id].append(row)
+
         movement_svc = StockMovementService(self._db)
         for rline in lines:
             po_line = po_lines[rline.purchase_order_line_id]
@@ -267,6 +310,10 @@ class PurchaseReturnService:
                 ),
             )
             po_line.quantity_returned += rline.quantity_returned
+            # the returned units leave the inventory: each serial is marked as sent back to the supplier
+            for serial in serial_rows.get(rline.id, []):
+                serial_service.set_status(self._db, serial, "returned")
+                serial.notes = f"Returned to supplier on {ret.return_number}"
 
         self._db.flush()
 
@@ -304,6 +351,132 @@ class PurchaseReturnService:
         return ret
 
     # ------------------------------------------------------------ helpers
+
+    def _require_warehouse(self, warehouse_id: str, company_id: str) -> InventoryWarehouse:
+        warehouse = self._db.get(InventoryWarehouse, warehouse_id)
+        if not warehouse or (warehouse.company_id or "default") != (company_id or "default"):
+            raise HTTPException(status_code=404, detail="Return location not found")
+        return warehouse
+
+    @staticmethod
+    def _line_serials(rline: PurchaseReturnLine) -> list[str]:
+        try:
+            value = json.loads(rline.serials_json or "[]")
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    def _find_serial(self, number: str, company_id: str) -> Optional[InventorySerial]:
+        return serial_service.find_by_number(self._db, number, company_id=company_id)
+
+    def _reachable_warehouses(self, po_line: PurchaseOrderLine, order: PurchaseOrder) -> set[str]:
+        """Locations this order's product can be returned from: where its receipts put it, then wherever completed stock
+        transfers carried it on from one of those."""
+        reach = {
+            wid
+            for (wid,) in self._db.query(PurchaseReceipt.warehouse_id)
+            .join(PurchaseReceiptLine, PurchaseReceiptLine.purchase_receipt_id == PurchaseReceipt.id)
+            .filter(
+                PurchaseReceipt.purchase_order_id == order.id,
+                PurchaseReceipt.status == "posted",
+                PurchaseReceiptLine.purchase_order_line_id == po_line.id,
+            )
+            .all()
+        } or {order.warehouse_id}
+        moves = (
+            self._db.query(InventoryStockTransfer.from_warehouse_id, InventoryStockTransfer.to_warehouse_id)
+            .join(InventoryStockTransferLine, InventoryStockTransferLine.transfer_id == InventoryStockTransfer.id)
+            .filter(
+                InventoryStockTransferLine.item_id == po_line.item_id,
+                InventoryStockTransferLine.received_qty > 0,
+                InventoryStockTransfer.status.in_(("completed", "partial_received")),
+            )
+            .distinct()
+            .all()
+        )
+        changed = True
+        while changed:
+            changed = False
+            for source, target in moves:
+                if source in reach and target not in reach:
+                    reach.add(target)
+                    changed = True
+        return reach
+
+    def _validate_line_stock(
+        self,
+        po_line: PurchaseOrderLine,
+        line_in: ReturnLineInput,
+        *,
+        order: PurchaseOrder,
+        warehouse: InventoryWarehouse,
+        po_receipt_ids: set[str],
+        company_id: str,
+        taken: set[str],
+    ) -> list[str]:
+        """The return location must really hold what is going back; returns the cleaned serial list.
+
+        A serial-tracked product needs exactly one serial per unit, each one of this order's received units that is
+        in stock at the location. Anything else only needs enough stock there.
+        """
+        qty = line_in.quantity_returned
+        stock = (
+            self._db.query(InventoryStockLevel)
+            .filter(
+                InventoryStockLevel.item_id == po_line.item_id,
+                InventoryStockLevel.warehouse_id == warehouse.id,
+            )
+            .first()
+        )
+        available = max(0, (stock.on_hand - stock.reserved) if stock else 0)
+        if qty > available:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot return {qty} of {po_line.sku} from {warehouse.name}: only {available} in stock there",
+            )
+
+        inv = self._db.query(InventoryItem).filter(InventoryItem.item_id == po_line.item_id).first()
+        tracking = tracking_type_of(
+            bool(inv.track_serial) if inv else False,
+            bool(inv.track_batch) if inv else False,
+        )
+        serials = [s.strip() for s in line_in.serial_numbers if s and s.strip()]
+        if tracking != TRACKING_SERIAL:
+            if serials:
+                raise HTTPException(status_code=400, detail=f"{po_line.sku} is not serial-tracked")
+            # goods go back only from where they were received, or from where a transfer moved them on from there
+            if warehouse.id not in self._reachable_warehouses(po_line, order):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{po_line.sku} was not received at {warehouse.name} (or transferred there from where it was received).",
+                )
+            return []
+        if len(serials) != qty:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{po_line.sku} is serial-tracked: returning {qty} needs exactly {qty} serial number(s), got {len(serials)}.",
+            )
+        for number in serials:
+            key = number.lower()
+            if key in taken:
+                raise HTTPException(status_code=400, detail=f"Serial {number} is listed twice on this return.")
+            taken.add(key)
+            row = self._find_serial(number, company_id)
+            if row is None or row.item_id != po_line.item_id:
+                raise HTTPException(status_code=400, detail=f"Serial {number} is not a unit of {po_line.sku}.")
+            if row.status != "in_stock" or row.warehouse_id != warehouse.id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Serial {number} is not in stock at {warehouse.name}.",
+                )
+            if row.source_type == "receipt" and row.source_id not in po_receipt_ids:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Serial {number} was not received on this purchase order.",
+                )
+        return serials
 
     def _order_lines(self, order_id: str) -> list[PurchaseOrderLine]:
         return (

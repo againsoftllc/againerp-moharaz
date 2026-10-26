@@ -64,6 +64,8 @@ class SupplierPaymentCreate(BaseModel):
     payable_id: Optional[str] = Field(default=None, max_length=36)
     write_off_amount: Optional[Decimal] = Field(default=None, ge=0)
     write_off_reason: Optional[str] = Field(default=None, max_length=255)
+    # outbound = a payment to the supplier; inbound = a refund received from the supplier (the "return due")
+    direction: str = Field(default="outbound", pattern="^(outbound|inbound)$")
 
 
 class SupplierPaymentRead(BaseModel):
@@ -76,6 +78,7 @@ class SupplierPaymentRead(BaseModel):
     notes: Optional[str] = None
     applied_to: List[str] = []
     write_off_amount: Optional[Decimal] = None
+    direction: str = "outbound"
     created_at: datetime
 
 

@@ -118,9 +118,11 @@ SERIAL_STATUSES: tuple[str, ...] = (
     "scrapped",
     "lost",
     "damaged",
+    "returned",
 )
 
 SERIAL_STATUS_LABELS: dict[str, str] = {
+    "returned": "Returned to supplier",
     "in_stock": "In stock",
     "in_transit": "In transit",
     "sold": "Sold",
@@ -134,7 +136,9 @@ SERIAL_STATUS_LABELS: dict[str, str] = {
 # Explicit, like RMA_STATUS_TRANSITIONS — a unit's life is short enough to spell
 # out, and an accidental jump (sold → in_stock) hides a real mistake.
 SERIAL_STATUS_TRANSITIONS: dict[str, frozenset[str]] = {
-    "in_stock": frozenset({"sold", "scrapped", "in_transit", "lost", "damaged"}),
+    # `returned` = sent back to the supplier on a purchase return; the unit has left the company for good
+    "in_stock": frozenset({"sold", "scrapped", "in_transit", "lost", "damaged", "returned"}),
+    "returned": frozenset(),
     "in_transit": frozenset({"in_stock", "scrapped"}),
     "sold": frozenset({"in_service", "scrapped", "in_stock"}),
     # A repaired unit goes back to the customer, so it returns to `sold`.

@@ -1,3 +1,8 @@
+import {
+  ApprovalPendingError,
+  isApprovalPendingBody,
+  notifyApprovalPending,
+} from "@/lib/approvals/approval-pending";
 import { getStoredAuthToken, useAdminAuth } from "@/lib/store/admin-auth-store";
 import {
   type SubscriptionInactiveStatus,
@@ -135,11 +140,18 @@ async function fetchApiUncached<T>(path: string, init?: RequestInit): Promise<T>
     return undefined as T;
   }
 
+  let parsed: unknown;
   try {
-    return JSON.parse(text) as T;
+    parsed = JSON.parse(text);
   } catch {
     throw new ApiError("Invalid JSON response from API", res.status);
   }
+  // 202 + approval_pending: the action was not run, it is waiting for an approver (docs/approval.md)
+  if (res.status === 202 && isApprovalPendingBody(parsed)) {
+    notifyApprovalPending(parsed);
+    throw new ApprovalPendingError(parsed);
+  }
+  return parsed as T;
 }
 
 /**

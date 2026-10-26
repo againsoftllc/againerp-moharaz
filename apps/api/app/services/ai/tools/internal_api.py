@@ -88,4 +88,8 @@ def _call(
             pass
         raise InternalApiError(res.status_code, str(detail)[:500])
 
-    return res.json() if res.content else {}
+    body = res.json() if res.content else {}
+    if res.status_code == 202 and isinstance(body, dict) and body.get("approval_pending"):
+        # the call was held for an approver (docs/approval.md): nothing happened yet, so the tool must not report success
+        raise InternalApiError(202, str(body.get("message") or "Sent for approval"))
+    return body

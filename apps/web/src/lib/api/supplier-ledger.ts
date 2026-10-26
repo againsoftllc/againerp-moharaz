@@ -60,6 +60,8 @@ export type RecordPaymentInput = {
   payableId?: string;
   writeOffAmount?: number;
   writeOffReason?: string;
+  /** "inbound" = a refund received from the supplier (the return due); default is a payment to the supplier. */
+  direction?: "outbound" | "inbound";
 };
 
 export type ApiSupplierPayment = {
@@ -72,6 +74,7 @@ export type ApiSupplierPayment = {
   notes: string | null;
   applied_to: string[];
   write_off_amount: string | null;
+  direction?: "outbound" | "inbound" | string;
   created_at: string;
 };
 
@@ -113,6 +116,7 @@ export async function recordSupplierPayment(
         payable_id: input.payableId || undefined,
         write_off_amount: input.writeOffAmount || undefined,
         write_off_reason: input.writeOffReason || undefined,
+        direction: input.direction || undefined,
       }),
     },
   );

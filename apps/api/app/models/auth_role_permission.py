@@ -30,6 +30,9 @@ class AuthRolePermission(Base):
     # export / dump lists of data (phones, e-mails, salaries ...). The AI refuses bulk personal-data lists without it
     # (docs/AI/ai.md step 1.3). Existing roles got it where they could write.
     can_export: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # finalize the documents that need approval (docs/approval.md) without asking, and approve other people's requests.
+    # Off for everyone but the System Manager until a role is given it, so approvals are opt-out per role.
+    can_approve: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()

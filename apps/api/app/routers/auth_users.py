@@ -29,6 +29,7 @@ from app.schemas.auth import (
 )
 from app.security import hash_password
 from app.services import rbac as rbac_service
+from app.services.auth_user_warehouses import set_user_warehouses, user_warehouse_access
 from app.services.auth_user_read import user_read as _user_read
 
 router = APIRouter(prefix="/users", tags=["auth-users"])
@@ -143,6 +144,12 @@ def create_user(
         roles = rbac_service.set_user_roles(db, user, role_ids)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if payload.warehouse_ids:
+        try:
+            set_user_warehouses(db, user, payload.warehouse_ids, payload.default_warehouse_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     _dual_log(
         db,
@@ -317,6 +324,29 @@ def update_user(
             actor_action="changed_role",
             target_detail=f"Roles set to {', '.join(r.name for r in roles)} by {actor.name}",
             actor_detail=f"Changed {row.name}'s roles to {', '.join(r.name for r in roles)}",
+        )
+
+    warehouse_ids = changes.pop("warehouse_ids", None)
+    default_warehouse_id = changes.pop("default_warehouse_id", None)
+    if warehouse_ids is not None or default_warehouse_id is not None:
+        current_ids, _ = user_warehouse_access(db, row.id)
+        try:
+            set_user_warehouses(
+                db, row,
+                warehouse_ids if warehouse_ids is not None else current_ids,
+                default_warehouse_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        count = len(warehouse_ids if warehouse_ids is not None else current_ids)
+        scope = f"{count} warehouse(s)" if count else "all warehouses"
+        _dual_log(
+            db,
+            target=row, actor=actor,
+            target_action="warehouse_changed",
+            actor_action="changed_warehouse",
+            target_detail=f"Warehouse access set to {scope} by {actor.name}",
+            actor_detail=f"Set {row.name}'s warehouse access to {scope}",
         )
 
     info_parts_target: list[str] = []

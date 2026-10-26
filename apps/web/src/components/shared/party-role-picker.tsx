@@ -65,7 +65,7 @@ export function PartyRolePicker({
                   : undefined
             }
             className={cn(
-              "inline-flex h-6 items-center gap-1 rounded-full border px-2.5 text-[11px] font-medium transition-colors",
+              "inline-flex h-6 items-center gap-1 rounded-none border px-2.5 text-[11px] font-medium transition-colors",
               active
                 ? "border-[#00a09d] bg-[#00a09d]/10 text-[#00a09d]"
                 : "border-border text-muted-foreground hover:border-[#00a09d]/50 hover:text-foreground",

@@ -55,6 +55,8 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   productId: string | null;
   onEdit?: (product: Product) => void;
+  /** Opened over another drawer (an order, a purchase): stacks above it, whatever its own level. */
+  nested?: boolean;
 };
 
 /**
@@ -62,12 +64,13 @@ type Props = {
  * other tab fetches only when first activated, so opening a product costs two
  * requests (detail + lifetime report) regardless of how much history it has.
  */
-export function ProductDrawer({ open, onOpenChange, productId, ...actions }: Props) {
+export function ProductDrawer({ open, onOpenChange, productId, nested, ...actions }: Props) {
   return (
     <AgainDrawerPanel
       open={open}
       onOpenChange={onOpenChange}
       title="Product"
+      contentClassName={nested ? "z-[300]" : undefined}
       resizable
       defaultWidth={820}
       minWidth={420}
@@ -172,11 +175,11 @@ function ProductDrawerBody({
     }
     switch (tab) {
       case "stock":
-        return <ProductStockPanel itemId={itemId} report={report} />;
+        return <ProductStockPanel itemId={itemId} report={report} price={product.price} cost={product.purchasePrice} />;
       case "sales":
         return <ProductSalesPanel itemId={itemId} />;
       case "purchase":
-        return <ProductPurchasePanel itemId={itemId} />;
+        return <ProductPurchasePanel itemId={itemId} cost={product.purchasePrice} />;
       case "ledger":
         return <ProductLedgerPanel itemId={itemId} />;
       case "serial":

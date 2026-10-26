@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { AgainSystray } from "@/components/again/again-systray";
+import { useApprovalSummary } from "@/lib/approvals/use-approval-summary";
 import { WorkspaceNavDrawerToggle } from "@/components/workspace/workspace-nav-drawer-toggle";
 import {
   INVENTORY_NAV_MENUS,
@@ -79,6 +80,22 @@ function NavChip({
     >
       {children}
     </button>
+  );
+}
+
+/** How many held actions wait for the viewer (an approver) or, for everyone else, how many of their own are still waiting. */
+function ApprovalNavBadge() {
+  const { summary } = useApprovalSummary();
+  if (!summary) return null;
+  const count = summary.can_approve_any ? summary.pending_for_me : summary.my_pending;
+  if (count <= 0) return null;
+  return (
+    <span
+      className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center bg-amber-500 px-1 text-[10px] font-semibold leading-none text-white"
+      title={summary.can_approve_any ? "Waiting for your approval" : "Your requests waiting for approval"}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
   );
 }
 
@@ -197,6 +214,7 @@ function NavMenuItem({
           }}
         >
           {menu.label}
+          {menu.id === "approve" ? <ApprovalNavBadge /> : null}
         </NavChip>
       </div>
     );

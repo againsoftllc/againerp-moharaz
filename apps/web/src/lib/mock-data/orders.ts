@@ -167,6 +167,8 @@ export type Order = {
   aiSummary?: string;
   aiInsights: OrderAiInsights;
   availableTransitions?: OrderStatus[];
+  /** Quotations only: the date the offer lapses (YYYY-MM-DD); unset = no expiry. */
+  expiration?: string;
   /** AgainPOS-style "Pay term" — a plain "<n> days"/"<n> months" string. */
   paymentTerms?: string;
   /** AgainPOS-style document stage — separate from the fulfillment `status` above. */

@@ -22,6 +22,7 @@ class PurchaseReturnLineRead(BaseModel):
     line_total: Decimal
     reason: Optional[str] = None
     notes: Optional[str] = None
+    serial_numbers: List[str] = []
 
 
 class PurchaseReturnRead(BaseModel):
@@ -74,11 +75,15 @@ class PurchaseReturnLineCreate(BaseModel):
     quantity_returned: int = Field(gt=0)
     reason: Optional[str] = Field(default=None, pattern=RETURN_REASON_PATTERN)
     notes: Optional[str] = None
+    # Serial-tracked products: exactly one serial per returned unit, in stock at the return's warehouse
+    serial_numbers: List[str] = Field(default_factory=list)
 
 
 class PurchaseReturnCreate(BaseModel):
     purchase_order_id: str = Field(min_length=1, max_length=36)
     purchase_receipt_id: Optional[str] = Field(default=None, max_length=36)
+    # The location the goods go back from; defaults to the purchase order's warehouse
+    warehouse_id: Optional[str] = Field(default=None, max_length=36)
     reason: str = Field(default="other", pattern=RETURN_REASON_PATTERN)
     return_date: Optional[date] = None
     requested_by: Optional[str] = Field(default=None, max_length=100)

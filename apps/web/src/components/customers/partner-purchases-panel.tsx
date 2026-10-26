@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { Eye } from "lucide-react";
 import { AgainListGrid, NUMERIC_CELL, NUMERIC_HEADER } from "@/components/shared/again-list-grid";
 import { GridChipBadge } from "@/components/shared/grid-chip-badge";
 import { Button } from "@/components/ui/button";
+import { PoFormDrawer } from "@/components/suppliers/po-form-drawer";
+import { fetchPurchaseOrder, type ApiPurchaseOrder } from "@/lib/api/purchase-orders";
 import { usePurchaseOrders } from "@/lib/api/use-purchase-orders";
 import { PURCHASE_ORDER_STATUS_LABELS, type PurchaseOrder } from "@/lib/mock-data/purchase-orders";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -43,9 +45,10 @@ export function PartnerPurchasesPanel({
   supplierId: string;
   fillHeight?: boolean;
 }) {
-  const router = useRouter();
   const params = useMemo(() => ({ supplier_id: supplierId, per_page: 50 }), [supplierId]);
-  const { orders, loading } = usePurchaseOrders(params);
+  const { orders, loading, refetch } = usePurchaseOrders(params);
+  // the PO opens in its own drawer over this one, so closing it comes straight back to the supplier
+  const [opened, setOpened] = useState<ApiPurchaseOrder | null>(null);
 
   const rowData = useMemo(() => orders.map((o) => ({ ...o })), [orders]);
 
@@ -64,7 +67,13 @@ export function PartnerPurchasesPanel({
             size="sm"
             className="h-6 w-6 rounded-none p-0 text-muted-foreground hover:text-foreground"
             aria-label={`Open ${p.data?.number}`}
-            onClick={() => router.push(`/purchase/orders/${p.data?.id}`)}
+            onClick={() => {
+              const id = p.data?.id;
+              if (!id) return;
+              fetchPurchaseOrder(id)
+                .then(setOpened)
+                .catch((err) => toast.error(err instanceof Error ? err.message : "Could not open the purchase order"));
+            }}
           >
             <Eye className="h-3.5 w-3.5" />
           </Button>
@@ -86,8 +95,8 @@ export function PartnerPurchasesPanel({
         minWidth: 110,
         cellClass: "font-mono text-[11px]",
       },
-      { colId: "warehouse", headerName: "Location", field: "warehouse", width: 110, minWidth: 90 },
-      { colId: "supplierName", headerName: "Supplier", field: "supplierName", flex: 1, minWidth: 120 },
+      // every row is this supplier's, so the Supplier column would only repeat the drawer's title: Location takes the space
+      { colId: "warehouse", headerName: "Location", field: "warehouse", flex: 1, minWidth: 110 },
       {
         colId: "status",
         headerName: "Purchase Status",
@@ -141,24 +150,38 @@ export function PartnerPurchasesPanel({
       },
       { colId: "createdByName", headerName: "Added By", field: "createdByName", width: 120, minWidth: 100 },
     ],
-    [router],
+    [],
   );
 
   return (
-    <AgainListGrid<PurchaseOrder>
-      embedded
-      className={fillHeight ? "flex min-h-0 flex-1 flex-col" : "h-[360px]"}
-      gridClassName={
-        fillHeight
-          ? "[&_.ag-root-wrapper]:flex [&_.ag-root-wrapper]:flex-col [&_.ag-root-wrapper-body]:min-h-0 [&_.ag-root-wrapper-body]:flex-1"
-          : undefined
-      }
-      rowData={rowData}
-      columnDefs={columnDefs}
-      loading={loading}
-      getRowId={(p) => p.data.id}
-      emptyTitle="No purchase orders yet"
-      emptyHint="POs placed with this supplier will appear here."
-    />
+    <>
+      <AgainListGrid<PurchaseOrder>
+        embedded
+        className={fillHeight ? "flex min-h-0 flex-1 flex-col" : "h-[360px]"}
+        gridClassName={
+          fillHeight
+            ? "[&_.ag-root-wrapper]:flex [&_.ag-root-wrapper]:flex-col [&_.ag-root-wrapper-body]:min-h-0 [&_.ag-root-wrapper-body]:flex-1"
+            : undefined
+        }
+        rowData={rowData}
+        columnDefs={columnDefs}
+        loading={loading}
+        getRowId={(p) => p.data.id}
+        emptyTitle="No purchase orders yet"
+        emptyHint="POs placed with this supplier will appear here."
+      />
+      {opened ? (
+        <PoFormDrawer
+          key={`po:${opened.id}`}
+          open
+          onOpenChange={(next) => {
+            if (!next) setOpened(null);
+          }}
+          supplierId={supplierId}
+          order={opened}
+          onCreated={() => void refetch()}
+        />
+      ) : null}
+    </>
   );
 }

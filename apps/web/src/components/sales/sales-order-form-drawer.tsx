@@ -1,9 +1,12 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { FilterSelect } from "@/components/shared/filter-select";
 import { AGAIN_FORM_TITLE_CLASS, AgainFormField, AgainFormGroupTitle } from "@/components/again/again-form-sheet";
 import { useInventoryWarehouses } from "@/lib/api/use-inventory";
+import { useWarehouseAccess } from "@/lib/auth/warehouse-access";
+import { LineSerialsDrawer } from "@/components/sales/line-serials-drawer";
 import { createPortal } from "react-dom";
 import {
   DndContext,
@@ -145,6 +148,8 @@ import type { Customer } from "@/lib/mock-data/customers";
 import { detectCustomerCreateDraft } from "@/lib/sales/detect-customer-create-draft";
 import type { CustomerCreateDraft } from "@/lib/sales/detect-customer-create-draft";
 import { useSalesFeatureFlags } from "@/lib/sales/use-sales-settings";
+import { fetchProductSales, fetchProductStockLevels, type ProductSalesLine } from "@/lib/api/product-history";
+import type { ApiStockLevel } from "@/lib/api/inventory";
 import { cn, formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { zonedTodayIso } from "@/lib/localisation/company-format";
 import { getCompanyFormat } from "@/lib/store/company-format-store";
@@ -176,6 +181,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+// loaded when the eye on a line is first used: the product drawer brings its tabs and grids with it
+const ProductDrawer = dynamic(
+  () => import("@/components/products/product-drawer/product-drawer").then((module) => module.ProductDrawer),
+  { ssr: false },
+);
 
 /** create = new record; edit = open existing (always editable when user can write — no separate view). */
 export type SalesOrderFormMode = "create" | "edit";
@@ -393,6 +404,8 @@ type FormState = {
   /** Only meaningful while orderNumber === "New" — which document type Save will create. */
   recordKind: "order" | "quotation";
   status: OrderStatus;
+  /** The header Order Status pick on a record not yet confirmed: "" = whatever Save does by default. */
+  confirmChoice: "" | "draft" | "confirmed";
   /** Order details box — explicit date/warehouse; falls back to deliveryDate/default warehouse when unset. */
   orderDate: string;
   warehouseId: string;
@@ -712,6 +725,7 @@ function LineSerialRow({
   compact,
   onAdd,
   onRemove,
+  onPick,
 }: {
   serials: string[];
   quantity: number;
@@ -720,6 +734,8 @@ function LineSerialRow({
   /** Resolves to an error message, or null once the serial is on the line. */
   onAdd: (serial: string) => Promise<string | null>;
   onRemove: (serial: string) => void;
+  /** Opens the serials in stock at the order's location to pick from. */
+  onPick?: () => void;
 }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -783,7 +799,21 @@ function LineSerialRow({
             className="h-5 w-[150px] min-w-0 border-b border-border/50 bg-transparent px-1 font-mono text-[11px] outline-none placeholder:font-sans placeholder:text-muted-foreground/70 focus:border-[#00a09d] disabled:opacity-60"
           />
         ) : null}
-        {serials.length !== quantity ? (
+        {onPick && !readOnly ? (
+          <button
+            type="button"
+            onClick={onPick}
+            title="Pick serials from stock"
+            className={cn(
+              "text-[10px] tabular-nums underline-offset-2 hover:underline",
+              serials.length !== quantity ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {serials.length !== quantity
+              ? `${serials.length} / ${quantity} serials`
+              : `${serials.length} serial${serials.length === 1 ? "" : "s"}`}
+          </button>
+        ) : serials.length !== quantity ? (
           <span className="text-[10px] tabular-nums text-amber-600 dark:text-amber-400">
             {serials.length} / {quantity} serials
           </span>
@@ -904,6 +934,24 @@ const LEDGER_POSTED_STATUSES: ReadonlySet<OrderStatus> = new Set<OrderStatus>([
   "delivered",
   "completed",
 ]);
+
+/** The header field rows (Order Date … Order Status): a label column wide enough that "Business Location" stays on one line. */
+const SALES_HEADER_ROW_CLASS = "grid-cols-[9rem_minmax(0,1fr)]";
+
+const SALES_STATUS_TONE: Partial<Record<OrderStatus, string>> = {
+  draft: "border-border bg-muted text-muted-foreground",
+  pending: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  confirmed: "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  processing: "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  packed: "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  shipped: "border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  delivered: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  completed: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  cancelled: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
+  failed: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
+  returned: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  refunded: "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400",
+};
 
 function statusToStage(status: OrderStatus): StatusStage {
   if (status === "draft") return "quotation";
@@ -1094,6 +1142,7 @@ function orderToForm(order: Order): FormState {
       (order as Order & { kind?: "order" | "quotation" }).kind ??
       (order.orderNumber.startsWith("QUO-") ? "quotation" : "order"),
     status: order.status,
+    confirmChoice: "",
     orderDate: orderDay,
     warehouseId: order.warehouseId ?? "",
     customerId: order.customer.id,
@@ -1117,7 +1166,7 @@ function orderToForm(order: Order): FormState {
     ),
     invoiceAddressId: "",
     deliveryAddressId: "",
-    expiration: addDays(orderDay, 30),
+    expiration: order.expiration?.slice(0, 10) ?? "",
     paymentTerms: order.paymentTerms || "Immediate",
     deliveryDate: `${addDays(orderDay, 7)}T14:00:00`,
     notes: order.notes ?? "",
@@ -1197,14 +1246,19 @@ function orderToForm(order: Order): FormState {
   };
 }
 
-export function emptySalesOrderForm(initialKind: "order" | "quotation" = "quotation"): FormState {
+export function emptySalesOrderForm(
+  initialKind: "order" | "quotation" = "quotation",
+  /** A user limited to some warehouses starts in their default one. */
+  warehouseId = "",
+): FormState {
   const today = todayIso();
   return {
     orderNumber: "New",
     recordKind: initialKind,
     status: "draft",
+    confirmChoice: "",
     orderDate: today,
-    warehouseId: "",
+    warehouseId,
     customerId: "",
     customerName: "",
     customerEmail: "",
@@ -1213,7 +1267,7 @@ export function emptySalesOrderForm(initialKind: "order" | "quotation" = "quotat
     deliveryAddress: makeAddress("", ""),
     invoiceAddressId: "",
     deliveryAddressId: "",
-    expiration: addDays(today, 30),
+    expiration: "",
     paymentTerms: "Immediate",
     deliveryDate: "",
     notes: "",
@@ -1415,6 +1469,7 @@ function formToOrder(
     followers: existing?.followers ?? [],
     aiRisk: existing?.aiRisk ?? "low",
     aiInsights: existing?.aiInsights ?? defaultAiInsights("low", 20),
+    expiration: form.expiration || undefined,
     paymentTerms: form.paymentTerms,
     saleStage: form.saleStage,
     invoiceScheme: form.invoiceScheme,
@@ -2174,6 +2229,7 @@ export function SalesOrderFormDrawer({
   const isAdmin = useAdminIsAdmin();
   const featureFlags = useSalesFeatureFlags();
   const { warehouses } = useInventoryWarehouses();
+  const warehouseAccess = useWarehouseAccess();
   const { users: mentionableUsers } = useMentionableUsers();
   const currentAdminUser = useAdminAuth((s) => s.user);
   // Once a sales order leaves draft, staff need an admin-approved edit request
@@ -2214,9 +2270,9 @@ export function SalesOrderFormDrawer({
   /** Signature of the form as loaded from `order`; null while creating. */
   const loadedFormSigRef = useRef<string | null>(null);
   const [tab, setTab] = useState<
-    "lines" | "shipping" | "payment" | "others" | "return" | "history"
+    "lines" | "shipping" | "payment" | "others" | "info" | "return" | "history"
   >("lines");
-  const [form, setForm] = useState<FormState>(emptySalesOrderForm);
+  const [form, setForm] = useState<FormState>(() => emptySalesOrderForm("quotation", warehouseAccess.defaultId ?? ""));
   const [restoredDraftAt, setRestoredDraftAt] = useState<string | null>(null);
   // docs/drawercommon.md: one draft per record ("sales-order" for a new one, "sales-order:<id>" for an existing order) that
   // keeps the form AND the scroll position, so a drawer closed by accident comes back where the user was
@@ -2250,7 +2306,13 @@ export function SalesOrderFormDrawer({
   const [dateField, setDateField] = useState<"expiration" | "deliveryDate" | null>(null);
   const [lineColumns, setLineColumns] = useState(DEFAULT_LINE_COLUMNS);
   const [descOpenIds, setDescOpenIds] = useState<Set<string>>(() => new Set());
-  const [viewProductName, setViewProductName] = useState<string | null>(null);
+  /** Catalog id of the product whose drawer is open over the order (the eye on a line). */
+  const [viewProductId, setViewProductId] = useState<string | null>(null);
+  // the line whose serials are being picked from stock
+  const [serialPickLineId, setSerialPickLineId] = useState<string | null>(null);
+  // where the order sells from: its Business Location, else the first active one (what the server falls back to)
+  const sellingWarehouse =
+    warehouses.find((w) => w.id === form.warehouseId) ?? (form.warehouseId ? undefined : (warehouses.find((w) => w.active) ?? warehouses[0]));
   const [drawerPanel, setDrawerPanel] = useState<"order" | "preview" | "variant">("order");
   const [previewPayload, setPreviewPayload] = useState<SalesPrintPayload | null>(null);
   const [variantPicker, setVariantPicker] = useState<VariantPickerState | null>(null);
@@ -2402,7 +2464,7 @@ export function SalesOrderFormDrawer({
     setProductOpenId(null);
     setDateField(null);
     setDescOpenIds(new Set());
-    setViewProductName(null);
+    setViewProductId(null);
     if (order) {
       const f = orderToForm(order);
       const editDraft = order.id ? readDraft<SalesOrderDraftPayload>(`${DRAFT_KEY}:${order.id}`) : null;
@@ -2422,11 +2484,15 @@ export function SalesOrderFormDrawer({
       setLineColumns((cols) => ({ ...cols, taxes: hasTax, taxIncl: hasTax }));
     } else {
       const base: FormState = {
-        ...emptySalesOrderForm(initialKind ?? "quotation"),
+        ...emptySalesOrderForm(initialKind ?? "quotation", warehouseAccess.defaultId ?? ""),
         salesperson: currentAdminUser?.name || OTHER_INFO_DEFAULTS.salesperson,
       };
       const draft = readDraft<SalesOrderDraftPayload>(DRAFT_KEY);
       const f = draft ? { ...base, ...draft.values.form } : base;
+      // a draft saved before the user was given a warehouse list may hold none, or one they can no longer use
+      if (warehouseAccess.restricted && !warehouseAccess.allowedIds.includes(f.warehouseId)) {
+        f.warehouseId = warehouseAccess.defaultId ?? "";
+      }
       setForm(f);
       loadedFormSigRef.current = null;
       setRestoredDraftAt(draft?.savedAt ?? null);
@@ -2438,7 +2504,7 @@ export function SalesOrderFormDrawer({
       setOrderTaxesVisible(false);
       setLineColumns((cols) => ({ ...cols, taxes: false, taxIncl: false }));
     }
-  }, [open, order, mode, featureFlags.optionTaxes, initialKind, currentAdminUser]);
+  }, [open, order, mode, featureFlags.optionTaxes, initialKind, currentAdminUser, warehouseAccess]);
 
   useEffect(() => {
     const existingOrder = mode !== "create" && !!form.orderNumber && form.orderNumber !== "New";
@@ -2489,6 +2555,49 @@ export function SalesOrderFormDrawer({
     document.addEventListener("pointerdown", onDoc, true);
     return () => document.removeEventListener("pointerdown", onDoc, true);
   }, [open]);
+
+  // Info tab: for the products on the order - the last three sales to this customer and to anyone, and the stock in each location
+  const [infoSales, setInfoSales] = useState<
+    Record<string, { mine: ProductSalesLine[]; all: ProductSalesLine[] } | "failed">
+  >({});
+  const [infoStock, setInfoStock] = useState<Record<string, ApiStockLevel[] | "failed">>({});
+  const infoLines = useMemo(
+    () => form.lines.filter((l) => l.kind === "product" && l.itemId),
+    [form.lines],
+  );
+  const infoItemKey = [...new Set(infoLines.map((l) => l.itemId))].join("|");
+  /** A walk-in is many people under one record, so "the same customer" means nothing for it. */
+  const infoCustomerId =
+    form.customerId && !isWalkInCustomer({ id: form.customerId, name: form.customerName }) ? form.customerId : "";
+
+  useEffect(() => {
+    if (!open || tab !== "info" || !infoItemKey) return;
+    let cancelled = false;
+    // the order's own earlier save is not "a previous sale": ask for one more and leave it out
+    const lastThree = (rows: ProductSalesLine[]) => rows.filter((r) => r.order_id !== order?.id).slice(0, 3);
+    for (const itemId of infoItemKey.split("|")) {
+      const mine = infoCustomerId
+        ? fetchProductSales(itemId, { perPage: 4, customerId: infoCustomerId }).then((r) => lastThree(r.data))
+        : Promise.resolve<ProductSalesLine[]>([]);
+      void Promise.all([mine, fetchProductSales(itemId, { perPage: 4 }).then((r) => lastThree(r.data))])
+        .then(([mineRows, allRows]) => {
+          if (!cancelled) setInfoSales((prev) => ({ ...prev, [itemId]: { mine: mineRows, all: allRows } }));
+        })
+        .catch(() => {
+          if (!cancelled) setInfoSales((prev) => ({ ...prev, [itemId]: "failed" }));
+        });
+      void fetchProductStockLevels(itemId)
+        .then((rows) => {
+          if (!cancelled) setInfoStock((prev) => ({ ...prev, [itemId]: rows }));
+        })
+        .catch(() => {
+          if (!cancelled) setInfoStock((prev) => ({ ...prev, [itemId]: "failed" }));
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [open, tab, infoItemKey, infoCustomerId, order?.id]);
 
   const stage = statusToStage(form.status);
   const untaxed = useMemo(
@@ -3088,6 +3197,9 @@ export function SalesOrderFormDrawer({
     if (!sameProduct) {
       return `Serial ${serial} belongs to ${found.sku || found.product_name}, not ${line.sku || line.name}`;
     }
+    if (found.status === "in_stock" && sellingWarehouse && found.warehouse_id && found.warehouse_id !== sellingWarehouse.id) {
+      return `Serial ${serial} is at ${found.warehouse_name ?? "another location"}, this order sells from ${sellingWarehouse.name}. Change the Business Location to sell it.`;
+    }
     const next = [...current, serial];
     // Scan-driven flow: a serial past the typed quantity is one more unit sold.
     const quantity = Math.max(line.quantity, next.length);
@@ -3097,6 +3209,21 @@ export function SalesOrderFormDrawer({
     }
     patchLine(lineId, { serialNumbers: next, quantity });
     return null;
+  };
+
+  /** Done in the serials drawer: the picked units become the line's serials; more units than the quantity raise it. */
+  const applyPickedSerials = (lineId: string, serials: string[]) => {
+    const line = form.lines.find((l) => l.id === lineId);
+    if (!line || line.kind !== "product") return;
+    const quantity = Math.max(line.quantity, serials.length);
+    if (quantity !== line.quantity) {
+      const blocked = stockBlocksSale(productById.get(line.itemId), quantity);
+      if (blocked) {
+        toast.error(blocked);
+        return;
+      }
+    }
+    patchLine(lineId, { serialNumbers: serials, quantity });
   };
 
   const removeSerialFromLine = (lineId: string, serial: string) => {
@@ -3586,22 +3713,21 @@ export function SalesOrderFormDrawer({
     });
   };
 
-  const openProductView = (productName: string) => {
+  const openProductView = (productName: string, itemId?: string) => {
     if (!productName.trim()) {
       toast.info("Select a product first");
       return;
     }
-    setViewProductName(productName);
+    // the line's own product first (its item id), the name only when the line has none
+    const option =
+      (itemId ? catalogProducts.find((p) => p.id === itemId) : undefined) ??
+      catalogProducts.find((p) => p.name === productName);
+    if (!option?.catalogProductId) {
+      toast.info("This product is not in the catalog");
+      return;
+    }
+    setViewProductId(option.catalogProductId);
   };
-
-  const viewProductDetail = viewProductName
-    ? (() => {
-        const p = catalogProducts.find((x) => x.name === viewProductName);
-        return p
-          ? { price: p.price, description: p.description, sku: p.sku, id: p.id }
-          : { price: 0, description: "", sku: "", id: "" };
-      })()
-    : null;
 
   const removeLine = (id: string) => {
     setForm((f) => ({ ...f, lines: f.lines.filter((l) => l.id !== id) }));
@@ -4220,10 +4346,20 @@ export function SalesOrderFormDrawer({
   // only confirms from "draft"); quotations and orders already past draft just
   // persist their edits. The separate Draft action keeps a sales order
   // unconfirmed.
+  // The header Order Status pick overrides that default: Confirmed also confirms a quotation (it becomes the sales order),
+  // Draft keeps a sales order unconfirmed.
+  const canConfirmHere = form.status === "draft" || form.status === "pending";
   const saveConfirms =
-    form.recordKind === "order" && form.status === "draft" && featureFlags.actionConfirm;
+    featureFlags.actionConfirm &&
+    canConfirmHere &&
+    (form.confirmChoice
+      ? form.confirmChoice === "confirmed"
+      : form.recordKind === "order" && form.status === "draft");
   // Serials are only enforced once the result is a confirmed sales order (never on drafts/quotes).
-  const serialsRequired = form.recordKind === "order" && (saveConfirms || form.status !== "draft");
+  const serialsRequired = (form.recordKind === "order" || saveConfirms) && (saveConfirms || form.status !== "draft");
+  // Only a record not yet confirmed can still choose between staying a draft and being confirmed on Save.
+  const statusChoosable = !readOnly && canConfirmHere;
+  const statusSelectValue = form.confirmChoice || (saveConfirms ? "confirmed" : form.status);
 
   const saveMessage = (orderNumber: string) => {
     if (saveConfirms) {
@@ -4242,7 +4378,7 @@ export function SalesOrderFormDrawer({
     const status: OrderStatus = saveConfirms ? "confirmed" : form.status;
     const next = formToOrder({ ...formForPersist(), status }, order, returnedForPersist);
     void persist(next, saveConfirms ? "confirm" : "save", saveMessage(next.orderNumber), true);
-    setForm((f) => ({ ...f, status }));
+    setForm((f) => ({ ...f, status, confirmChoice: "" }));
   };
 
   const handleSaveDraft = () => {
@@ -4296,7 +4432,7 @@ export function SalesOrderFormDrawer({
           clearCurrentDraft();
           if (mode === "create" || !order) {
             setForm({
-              ...emptySalesOrderForm(initialKind ?? "quotation"),
+              ...emptySalesOrderForm(initialKind ?? "quotation", warehouseAccess.defaultId ?? ""),
               salesperson: currentAdminUser?.name || OTHER_INFO_DEFAULTS.salesperson,
             });
           } else {
@@ -4483,6 +4619,7 @@ export function SalesOrderFormDrawer({
         ...form,
         orderNumber: "New",
         status: "draft",
+        confirmChoice: "",
       },
       null,
     );
@@ -4652,12 +4789,6 @@ export function SalesOrderFormDrawer({
               </Button>
             </div>
           </AgainDrawerControlBar>
-
-          {formDirty && canEditOrder ? (
-            <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-1 text-[11px] text-amber-700 dark:text-amber-300 sm:px-6">
-              Unsaved changes. If you close this drawer they are kept as a draft and come back when you open it again.
-            </div>
-          ) : null}
 
           {isLockableOrder &&
           (editRequest?.status === "pending" || editApprovedForMe || editLocked) ? (
@@ -5030,7 +5161,7 @@ export function SalesOrderFormDrawer({
                   </div>
                   {/* right: order date, payment terms, promised delivery */}
                   <div className="again-odoo-form min-w-0">
-                    <AgainFormField label="Order Date">
+                    <AgainFormField label="Order Date" className={SALES_HEADER_ROW_CLASS}>
                       <input
                         type="date"
                         value={form.orderDate}
@@ -5039,66 +5170,51 @@ export function SalesOrderFormDrawer({
                         className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
                       />
                     </AgainFormField>
-                    <AgainFormField label="Payment Terms">
-                      {(() => {
-                        const payTerm = parsePayTerm(form.paymentTerms);
-                        return (
-                          <div className="flex h-8 items-stretch gap-3">
-                            <input
-                              value={payTerm.number}
-                              disabled={readOnly}
-                              onChange={(e) => patch("paymentTerms", formatPayTerm(e.target.value.replace(/[^\d]/g, ""), payTerm.unit))}
-                              placeholder="0"
-                              aria-label="Payment terms number"
-                              className="h-8 w-16 shrink-0 bg-transparent px-1 text-[13px] tabular-nums outline-none disabled:opacity-60"
-                            />
-                            <select
-                              value={payTerm.unit}
-                              disabled={readOnly}
-                              onChange={(e) => patch("paymentTerms", formatPayTerm(payTerm.number, e.target.value as "days" | "months"))}
-                              aria-label="Payment terms unit"
-                              className="h-8 min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
-                            >
-                              <option value="days">Days</option>
-                              <option value="months">Months</option>
-                            </select>
-                          </div>
-                        );
-                      })()}
+                    <AgainFormField label="Business Location" className={SALES_HEADER_ROW_CLASS}>
+                      <FilterSelect
+                        value={form.warehouseId}
+                        onChange={(v) => patch("warehouseId", v)}
+                        width="w-full"
+                        ariaLabel="Business location"
+                        options={[
+                          ...(warehouseAccess.restricted ? [] : [{ value: "", label: "Default" }]),
+                          ...warehouseAccess
+                            .pickable(warehouses, form.warehouseId)
+                            .map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })),
+                        ]}
+                      />
                     </AgainFormField>
-                    {stage === "quotation" || stage === "quotation_sent" ? (
-                      <AgainFormField label="Expiration">
-                        <input
-                          type="date"
-                          value={form.expiration?.slice(0, 10) ?? ""}
+                    <AgainFormField label="Order Status" className={SALES_HEADER_ROW_CLASS}>
+                      {statusChoosable ? (
+                        <select
+                          value={statusSelectValue}
                           disabled={readOnly}
-                          onChange={(e) => patch("expiration", e.target.value)}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            patch("confirmChoice", v === "draft" || v === "confirmed" ? v : "");
+                          }}
+                          aria-label="Order status"
                           className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
-                        />
-                      </AgainFormField>
-                    ) : (
-                      <AgainFormField label="Promised Delivery">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <input
-                            type="datetime-local"
-                            value={(form.deliveryDate ?? "").slice(0, 16)}
-                            disabled={readOnly}
-                            onChange={(e) => patch("deliveryDate", e.target.value ? `${e.target.value}:00` : "")}
-                            className="h-8 min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
-                          />
+                        >
+                          <option value="draft">Draft — not confirmed yet</option>
+                          {form.status === "pending" ? <option value="pending">Pending</option> : null}
+                          {featureFlags.actionConfirm ? (
+                            <option value="confirmed">Confirmed — becomes a sales order on save</option>
+                          ) : null}
+                        </select>
+                      ) : (
+                        <div className="flex min-h-[28px] items-center">
                           <span
                             className={cn(
-                              "inline-flex shrink-0 items-center px-2 py-0.5 text-[11px] font-semibold",
-                              form.shippingStatus === "delivered"
-                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                                : "bg-sky-500/15 text-sky-600 dark:text-sky-400",
+                              "inline-flex h-6 items-center border px-2 text-[11px] font-medium",
+                              SALES_STATUS_TONE[form.status] ?? SALES_STATUS_TONE.draft,
                             )}
                           >
-                            {form.shippingStatus === "delivered" ? "Delivered" : "Not Delivered"}
+                            {ORDER_STATUS_LABELS[form.status] ?? form.status}
                           </span>
                         </div>
-                      </AgainFormField>
-                    )}
+                      )}
+                    </AgainFormField>
                   </div>
                 </div>
               </div>
@@ -5116,6 +5232,7 @@ export function SalesOrderFormDrawer({
                     ? [{ id: "shipping" as const, label: "Shipping" }]
                     : []),
                   { id: "others" as const, label: "Others" },
+                  { id: "info" as const, label: "Info" },
                   ...(isExistingOrder &&
                   !isCancelledOrder &&
                   (stage !== "quotation" || (!!order?.websiteStatus && order.websiteStatus !== "cancelled"))
@@ -5417,6 +5534,7 @@ export function SalesOrderFormDrawer({
                                           compact={asVariantChild}
                                           onAdd={(serial) => addSerialToLine(line.id, serial)}
                                           onRemove={(serial) => removeSerialFromLine(line.id, serial)}
+                                          onPick={() => setSerialPickLineId(line.id)}
                                         />
                                       ) : null}
                                     </td>
@@ -5958,6 +6076,33 @@ export function SalesOrderFormDrawer({
               <div className="again-odoo-form @container space-y-5">
                 <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
                   <AgainFormGroupTitle className="@xl:col-span-2">Order</AgainFormGroupTitle>
+                <AgainFormField label="Payment Terms">
+                  {(() => {
+                    const payTerm = parsePayTerm(form.paymentTerms);
+                    return (
+                      <div className="flex h-8 items-stretch gap-3">
+                        <input
+                          value={payTerm.number}
+                          disabled={readOnly}
+                          onChange={(e) => patch("paymentTerms", formatPayTerm(e.target.value.replace(/[^\d]/g, ""), payTerm.unit))}
+                          placeholder="0"
+                          aria-label="Payment terms number"
+                          className="h-8 w-16 shrink-0 bg-transparent px-1 text-[13px] tabular-nums outline-none disabled:opacity-60"
+                        />
+                        <select
+                          value={payTerm.unit}
+                          disabled={readOnly}
+                          onChange={(e) => patch("paymentTerms", formatPayTerm(payTerm.number, e.target.value as "days" | "months"))}
+                          aria-label="Payment terms unit"
+                          className="h-8 min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                        >
+                          <option value="days">Days</option>
+                          <option value="months">Months</option>
+                        </select>
+                      </div>
+                    );
+                  })()}
+                </AgainFormField>
                   <AgainFormField label="Reference No">
                     <input
                       value={form.customerReference}
@@ -5967,18 +6112,39 @@ export function SalesOrderFormDrawer({
                       className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
                     />
                   </AgainFormField>
-                  <AgainFormField label="Warehouse">
-                    <FilterSelect
-                      value={form.warehouseId}
-                      onChange={(v) => patch("warehouseId", v)}
-                      width="w-full"
-                      ariaLabel="Warehouse"
-                      options={[
-                        { value: "", label: "Default" },
-                        ...warehouses.map((w) => ({ value: w.id, label: `${w.code} \u2014 ${w.name}` })),
-                      ]}
-                    />
-                  </AgainFormField>
+                  {stage === "quotation" || stage === "quotation_sent" ? (
+                    <AgainFormField label="Expiration">
+                      <input
+                        type="date"
+                        value={form.expiration?.slice(0, 10) ?? ""}
+                        disabled={readOnly}
+                        onChange={(e) => patch("expiration", e.target.value)}
+                        className="h-8 w-full bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                      />
+                    </AgainFormField>
+                  ) : (
+                    <AgainFormField label="Promised Delivery">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="datetime-local"
+                          value={(form.deliveryDate ?? "").slice(0, 16)}
+                          disabled={readOnly}
+                          onChange={(e) => patch("deliveryDate", e.target.value ? `${e.target.value}:00` : "")}
+                          className="h-8 min-w-0 flex-1 bg-transparent px-1 text-[13px] outline-none disabled:opacity-60"
+                        />
+                        <span
+                          className={cn(
+                            "inline-flex shrink-0 items-center px-2 py-0.5 text-[11px] font-semibold",
+                            form.shippingStatus === "delivered"
+                              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                              : "bg-sky-500/15 text-sky-600 dark:text-sky-400",
+                          )}
+                        >
+                          {form.shippingStatus === "delivered" ? "Delivered" : "Not Delivered"}
+                        </span>
+                      </div>
+                    </AgainFormField>
+                  )}
                   <AgainFormField label="Salesperson">
                     <select
                       value={form.salesperson}
@@ -6038,6 +6204,140 @@ export function SalesOrderFormDrawer({
                     emptyText="No documents attached yet."
                   />
                 </div>
+              </div>
+            ) : null}
+
+            {tab === "info" ? (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  For the products on this order: the last 3 sales prices to {form.customerName || "this customer"} and to all
+                  customers, and the pieces available in each location.
+                </p>
+                {infoLines.length === 0 ? (
+                  <p className="border border-dashed border-border px-3 py-8 text-center text-xs text-muted-foreground">
+                    Add products in Order Lines to see their sales prices and stock here.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] border-collapse text-[13px]">
+                      <thead>
+                        <tr className="border-b border-border/80 text-left text-[11px] font-semibold text-foreground">
+                          <th className="py-2 pr-3">Product</th>
+                          <th className="py-2 pr-3">Last 3 sales · this customer</th>
+                          <th className="py-2 pr-3">Last 3 sales · all customers</th>
+                          <th className="py-2">Stock by location</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {infoLines.map((line) => {
+                          const sales = infoSales[line.itemId];
+                          const stock = infoStock[line.itemId];
+                          const salesList = (rows: ProductSalesLine[], showCustomer: boolean) => (
+                            <ul className="space-y-1">
+                              {rows.map((row) => (
+                                <li key={row.id} className="flex flex-wrap items-baseline gap-x-3">
+                                  <span className="min-w-[72px] font-medium tabular-nums">
+                                    {formatCurrency(Number(row.unit_price) || 0)}
+                                  </span>
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {[
+                                      row.date ? formatDate(row.date) : null,
+                                      showCustomer ? row.customer_name : row.order_number,
+                                      `${row.quantity} pcs`,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          );
+                          return (
+                            <tr key={line.id} className="border-b border-border/80 align-top">
+                              <td className="py-2 pr-3">
+                                <p className="font-medium text-foreground">{line.name || line.sku}</p>
+                                <p className="text-[11px] text-muted-foreground">{line.sku}</p>
+                              </td>
+                              <td className="py-2 pr-3">
+                                {!form.customerId ? (
+                                  <span className="text-muted-foreground">Select a customer first</span>
+                                ) : !infoCustomerId ? (
+                                  <span className="text-muted-foreground">Walk-in customer</span>
+                                ) : sales === undefined ? (
+                                  <span className="text-muted-foreground">Loading…</span>
+                                ) : sales === "failed" ? (
+                                  <span className="text-destructive">Could not load</span>
+                                ) : sales.mine.length === 0 ? (
+                                  <span className="text-muted-foreground">Not sold to this customer yet</span>
+                                ) : (
+                                  salesList(sales.mine, false)
+                                )}
+                              </td>
+                              <td className="py-2 pr-3">
+                                {sales === undefined ? (
+                                  <span className="text-muted-foreground">Loading…</span>
+                                ) : sales === "failed" ? (
+                                  <span className="text-destructive">Could not load</span>
+                                ) : sales.all.length === 0 ? (
+                                  <span className="text-muted-foreground">Not sold yet</span>
+                                ) : (
+                                  salesList(sales.all, true)
+                                )}
+                              </td>
+                              <td className="py-2">
+                                {stock === undefined ? (
+                                  <span className="text-muted-foreground">Loading…</span>
+                                ) : stock === "failed" ? (
+                                  <span className="text-destructive">Could not load the stock</span>
+                                ) : stock.length === 0 ? (
+                                  <span className="text-muted-foreground">No stock in any location</span>
+                                ) : (
+                                  <ul className="max-w-[260px] space-y-1">
+                                    {stock.map((row) => (
+                                      <li key={row.id} className="flex items-baseline justify-between gap-4">
+                                        <span
+                                          className={cn(
+                                            "min-w-0 truncate",
+                                            form.warehouseId && row.warehouse_id === form.warehouseId && "font-medium",
+                                          )}
+                                          title={
+                                            form.warehouseId && row.warehouse_id === form.warehouseId
+                                              ? "This order's warehouse"
+                                              : undefined
+                                          }
+                                        >
+                                          {row.warehouse_name}
+                                        </span>
+                                        <span
+                                          className={cn(
+                                            "shrink-0 tabular-nums",
+                                            row.available <= 0 && "text-muted-foreground",
+                                          )}
+                                        >
+                                          {row.available} pcs
+                                        </span>
+                                      </li>
+                                    ))}
+                                    {stock.length > 1 ? (
+                                      <li className="flex items-baseline justify-between gap-4 border-t border-border/60 pt-1 font-medium">
+                                        <span>Total</span>
+                                        <span className="tabular-nums">
+                                          {stock.reduce((sum, row) => sum + row.available, 0)} pcs
+                                        </span>
+                                      </li>
+                                    ) : null}
+                                  </ul>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {/* room under the last row: the totals card floats over the bottom right */}
+                <div className="h-24" aria-hidden />
               </div>
             ) : null}
 
@@ -7190,77 +7490,31 @@ export function SalesOrderFormDrawer({
           </div>
           )}
 
-          {/* Product view panel (→ icon) — overlays sales form */}
-          {viewProductName ? (
-            <div className="absolute inset-0 z-30 flex justify-end bg-black/40">
-              <div className="flex h-full w-full max-w-md flex-col border-l border-border bg-background shadow-xl">
-                <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-                  <div>
-                    <p className="text-[12px] font-medium text-[#00a09d]">Product</p>
-                    <h2 className="text-base font-semibold text-foreground">{viewProductName}</h2>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    aria-label="Close product"
-                    onClick={() => setViewProductName(null)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-                  <div>
-                    <p className="text-[11px] text-muted-foreground">Sales Price</p>
-                    <p className="mt-0.5 text-lg font-semibold tabular-nums">
-                      {formatCurrency(viewProductDetail?.price ?? 0)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-muted-foreground">Internal Reference</p>
-                    <p className="mt-0.5 text-sm font-mono">
-                      {viewProductDetail?.sku ??
-                        viewProductName
-                          .toUpperCase()
-                          .replace(/[^A-Z0-9]+/g, "-")
-                          .replace(/^-|-$/g, "")
-                          .slice(0, 16)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-muted-foreground">Description</p>
-                    <p className="mt-1 whitespace-pre-line text-sm text-foreground">
-                      {viewProductDetail?.description || "No description"}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex shrink-0 gap-2 border-t border-border px-4 py-3">
-                  <Button
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => {
-                      const detail = catalogProducts.find((x) => x.name === viewProductName);
-                      const activeLine = form.lines.find((l) => l.name === viewProductName);
-                      if (activeLine) {
-                        patchLine(activeLine.id, {
-                          sku: detail?.sku ?? activeLine.sku,
-                          unitPrice: detail?.price ?? activeLine.unitPrice,
-                          description: detail?.description ?? activeLine.description,
-                        });
-                      }
-                      setViewProductName(null);
-                      toast.success("Product applied to line");
-                    }}
-                  >
-                    Apply to line
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setViewProductName(null)}>
-                    Close
-                  </Button>
-                </div>
-              </div>
-            </div>
+
+          {/* The eye on a line opens the product's own drawer (the same one the catalog opens): overview, stock, sales, purchases,
+              serials. Nested over this order, so closing it comes straight back to the order. */}
+          {viewProductId ? (
+            <ProductDrawer open onOpenChange={(next) => !next && setViewProductId(null)} productId={viewProductId} nested />
           ) : null}
+
+          {/* "x / n serials" under a serial product: the units in stock at the order's location, to tick or scan. */}
+          {(() => {
+            const pickLine = serialPickLineId ? form.lines.find((l) => l.id === serialPickLineId) : undefined;
+            return pickLine && pickLine.kind === "product" ? (
+              <LineSerialsDrawer
+                open
+                onOpenChange={(next) => !next && setSerialPickLineId(null)}
+                product={pickLine.name}
+                itemId={pickLine.itemId}
+                sku={pickLine.sku}
+                warehouseId={sellingWarehouse?.id ?? ""}
+                warehouseName={sellingWarehouse?.name ?? ""}
+                selected={pickLine.serialNumbers ?? []}
+                quantity={pickLine.quantity}
+                onSave={(serials) => applyPickedSerials(pickLine.id, serials)}
+              />
+            ) : null;
+          })()}
 
           {/* Variant picker — narrower nested drawer over the order form */}
           {drawerPanel === "variant" && variantPicker ? (

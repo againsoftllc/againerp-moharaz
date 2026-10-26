@@ -23,6 +23,7 @@ class RolePermissionFlags(BaseModel):
     can_delete: bool = False
     can_publish: bool = False
     can_export: bool = False
+    can_approve: bool = False
 
 
 class RoleRead(BaseModel):

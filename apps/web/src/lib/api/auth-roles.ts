@@ -10,6 +10,8 @@ export type RolePermissionFlags = {
   can_delete: boolean;
   can_publish: boolean;
   can_export: boolean;
+  /** Finalize the documents that need approval without asking, and approve other people's requests. */
+  can_approve: boolean;
 };
 
 export type AuthRoleRecord = {

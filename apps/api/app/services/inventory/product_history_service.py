@@ -104,6 +104,7 @@ def sales_history(
     *,
     company_id: str,
     item_id: str,
+    customer_id: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     page: int = 1,
@@ -119,6 +120,8 @@ def sales_history(
             SalesOrder.status.in_(SALES_COUNTED_STATUSES),
         )
     )
+    if customer_id:
+        base = base.filter(SalesOrder.customer_id == customer_id)
     if date_from:
         base = base.filter(SalesOrder.order_date >= date_from)
     if date_to:
@@ -201,6 +204,13 @@ def purchase_history(
         func.coalesce(func.sum(ordered_value), 0),
     ).one()
 
+    # cheapest cost ignores free (0) lines, like the purchase price report
+    min_cost, max_cost = base.with_entities(
+        func.min(case((PurchaseOrderLine.unit_cost > 0, PurchaseOrderLine.unit_cost))),
+        func.max(PurchaseOrderLine.unit_cost),
+    ).one()
+    avg_cost = (Decimal(sum_total or 0) / Decimal(sum_qty)) if sum_qty else None
+
     offset, limit = _page_slice(page, per_page)
     rows = (
         base.with_entities(PurchaseOrderLine, PurchaseOrder, CommerceSupplier.name)
@@ -237,6 +247,9 @@ def purchase_history(
             per_page=per_page,
             sum_qty=int(sum_qty or 0),
             sum_total=_money(sum_total),
+            min_cost=_money(min_cost) if min_cost is not None else None,
+            max_cost=_money(max_cost) if max_cost is not None and sum_qty else None,
+            avg_cost=_money(avg_cost) if avg_cost is not None else None,
         ),
     )
 

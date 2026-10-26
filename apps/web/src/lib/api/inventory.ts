@@ -777,6 +777,10 @@ export type ApiProductReport = {
     cogs: string | number;
     profit: string | number;
     margin_pct: string | number | null;
+    /** Serial units sold in the period, by the state of their warranty today (0 for a product that is not serial-tracked). */
+    warranty_active_qty?: number;
+    warranty_expired_qty?: number;
+    warranty_unknown_qty?: number;
   };
   by_type: ApiMovementTypeBucket[];
   movements: ApiMovementSummaryLine[];

@@ -74,10 +74,12 @@ def create_return(
                 quantity_returned=line.quantity_returned,
                 reason=line.reason,
                 notes=line.notes,
+                serial_numbers=tuple(line.serial_numbers),
             )
             for line in payload.lines
         ],
         purchase_receipt_id=payload.purchase_receipt_id,
+        warehouse_id=payload.warehouse_id,
         reason=payload.reason,
         return_date=payload.return_date,
         requested_by=payload.requested_by,

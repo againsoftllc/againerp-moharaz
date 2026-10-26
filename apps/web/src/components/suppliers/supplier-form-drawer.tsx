@@ -1,17 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import * as SwitchPrimitive from "@radix-ui/react-switch";
-import { Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
-  AGAIN_DRAWER_ACTION_BTN,
-  AGAIN_DRAWER_PRIMARY_BTN,
-  AGAIN_DRAWER_PRIMARY_COLOR,
+  AGAIN_DRAWER_FIELD_SHEET_CLASS,
+  AgainDrawerButton,
+  AgainDrawerCloseButton,
   AgainDrawerControlBar,
+  AgainDrawerLayout,
+  AgainDrawerPanel,
+  AgainDrawerScrollBody,
+  AgainDrawerSwitch,
 } from "@/components/again/again-drawer";
+import {
+  AgainFormField,
+  AgainFormGroupTitle,
+  AgainFormRecordTitle,
+} from "@/components/again/again-form-sheet";
 import { cn } from "@/lib/utils";
 import {
   createCommerceSupplier,
@@ -51,15 +57,7 @@ import {
   removeCustomCurrency,
   renameCustomCurrency,
 } from "@/lib/localisation/currency-options";
-import { clearDraft, draftAgeLabel, readDraft, writeDraft } from "@/lib/hooks/use-drawer-draft";
-
-const DRAFT_KEY = "supplier";
-
-type SupplierDraftPayload = {
-  form: FormState;
-  contacts: ContactDraft[];
-  roles: PartyCommerceRole[];
-};
+import { useDrawerDraft } from "@/lib/hooks/use-drawer-draft";
 
 type ContactDraft = {
   key: string;
@@ -87,6 +85,28 @@ type FormState = {
   buyerName: string;
   notes: string;
 };
+
+/** Everything the user types into the drawer: what is kept as a draft and compared with the loaded supplier. */
+type SupplierValues = {
+  form: FormState;
+  contacts: ContactDraft[];
+  roles: PartyCommerceRole[];
+};
+
+/** Contact keys are random per load, so they stay out of the "anything to save?" comparison. */
+function supplierSignature({ form, contacts, roles }: SupplierValues): string {
+  return JSON.stringify({
+    form,
+    contacts: contacts.map((c) => ({ name: c.name, role: c.role, email: c.email, phone: c.phone })),
+    roles: [...roles].sort(),
+  });
+}
+
+/** Label column wide enough that "Payment schedule" and "Opening balance" stay on one line. */
+const ROW = "grid-cols-[8.5rem_minmax(0,1fr)]";
+/** The plain control inside an Odoo form row: `.again-odoo-form` turns it into an underline, teal on focus. */
+const FIELD_INPUT = "h-8 w-full bg-transparent px-1 text-[13px] outline-none";
+const LINK = "text-[13px] font-normal text-[#00a09d] hover:text-[#00c4bf] hover:underline";
 
 function newContact(): ContactDraft {
   return {
@@ -125,24 +145,12 @@ function initialState(supplier: Supplier | null, draftName = "", extras?: { addr
   };
 }
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-medium text-foreground">{label}</label>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
-    </div>
-  );
-}
-
+/**
+ * New / edit supplier in the common drawer (docs/common/drawercommon.md) with the Odoo form look (docs/common/formcommon.md):
+ * actions and the Active / Inactive switch in the top bar, a big record title, titled groups of label-left / underline-right
+ * fields in two columns by the drawer's own width, and a draft kept (form and scroll position) when it is closed by accident -
+ * for a new supplier and for editing an existing one.
+ */
 export function SupplierFormDrawer({
   open,
   onOpenChange,
@@ -173,10 +181,33 @@ export function SupplierFormDrawer({
     buildPaymentTermOptions(supplier?.paymentTerms ?? "Net 30"),
   );
   const [roles, setRoles] = useState<PartyCommerceRole[]>(["supplier"]);
+  // the supplier as loaded: what "Discard" goes back to and what "unsaved" is measured against
+  const baseRef = useRef<SupplierValues | null>(null);
+  const [baseSignature, setBaseSignature] = useState<string | null>(null);
+  /** An existing supplier's full record has come in (a draft is put back only after that, so the load cannot overwrite it). */
+  const [loaded, setLoaded] = useState(false);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+  const pendingScrollRef = useRef<number | null>(null);
+  const [restoredTick, setRestoredTick] = useState(0);
   const editing = Boolean(supplier);
   const blocked = !form.name.trim();
   const isActive = form.status !== "blocked";
 
+  const applyValues = (v: SupplierValues) => {
+    setForm(v.form);
+    setContacts(v.contacts.length ? v.contacts : [newContact()]);
+    setRoles(v.roles.length ? v.roles : ["supplier"]);
+    setCountryOptions(buildCountryOptions(v.form.country));
+    setCurrencyOptions(buildCurrencyOptions(v.form.currency));
+    setTermOptions(buildPaymentTermOptions(v.form.paymentTerms));
+  };
+
+  const setBase = (v: SupplierValues) => {
+    baseRef.current = v;
+    setBaseSignature(supplierSignature(v));
+  };
+
+  // a fresh form every time it opens - declared before the draft hook so a saved draft is put back after this reset
   useEffect(() => {
     if (!open) {
       setListCountryOpen(false);
@@ -184,37 +215,14 @@ export function SupplierFormDrawer({
       setListTermsOpen(false);
       return;
     }
-    setForm(initialState(supplier, draftName));
-    setContacts([newContact()]);
-    setRoles(["supplier"]);
-    setCountryOptions(buildCountryOptions(supplier?.country ?? "Bangladesh"));
-    setCurrencyOptions(buildCurrencyOptions(supplier?.currency ?? "BDT"));
-    setTermOptions(buildPaymentTermOptions(supplier?.paymentTerms ?? "Net 30"));
-
-    // Create mode only — resume an unsaved draft left behind by an accidental
-    // outside-click/Escape, unless the caller just prefilled a name explicitly.
-    if (!supplier && !draftName) {
-      const draft = readDraft<SupplierDraftPayload>(DRAFT_KEY);
-      if (draft) {
-        setForm(draft.values.form);
-        setContacts(draft.values.contacts.length ? draft.values.contacts : [newContact()]);
-        setRoles(draft.values.roles.length ? draft.values.roles : ["supplier"]);
-        setCountryOptions(buildCountryOptions(draft.values.form.country));
-        setCurrencyOptions(buildCurrencyOptions(draft.values.form.currency));
-        setTermOptions(buildPaymentTermOptions(draft.values.form.paymentTerms));
-        toast.info(`Restored unsaved supplier draft from ${draftAgeLabel(draft.savedAt)}`, {
-          action: {
-            label: "Discard",
-            onClick: () => {
-              clearDraft(DRAFT_KEY);
-              setForm(initialState(null));
-              setContacts([newContact()]);
-              setRoles(["supplier"]);
-            },
-          },
-        });
-      }
-    }
+    const base: SupplierValues = {
+      form: initialState(supplier, draftName),
+      contacts: [newContact()],
+      roles: ["supplier"],
+    };
+    applyValues(base);
+    setBase(base);
+    setLoaded(!supplier?.id);
 
     if (!supplier?.id) return;
     let cancelled = false;
@@ -223,17 +231,12 @@ export function SupplierFormDrawer({
         const res = await apiFetch<ApiSupplierResponse>(`/api/v1/commerce/suppliers/${supplier.id}`);
         if (cancelled) return;
         const detail = apiSupplierToSupplierDetail(res.data);
-        setForm(
-          initialState(detail, draftName, {
+        const next: SupplierValues = {
+          form: initialState(detail, draftName, {
             address: firstAddressLine(detail),
             notes: res.data.notes ?? "",
           }),
-        );
-        setCountryOptions(buildCountryOptions(detail.country));
-        setCurrencyOptions(buildCurrencyOptions(detail.currency));
-        setTermOptions(buildPaymentTermOptions(detail.paymentTerms));
-        setContacts(
-          detail.contacts.length
+          contacts: detail.contacts.length
             ? detail.contacts.map((row) => ({
                 key: row.id,
                 name: row.name,
@@ -242,9 +245,14 @@ export function SupplierFormDrawer({
                 phone: row.phone,
               }))
             : [newContact()],
-        );
+          roles: ["supplier"],
+        };
+        applyValues(next);
+        setBase(next);
       } catch {
         /* keep the list snapshot already in the form */
+      } finally {
+        if (!cancelled) setLoaded(true);
       }
     })();
     return () => {
@@ -252,8 +260,50 @@ export function SupplierFormDrawer({
     };
   }, [open, supplier, draftName]);
 
+  const current: SupplierValues = { form, contacts, roles };
+  const dirty = open && loaded && baseSignature !== null && supplierSignature(current) !== baseSignature;
+  // one draft per supplier ("supplier:new" for a new one); a name prefilled by the caller ("Create 'x'") keeps none
+  const { saveDraftIfDirty, clear: clearDraft } = useDrawerDraft<SupplierValues & { scrollTop: number }>({
+    key: supplier ? `supplier:${supplier.id}` : draftName ? null : "supplier:new",
+    ready: open && loaded,
+    dirty,
+    getValues: () => ({ ...current, scrollTop: bodyScrollRef.current?.scrollTop ?? 0 }),
+    restore: (v) => {
+      applyValues(v);
+      pendingScrollRef.current = v.scrollTop;
+      setRestoredTick((t) => t + 1);
+    },
+    onDiscard: () => {
+      if (baseRef.current) applyValues(baseRef.current); // back to what was saved
+    },
+    label: "supplier",
+  });
+
+  // a restored draft: go back to where the user was
+  useEffect(() => {
+    if (!open || pendingScrollRef.current == null) return;
+    const top = pendingScrollRef.current;
+    pendingScrollRef.current = null;
+    const timer = window.setTimeout(() => bodyScrollRef.current?.scrollTo({ top }), 120);
+    return () => window.clearTimeout(timer);
+  }, [open, restoredTick]);
+
+  // every dismissal (outside click, Esc, the X) goes through here and keeps a draft; Save and Cancel close directly
+  const handleOpenChange = (next: boolean) => {
+    if (!next) saveDraftIfDirty();
+    onOpenChange(next);
+  };
+
+  const discard = () => {
+    clearDraft();
+    onOpenChange(false);
+  };
+
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  const patchContact = (key: string, patch: Partial<ContactDraft>) =>
+    setContacts((rows) => rows.map((item) => (item.key === key ? { ...item, ...patch } : item)));
 
   const renameCountry = (from: string, to: string) => {
     const next = to.trim();
@@ -297,18 +347,6 @@ export function SupplierFormDrawer({
     toast.success("Currency removed");
   };
 
-  const saveDraftIfDirty = () => {
-    if (editing) return;
-    const blank = initialState(null);
-    const dirty =
-      JSON.stringify(form) !== JSON.stringify(blank) ||
-      contacts.some((c) => c.name || c.role || c.email || c.phone) ||
-      roles.length !== 1 ||
-      roles[0] !== "supplier";
-    if (!dirty) return;
-    writeDraft<SupplierDraftPayload>(DRAFT_KEY, { form, contacts, roles });
-  };
-
   const submit = async () => {
     if (blocked) return;
     setSaving(true);
@@ -344,6 +382,7 @@ export function SupplierFormDrawer({
             .filter((row) => row.name),
         });
         toast.success(`${form.name} updated`);
+        clearDraft();
         onOpenChange(false);
         onSaved?.(saved);
       } else {
@@ -379,7 +418,7 @@ export function SupplierFormDrawer({
           }
         }
         toast.success(`${form.name.trim()} created`);
-        clearDraft(DRAFT_KEY);
+        clearDraft();
         onOpenChange(false);
         onSaved?.(saved);
       }
@@ -392,299 +431,252 @@ export function SupplierFormDrawer({
 
   return (
     <>
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side="right"
-        title={editing ? "Edit supplier" : "New supplier"}
-        closeButton="inside"
-        onPointerDownOutside={() => saveDraftIfDirty()}
-        onInteractOutside={() => saveDraftIfDirty()}
-        onEscapeKeyDown={() => saveDraftIfDirty()}
-        className="z-[260] flex w-[440px] max-w-[92vw] flex-col gap-0 p-0"
-      >
-        <AgainDrawerControlBar
-          trailing={
-            <div className="mr-6 flex items-center gap-1.5">
-              <span className="text-[11px] text-muted-foreground">
-                {isActive ? "Active" : "Inactive"}
-              </span>
-              <SwitchPrimitive.Root
-                checked={isActive}
-                onCheckedChange={(next) => set("status", next ? "active" : "blocked")}
-                aria-label={isActive ? "Active" : "Inactive"}
-                className="inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-none border-2 border-transparent bg-input transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=checked]:bg-primary"
-              >
-                <SwitchPrimitive.Thumb className="pointer-events-none block h-3 w-3 rounded-none bg-background shadow-sm transition-transform data-[state=checked]:translate-x-3 data-[state=unchecked]:translate-x-0" />
-              </SwitchPrimitive.Root>
-            </div>
-          }
-        >
-          <button
-            type="button"
-            className={cn(AGAIN_DRAWER_PRIMARY_BTN, "h-6 px-2 text-[11px]")}
-            style={{ backgroundColor: AGAIN_DRAWER_PRIMARY_COLOR }}
-            disabled={blocked || saving}
-            onClick={() => void submit()}
-          >
-            {saving ? "Saving…" : editing ? "Save changes" : "Create supplier"}
-          </button>
-          <button
-            type="button"
-            className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]")}
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </button>
-          <span className="ml-1 text-[13px] font-medium text-foreground">
-            {editing ? "Edit supplier" : "New supplier"}
-          </span>
+    <AgainDrawerPanel
+      open={open}
+      onOpenChange={handleOpenChange}
+      title={editing ? "Edit supplier" : "New supplier"}
+      nested
+      resizable
+      defaultWidth={720}
+      minWidth={420}
+      widthStorageKey="again-supplier-drawer-width"
+    >
+      <AgainDrawerLayout>
+        <AgainDrawerControlBar trailing={<AgainDrawerCloseButton onClick={() => handleOpenChange(false)} />}>
+          <AgainDrawerButton variant="primary" disabled={blocked || saving} aria-busy={saving} onClick={() => void submit()}>
+            {saving ? "Saving…" : editing ? "Save" : "Create"}
+          </AgainDrawerButton>
+          <AgainDrawerButton disabled={saving} onClick={discard}>
+            {editing ? "Discard" : "Cancel"}
+          </AgainDrawerButton>
+          <AgainDrawerSwitch
+            label="Supplier status"
+            value={isActive ? "active" : "blocked"}
+            onChange={(next) => set("status", next)}
+            options={[
+              { value: "active" as const, label: "Active" },
+              { value: "blocked" as const, label: "Inactive" },
+            ]}
+          />
         </AgainDrawerControlBar>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
-          {editing ? null : (
-            <PartyRolePicker currentRole="supplier" roles={roles} onChange={setRoles} className="mb-0" />
-          )}
+        <AgainDrawerScrollBody scrollRef={bodyScrollRef} className={AGAIN_DRAWER_FIELD_SHEET_CLASS}>
+          <div className="@container space-y-5">
+            {editing ? null : (
+              <PartyRolePicker currentRole="supplier" roles={roles} onChange={setRoles} className="mb-0" />
+            )}
 
-          <Field label="Supplier name">
-            <Input
+            <AgainFormRecordTitle
               value={form.name}
-              onChange={(e) => set("name", e.target.value)}
-              placeholder="TechPro Distributors Ltd"
-              className="rounded-none"
+              onChange={(next) => set("name", next.replace(/\n/g, " "))}
+              placeholder="Supplier name"
             />
-          </Field>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Phone">
-              <Input
-                value={form.phone}
-                onChange={(e) => set("phone", e.target.value)}
-                placeholder="+8801…"
-                className="rounded-none"
-              />
-            </Field>
-            <Field label="Email">
-              <Input
-                value={form.email}
-                onChange={(e) => set("email", e.target.value)}
-                placeholder="sales@vendor.com"
-                className="rounded-none"
-              />
-            </Field>
-          </div>
+            {/* Odoo form: label left, underline control right, titled groups, two columns by the drawer's own width */}
+            <div className="again-odoo-form space-y-5">
+              <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                <AgainFormGroupTitle className="@xl:col-span-2">Contact</AgainFormGroupTitle>
+                <AgainFormField label="Phone" className={ROW}>
+                  <input
+                    value={form.phone}
+                    onChange={(e) => set("phone", e.target.value)}
+                    placeholder="+8801…"
+                    className={FIELD_INPUT}
+                  />
+                </AgainFormField>
+                <AgainFormField label="Email" className={ROW}>
+                  <input
+                    value={form.email}
+                    onChange={(e) => set("email", e.target.value)}
+                    placeholder="sales@vendor.com"
+                    className={FIELD_INPUT}
+                  />
+                </AgainFormField>
+                <AgainFormField label="Website" className={ROW}>
+                  <input
+                    value={form.website}
+                    onChange={(e) => set("website", e.target.value)}
+                    placeholder="https://"
+                    className={FIELD_INPUT}
+                  />
+                </AgainFormField>
+                <AgainFormField label="Country" className={ROW}>
+                  <CountryCombobox
+                    options={countryOptions}
+                    value={form.country}
+                    onChange={(next) => set("country", next)}
+                    onList={() => setListCountryOpen(true)}
+                    onRename={renameCountry}
+                    onDelete={deleteCountry}
+                  />
+                </AgainFormField>
+                <AgainFormField label="Address" className={cn(ROW, "@xl:col-span-2")}>
+                  <input
+                    value={form.address}
+                    onChange={(e) => set("address", e.target.value)}
+                    placeholder="Street, city"
+                    className={FIELD_INPUT}
+                  />
+                </AgainFormField>
+              </div>
 
-          <Field label="Website">
-            <Input
-              value={form.website}
-              onChange={(e) => set("website", e.target.value)}
-              placeholder="https://"
-              className="rounded-none"
-            />
-          </Field>
+              <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                <AgainFormGroupTitle className="@xl:col-span-2">Purchasing</AgainFormGroupTitle>
+                <AgainFormField label="Payment terms" className={ROW}>
+                  <PaymentTermsCombobox
+                    options={termOptions}
+                    value={form.paymentTerms}
+                    onChange={(next) => set("paymentTerms", next)}
+                    onList={() => setListTermsOpen(true)}
+                    onRename={renameTerm}
+                    onDelete={deleteTerm}
+                  />
+                </AgainFormField>
+                <AgainFormField label="Lead time (days)" className={ROW}>
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.leadTimeDays}
+                    onChange={(e) => set("leadTimeDays", e.target.value)}
+                    className={cn(FIELD_INPUT, "tabular-nums")}
+                  />
+                </AgainFormField>
+                <AgainFormField label="Currency" className={ROW}>
+                  <CurrencyCombobox
+                    options={currencyOptions}
+                    value={form.currency}
+                    onChange={(next) => set("currency", next)}
+                    onList={() => setListCurrencyOpen(true)}
+                    onRename={renameCurrency}
+                    onDelete={deleteCurrency}
+                  />
+                </AgainFormField>
+                <AgainFormField label="Buyer" className={ROW}>
+                  <input
+                    value={form.buyerName}
+                    onChange={(e) => set("buyerName", e.target.value)}
+                    placeholder="Who owns this relationship"
+                    className={FIELD_INPUT}
+                  />
+                </AgainFormField>
+                <AgainFormField label="Payment schedule" className={ROW}>
+                  <input
+                    value={form.paymentSchedule}
+                    onChange={(e) => set("paymentSchedule", e.target.value)}
+                    placeholder="e.g. Monthly"
+                    className={FIELD_INPUT}
+                  />
+                </AgainFormField>
+              </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Payment terms">
-              <PaymentTermsCombobox
-                options={termOptions}
-                value={form.paymentTerms}
-                onChange={(next) => set("paymentTerms", next)}
-                onList={() => setListTermsOpen(true)}
-                onRename={renameTerm}
-                onDelete={deleteTerm}
-              />
-            </Field>
-            <Field label="Lead time (days)">
-              <Input
-                type="number"
-                min={0}
-                value={form.leadTimeDays}
-                onChange={(e) => set("leadTimeDays", e.target.value)}
-                className="rounded-none"
-              />
-            </Field>
-          </div>
+              <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                <AgainFormGroupTitle className="@xl:col-span-2">Accounting</AgainFormGroupTitle>
+                <AgainFormField label="Opening balance" className={ROW}>
+                  <input
+                    value={form.openingBalance}
+                    onChange={(e) => set("openingBalance", e.target.value.replace(/[^\d.-]/g, ""))}
+                    placeholder="0"
+                    inputMode="decimal"
+                    className={cn(FIELD_INPUT, "tabular-nums")}
+                  />
+                </AgainFormField>
+                <AgainFormField label="Credit limit" className={ROW}>
+                  <input
+                    value={form.creditLimit}
+                    onChange={(e) => set("creditLimit", e.target.value.replace(/[^\d.-]/g, ""))}
+                    placeholder="0"
+                    inputMode="decimal"
+                    className={cn(FIELD_INPUT, "tabular-nums")}
+                  />
+                </AgainFormField>
+                <AgainFormField label="Tax ID" className={ROW}>
+                  <input
+                    value={form.taxId}
+                    onChange={(e) => set("taxId", e.target.value)}
+                    placeholder="Optional"
+                    className={FIELD_INPUT}
+                  />
+                </AgainFormField>
+              </div>
 
-          <Field label="Address">
-            <Input
-              value={form.address}
-              onChange={(e) => set("address", e.target.value)}
-              placeholder="Street, city"
-              className="rounded-none"
-            />
-          </Field>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Country">
-              <CountryCombobox
-                options={countryOptions}
-                value={form.country}
-                onChange={(next) => set("country", next)}
-                onList={() => setListCountryOpen(true)}
-                onRename={renameCountry}
-                onDelete={deleteCountry}
-              />
-            </Field>
-            <Field label="Tax ID">
-              <Input
-                value={form.taxId}
-                onChange={(e) => set("taxId", e.target.value)}
-                placeholder="Optional"
-                className="rounded-none"
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Opening balance">
-              <Input
-                value={form.openingBalance}
-                onChange={(e) => set("openingBalance", e.target.value.replace(/[^\d.-]/g, ""))}
-                placeholder="0"
-                inputMode="decimal"
-                className="rounded-none tabular-nums"
-              />
-            </Field>
-            <Field label="Credit limit">
-              <Input
-                value={form.creditLimit}
-                onChange={(e) => set("creditLimit", e.target.value.replace(/[^\d.-]/g, ""))}
-                placeholder="0"
-                inputMode="decimal"
-                className="rounded-none tabular-nums"
-              />
-            </Field>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Payment schedule">
-              <Input
-                value={form.paymentSchedule}
-                onChange={(e) => set("paymentSchedule", e.target.value)}
-                placeholder="e.g. Monthly"
-                className="rounded-none"
-              />
-            </Field>
-            <Field label="Currency">
-              <CurrencyCombobox
-                options={currencyOptions}
-                value={form.currency}
-                onChange={(next) => set("currency", next)}
-                onList={() => setListCurrencyOpen(true)}
-                onRename={renameCurrency}
-                onDelete={deleteCurrency}
-              />
-            </Field>
-          </div>
-
-          <Field label="Buyer">
-            <Input
-              value={form.buyerName}
-              onChange={(e) => set("buyerName", e.target.value)}
-              placeholder="Who owns this relationship"
-              className="rounded-none"
-            />
-          </Field>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-xs font-medium text-foreground">Contacts</label>
-              <button
-                type="button"
-                className="inline-flex h-6 items-center gap-1 rounded-none px-1.5 text-[11px] font-medium text-[#00a09d] hover:bg-[#00a09d]/10"
-                onClick={() => setContacts((rows) => [...rows, newContact()])}
-              >
-                <Plus className="h-3 w-3" />
-                Add contact
-              </button>
-            </div>
-            <div className="space-y-2">
-              {contacts.map((row, index) => (
-                <div key={row.key} className="space-y-1.5 border border-border p-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-muted-foreground">
-                      Contact {index + 1}
-                    </span>
-                    <button
-                      type="button"
-                      className="inline-flex h-6 w-6 items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-destructive"
-                      aria-label={`Remove contact ${index + 1}`}
-                      onClick={() =>
-                        setContacts((rows) =>
-                          rows.length === 1
-                            ? [newContact()]
-                            : rows.filter((item) => item.key !== row.key),
-                        )
-                      }
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+              <div>
+                <AgainFormGroupTitle>Contacts</AgainFormGroupTitle>
+                {contacts.map((row, index) => (
+                  <div key={row.key} className={cn("pb-2", index > 0 && "border-t border-border/60 pt-2")}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-medium text-muted-foreground">Contact {index + 1}</span>
+                      <button
+                        type="button"
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-none text-muted-foreground hover:bg-muted hover:text-destructive"
+                        aria-label={`Remove contact ${index + 1}`}
+                        onClick={() =>
+                          setContacts((rows) =>
+                            rows.length === 1 ? [newContact()] : rows.filter((item) => item.key !== row.key),
+                          )
+                        }
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+                      <AgainFormField label="Name" className={ROW}>
+                        <input
+                          value={row.name}
+                          onChange={(e) => patchContact(row.key, { name: e.target.value })}
+                          className={FIELD_INPUT}
+                        />
+                      </AgainFormField>
+                      <AgainFormField label="Role" className={ROW}>
+                        <input
+                          value={row.role}
+                          onChange={(e) => patchContact(row.key, { role: e.target.value })}
+                          placeholder="e.g. Procurement"
+                          className={FIELD_INPUT}
+                        />
+                      </AgainFormField>
+                      <AgainFormField label="Email" className={ROW}>
+                        <input
+                          value={row.email}
+                          onChange={(e) => patchContact(row.key, { email: e.target.value })}
+                          className={FIELD_INPUT}
+                        />
+                      </AgainFormField>
+                      <AgainFormField label="Phone" className={ROW}>
+                        <input
+                          value={row.phone}
+                          onChange={(e) => patchContact(row.key, { phone: e.target.value })}
+                          className={FIELD_INPUT}
+                        />
+                      </AgainFormField>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      value={row.name}
-                      onChange={(e) =>
-                        setContacts((rows) =>
-                          rows.map((item) =>
-                            item.key === row.key ? { ...item, name: e.target.value } : item,
-                          ),
-                        )
-                      }
-                      placeholder="Name"
-                      className="rounded-none"
-                    />
-                    <Input
-                      value={row.role}
-                      onChange={(e) =>
-                        setContacts((rows) =>
-                          rows.map((item) =>
-                            item.key === row.key ? { ...item, role: e.target.value } : item,
-                          ),
-                        )
-                      }
-                      placeholder="Role"
-                      className="rounded-none"
-                    />
-                    <Input
-                      value={row.email}
-                      onChange={(e) =>
-                        setContacts((rows) =>
-                          rows.map((item) =>
-                            item.key === row.key ? { ...item, email: e.target.value } : item,
-                          ),
-                        )
-                      }
-                      placeholder="Email"
-                      className="rounded-none"
-                    />
-                    <Input
-                      value={row.phone}
-                      onChange={(e) =>
-                        setContacts((rows) =>
-                          rows.map((item) =>
-                            item.key === row.key ? { ...item, phone: e.target.value } : item,
-                          ),
-                        )
-                      }
-                      placeholder="Phone"
-                      className="rounded-none"
-                    />
-                  </div>
-                </div>
-              ))}
+                ))}
+                <button
+                  type="button"
+                  className={cn(LINK, "mt-1")}
+                  onClick={() => setContacts((rows) => [...rows, newContact()])}
+                >
+                  Add a contact
+                </button>
+              </div>
+
+              <div>
+                <AgainFormGroupTitle>Note</AgainFormGroupTitle>
+                <AgainFormField label="Internal note" className={ROW}>
+                  <textarea
+                    value={form.notes}
+                    onChange={(e) => set("notes", e.target.value)}
+                    placeholder="Optional"
+                    rows={3}
+                    className="w-full resize-y bg-transparent px-1 py-1.5 text-[13px] outline-none"
+                  />
+                </AgainFormField>
+              </div>
             </div>
           </div>
-
-          <Field label="Notes">
-            <Input
-              value={form.notes}
-              onChange={(e) => set("notes", e.target.value)}
-              placeholder="Optional"
-              className="rounded-none"
-            />
-          </Field>
-        </div>
-      </SheetContent>
-    </Sheet>
+        </AgainDrawerScrollBody>
+      </AgainDrawerLayout>
+    </AgainDrawerPanel>
     <CountryPickDrawer
       open={listCountryOpen}
       onOpenChange={setListCountryOpen}

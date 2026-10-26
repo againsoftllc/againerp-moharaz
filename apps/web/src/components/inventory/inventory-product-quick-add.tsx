@@ -712,6 +712,19 @@ export function InventoryProductQuickAdd({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [openingStockOpen]);
 
+  useEffect(() => {
+    if (!locationOpen) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (locationAnchorRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest("[data-again-search-dropdown]")) return;
+      setLocationOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [locationOpen]);
+
   async function persistOpeningStock(targetProductId: string) {
     if (!openingStockReady) return;
     const warehouseId =

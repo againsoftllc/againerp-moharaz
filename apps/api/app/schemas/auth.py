@@ -21,6 +21,9 @@ class UserRead(BaseModel):
     is_active: bool
     role_ids: List[str] = Field(default_factory=list)
     roles: List[RoleSummary] = Field(default_factory=list)
+    # Warehouses the user may work in; empty = every warehouse.
+    warehouse_ids: List[str] = Field(default_factory=list)
+    default_warehouse_id: Optional[str] = None
     company_id: Optional[str] = None
     company_name: Optional[str] = None
     company_slug: Optional[str] = None
@@ -56,6 +59,8 @@ class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     role: Optional[str] = Field(default=None)  # legacy single role slug/label
     role_ids: Optional[List[str]] = None
+    warehouse_ids: Optional[List[str]] = None
+    default_warehouse_id: Optional[str] = None
     password: str = Field(min_length=6, max_length=128)
 
 
@@ -65,6 +70,8 @@ class UserUpdate(BaseModel):
     username: Optional[str] = Field(default=None, min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9._-]+$")
     role: Optional[str] = None
     role_ids: Optional[List[str]] = None
+    warehouse_ids: Optional[List[str]] = None
+    default_warehouse_id: Optional[str] = None
     is_active: Optional[bool] = None
     password: Optional[str] = Field(default=None, min_length=6, max_length=128)
 

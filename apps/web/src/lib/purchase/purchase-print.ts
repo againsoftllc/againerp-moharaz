@@ -15,6 +15,8 @@ export type PurchasePrintLine = {
   kind: "product" | "section" | "note" | "service";
   name: string;
   sku?: string;
+  /** Serial numbers received for a serial-tracked product; the document shows them in place of the SKU. */
+  serialNumbers?: string[];
   quantity: number;
   unitCost: number;
   discountLabel: string;
@@ -42,6 +44,12 @@ export type PurchasePrintPayload = {
   total: number;
   company: InvoicePreviewCompany;
   layout?: PurchaseLayout;
+  /** Wording for another kind of purchase document (a purchase return) in place of the layout's order wording. */
+  labels?: { number?: string; date?: string; reference?: string; warehouse?: string };
+  /** Extra "label / value" cells next to the vendor (a return's reason and status). */
+  extraInfo?: { label: string; value: string }[];
+  /** A note under the totals. */
+  note?: string;
 };
 
 export function fallbackPurchasePrintCompany(): InvoicePreviewCompany {

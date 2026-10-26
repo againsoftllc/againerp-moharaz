@@ -36,6 +36,7 @@ import {
   type ReturnStatus,
 } from "@/lib/mock-data/purchase-returns";
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
+import { printPurchaseReturn } from "@/lib/purchase/purchase-return-print";
 import { cn, formatCurrency } from "@/lib/utils";
 
 type ReturnTab = "lines" | "other";
@@ -376,6 +377,17 @@ export function ReturnDrawer({
                     Reject
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]")}
+                  onClick={() =>
+                    void printPurchaseReturn(viewed?.id ?? "").catch((err) =>
+                      toast.error(err instanceof Error ? err.message : "Could not open the return for printing"),
+                    )
+                  }
+                >
+                  Print
+                </button>
                 <button
                   type="button"
                   className={cn(AGAIN_DRAWER_ACTION_BTN, "h-6 px-2 text-[11px]")}

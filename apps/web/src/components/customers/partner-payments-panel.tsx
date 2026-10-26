@@ -7,6 +7,7 @@ import { AgainListGrid, NUMERIC_CELL, NUMERIC_HEADER } from "@/components/shared
 import { FilterSelect } from "@/components/shared/filter-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AgainFormField } from "@/components/again/again-form-sheet";
 import {
   fetchCustomerLedger,
   recordCustomerLedgerPayment,
@@ -32,6 +33,9 @@ import {
  * screen: open invoices with a FIFO allocation preview, the receive form, and
  * the receipt/refund history. Supplier-only parties keep the plain grid. */
 type PaymentRow = PartnerLedgerLine & { id: string; amount: number; paymentFor: string };
+
+/** Label column of the receive-payment form rows (wide enough for "Payment account"). */
+const PAY_ROW = "grid-cols-[8.5rem_minmax(0,1fr)]";
 
 type OpenInvoice = {
   id: string;
@@ -388,16 +392,26 @@ function ReceivePaymentCard({
         </p>
       )}
 
-      <div className="grid gap-3 px-3 py-3 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label htmlFor="pay-dues-amount" className="text-xs font-medium text-foreground">
-              Amount
-            </label>
+      {/* Odoo form (docs/common/formcommon.md): label left, underline control right, two columns by the drawer's width */}
+      <div className="again-odoo-form @container px-3 py-2">
+        <div className="grid gap-x-8 gap-y-0 @xl:grid-cols-2">
+          <AgainFormField label="Amount" className={PAY_ROW}>
+            <Input
+              id="pay-dues-amount"
+              type="number"
+              min={0}
+              step="0.01"
+              value={amountValue}
+              onChange={(e) => {
+                setAmountTouched(true);
+                setAmountText(e.target.value);
+              }}
+              className="h-8 rounded-none px-1 tabular-nums"
+            />
             {amountTouched && selectedDue > 0 && Math.abs(amount - selectedDue) > EPSILON ? (
               <button
                 type="button"
-                className="text-[11px] text-primary hover:underline"
+                className="mt-0.5 text-[11px] text-[#00a09d] hover:underline"
                 onClick={() => {
                   setAmountTouched(false);
                   setAmountText("");
@@ -406,82 +420,59 @@ function ReceivePaymentCard({
                 Use {formatCurrency(selectedDue)}
               </button>
             ) : null}
-          </div>
-          <Input
-            id="pay-dues-amount"
-            type="number"
-            min={0}
-            step="0.01"
-            value={amountValue}
-            onChange={(e) => {
-              setAmountTouched(true);
-              setAmountText(e.target.value);
-            }}
-            className="rounded-none"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label htmlFor="pay-dues-date" className="text-xs font-medium text-foreground">
-            Date
-          </label>
-          <Input
-            id="pay-dues-date"
-            type="date"
-            value={paymentDate}
-            onChange={(e) => setPaymentDate(e.target.value)}
-            className="rounded-none"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-foreground">Method</label>
-          <FilterSelect
-            value={method}
-            onChange={setMethod}
-            width="w-full"
-            ariaLabel="Payment method"
-            options={PAYMENT_METHODS}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-foreground">Payment account</label>
-          <FilterSelect
-            value={accountId}
-            onChange={setAccountId}
-            width="w-full"
-            ariaLabel="Payment account"
-            options={
-              accounts.length
-                ? accounts.map((a) => ({
-                    value: a.id,
-                    label: `${a.name} (${formatCurrency(Number(a.balance))})`,
-                  }))
-                : [{ value: "", label: "No accounts" }]
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label htmlFor="pay-dues-reference" className="text-xs font-medium text-foreground">
-            Reference
-          </label>
-          <Input
-            id="pay-dues-reference"
-            value={reference}
-            onChange={(e) => setReference(e.target.value)}
-            placeholder="Bank transaction id, cheque no…"
-            className="rounded-none"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label htmlFor="pay-dues-note" className="text-xs font-medium text-foreground">
-            Note
-          </label>
-          <Input
-            id="pay-dues-note"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional"
-            className="rounded-none"
-          />
+          </AgainFormField>
+          <AgainFormField label="Date" className={PAY_ROW}>
+            <Input
+              id="pay-dues-date"
+              type="date"
+              value={paymentDate}
+              onChange={(e) => setPaymentDate(e.target.value)}
+              className="h-8 rounded-none px-1"
+            />
+          </AgainFormField>
+          <AgainFormField label="Method" className={PAY_ROW}>
+            <FilterSelect
+              value={method}
+              onChange={setMethod}
+              width="w-full"
+              ariaLabel="Payment method"
+              options={PAYMENT_METHODS}
+            />
+          </AgainFormField>
+          <AgainFormField label="Payment account" className={PAY_ROW}>
+            <FilterSelect
+              value={accountId}
+              onChange={setAccountId}
+              width="w-full"
+              ariaLabel="Payment account"
+              options={
+                accounts.length
+                  ? accounts.map((a) => ({
+                      value: a.id,
+                      label: `${a.name} (${formatCurrency(Number(a.balance))})`,
+                    }))
+                  : [{ value: "", label: "No accounts" }]
+              }
+            />
+          </AgainFormField>
+          <AgainFormField label="Reference" className={PAY_ROW}>
+            <Input
+              id="pay-dues-reference"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="Bank transaction id, cheque no…"
+              className="h-8 rounded-none px-1"
+            />
+          </AgainFormField>
+          <AgainFormField label="Note" className={PAY_ROW}>
+            <Input
+              id="pay-dues-note"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Optional"
+              className="h-8 rounded-none px-1"
+            />
+          </AgainFormField>
         </div>
       </div>
 

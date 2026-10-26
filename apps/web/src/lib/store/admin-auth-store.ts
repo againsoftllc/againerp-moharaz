@@ -19,6 +19,9 @@ export type AdminUser = {
   is_active: boolean;
   role_ids?: string[];
   roles?: AdminRoleSummary[];
+  /** Warehouses an admin limited this user to; empty/absent = every warehouse. */
+  warehouse_ids?: string[];
+  default_warehouse_id?: string | null;
   company_id?: string | null;
   company_name?: string | null;
   company_slug?: string | null;

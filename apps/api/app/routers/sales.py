@@ -14,6 +14,7 @@ from app.deps.auth import require_permission, require_system_manager, get_curren
 from app.models.auth_user import AuthUser
 from app.models.sales_return import SalesReturn
 from app.services import rbac as rbac_service
+from app.services.auth_user_warehouses import resolve_user_warehouse
 from app.models.commerce_customer import CommerceCustomer, load_json
 from app.models.inventory_warehouse import InventoryWarehouse
 from app.models.item import Item
@@ -661,7 +662,7 @@ def create_quotation(
     svc = SalesService(db)
     quote = svc.create_quotation(
         customer_id=payload.customer_id,
-        warehouse_id=payload.warehouse_id,
+        warehouse_id=resolve_user_warehouse(db, user, payload.warehouse_id),
         quote_date=payload.quote_date,
         valid_until=payload.valid_until,
         sales_rep=payload.sales_rep,
@@ -698,10 +699,14 @@ def replace_quotation(
 ) -> SalesApiEnvelope:
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
+    current = db.get(SalesQuotation, quotation_id)
+    current_warehouse = current.warehouse_id if current else None
     quote = svc.update_quotation(
         quotation_id,
         customer_id=payload.customer_id,
-        warehouse_id=payload.warehouse_id,
+        warehouse_id=resolve_user_warehouse(
+            db, user, payload.warehouse_id or current_warehouse, current_warehouse
+        ),
         quote_date=payload.quote_date,
         valid_until=payload.valid_until,
         sales_rep=payload.sales_rep,
@@ -825,7 +830,7 @@ def create_order(
 ) -> SalesOrderResponse:
     require_sales_write(user)
     svc = SalesService(db)
-    warehouse_id = payload.warehouse_id or svc.resolve_default_warehouse(company_id)
+    warehouse_id = resolve_user_warehouse(db, user, payload.warehouse_id) or svc.resolve_default_warehouse(company_id)
     order = svc.create_order(
         customer_id=payload.customer_id,
         warehouse_id=warehouse_id,
@@ -911,7 +916,9 @@ def replace_order(
     order = svc.update_order(
         order_id,
         customer_id=payload.customer_id,
-        warehouse_id=payload.warehouse_id or existing.warehouse_id,
+        warehouse_id=resolve_user_warehouse(
+            db, user, payload.warehouse_id or existing.warehouse_id, existing.warehouse_id
+        ),
         order_date=payload.order_date,
         expected_date=payload.expected_date,
         sales_rep=payload.sales_rep,

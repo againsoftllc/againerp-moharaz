@@ -655,6 +655,28 @@ def product_report(
     profit = _money(net_revenue - cogs)
     margin = _money(profit / net_revenue * 100) if net_revenue > 0 else None
 
+    # ---- warranty of the serial units sold in the period ----------------------------
+    from app.models.inventory_serial import InventorySerial
+
+    wq = db.query(InventorySerial.warranty_expires_on).filter(
+        InventorySerial.company_id == company_id,
+        InventorySerial.item_id == item_id,
+        InventorySerial.status.in_(["sold", "in_service"]),  # a unit at the repair desk is still the customer's, under warranty
+    )
+    if date_from:
+        wq = wq.filter(func.date(InventorySerial.sold_at) >= date_from)
+    if date_to:
+        wq = wq.filter(func.date(InventorySerial.sold_at) <= date_to)
+    today = date.today()
+    warranty_active = warranty_expired = warranty_unknown = 0
+    for (expires_on,) in wq.all():
+        if expires_on is None:
+            warranty_unknown += 1
+        elif expires_on >= today:
+            warranty_active += 1
+        else:
+            warranty_expired += 1
+
     totals = ProductReportTotals(
         purchased_qty=purchased_qty,
         purchased_value=_money(purchased_value),
@@ -673,6 +695,9 @@ def product_report(
         cogs=cogs,
         profit=profit,
         margin_pct=margin,
+        warranty_active_qty=warranty_active,
+        warranty_expired_qty=warranty_expired,
+        warranty_unknown_qty=warranty_unknown,
     )
     by_type = sorted(buckets.values(), key=lambda b: (-(b.qty_in + b.qty_out), b.movement_label))
     return ProductReportResponse(

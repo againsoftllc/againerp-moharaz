@@ -8,7 +8,8 @@ export type SerialStatus =
   | "replaced"
   | "scrapped"
   | "lost"
-  | "damaged";
+  | "damaged"
+  | "returned";
 
 export const SERIAL_STATUS_LABEL: Record<SerialStatus, string> = {
   in_stock: "In stock",
@@ -19,6 +20,7 @@ export const SERIAL_STATUS_LABEL: Record<SerialStatus, string> = {
   scrapped: "Scrapped",
   lost: "Lost",
   damaged: "Damaged",
+  returned: "Returned to supplier",
 };
 
 export const SERIAL_STATUS_TONE: Record<SerialStatus, string> = {
@@ -30,6 +32,7 @@ export const SERIAL_STATUS_TONE: Record<SerialStatus, string> = {
   scrapped: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
   lost: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
   damaged: "border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400",
+  returned: "border-slate-500/30 bg-slate-500/10 text-slate-500 dark:text-slate-400",
 };
 
 /** Which table `order_id` points at — only "sales" rows can open the sales order drawer. */

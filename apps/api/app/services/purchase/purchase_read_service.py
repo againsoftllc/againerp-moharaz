@@ -351,10 +351,21 @@ def return_to_read(db: Session, ret: PurchaseReturn) -> PurchaseReturnRead:
                 line_total=(l.unit_cost * l.quantity_returned) * (1 + l.tax_rate / 100),
                 reason=l.reason,
                 notes=l.notes,
+                serial_numbers=_json_list(l.serials_json),
             )
             for l in lines
         ],
     )
+
+
+def _json_list(raw: Optional[str]) -> list[str]:
+    try:
+        value = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def returns_to_read(db: Session, rows: Sequence[PurchaseReturn]) -> list[PurchaseReturnRead]:

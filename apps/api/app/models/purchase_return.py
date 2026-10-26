@@ -101,3 +101,6 @@ class PurchaseReturnLine(Base):
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
     reason: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Serial-tracked products: the units going back, as a JSON list. Crediting marks each one `returned`
+    # (it leaves the inventory); a line without serials credits exactly as it always did.
+    serials_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")

@@ -83,6 +83,38 @@ export function PartnerKpiGrid({
   );
 }
 
+/** Odoo smart button in the record header: the figure on top, what it is underneath; click jumps to the related tab. */
+export function PartnerStatButton({
+  value,
+  label,
+  onClick,
+  title,
+  tone = "neutral",
+}: {
+  value: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+  title?: string;
+  tone?: "neutral" | "brand" | "purple";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title ?? label}
+      className={cn(
+        "flex min-w-[5.5rem] flex-col items-start rounded-none border bg-background px-2.5 py-1 text-left transition-colors",
+        tone === "neutral" && "border-border/80 hover:border-[#00a09d]",
+        tone === "brand" && "border-[#00a09d]/30 bg-[#00a09d]/5 hover:border-[#00a09d]",
+        tone === "purple" && "border-[#714B67]/30 bg-[#714B67]/5 hover:border-[#714B67]",
+      )}
+    >
+      <span className="text-[13px] font-semibold leading-tight tabular-nums text-foreground">{value}</span>
+      <span className="text-[11px] leading-tight text-muted-foreground">{label}</span>
+    </button>
+  );
+}
+
 export function PartnerTabEmpty({
   title,
   description,

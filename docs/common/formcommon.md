@@ -5,6 +5,7 @@ How a record form looks inside a drawer: **label on the left, an underline contr
 Reference implementations
 - Edit / add product: `apps/web/src/components/inventory/inventory-product-quick-add.tsx`
 - Sales order → **Payment** (register payment), **Shipping**, **Others** and the **Return details** group of the Returns tab: `apps/web/src/components/sales/sales-order-form-drawer.tsx`. The Order Lines and Return Lines *tables* keep their own cell inputs; only the form groups around them use this standard.
+- Partner (supplier / customer) Profile tab and the Payments tab's receive-payment form: `apps/web/src/components/customers/partner-form-sheet.tsx` (`TextRow`, `AddressFields`), `partner-payments-panel.tsx`
 - Read-only: `apps/web/src/components/products/product-drawer/` (`FactList`), RMA detail (`Fact` / `Section`)
 
 ---

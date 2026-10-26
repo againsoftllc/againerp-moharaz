@@ -81,6 +81,12 @@ Local admin: prefix `http://localhost:3210`.
 | Service jobs | `service-job-grid.tsx` | `/service/jobs` |
 | RMA (one datatable, **Stage** column + filter) | `rma-grid.tsx` | `/inventory/rma` |
 
+### Inventory
+
+| Datatable | Component | Route | Notes |
+| --- | --- | --- | --- |
+| Approve (requests held for an approver, [approval.md](./approval.md)) | `approval-grid.tsx` on `FinanceAgListGrid` | `/inventory/approve` | **Approve / Reject are the first buttons of each row**; a row or its Reference opens the document's ORIGINAL drawer (sales order, receipt, RMA, customer …); counts in the summary bar double as filters |
+
 ### Purchase
 
 | Datatable | Component | Route |

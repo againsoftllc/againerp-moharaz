@@ -32,6 +32,7 @@ def product_sales(
     company_id: str = Depends(get_current_company_id),
     date_from: Optional[date] = Query(default=None),
     date_to: Optional[date] = Query(default=None),
+    customer_id: Optional[str] = Query(default=None, description="Only this customer's sales of the product"),
     page: int = PageParam,
     per_page: int = PerPageParam,
 ) -> ProductSalesResponse:
@@ -40,6 +41,7 @@ def product_sales(
         db,
         company_id=company_id,
         item_id=item_id,
+        customer_id=customer_id,
         date_from=date_from,
         date_to=date_to,
         page=page,

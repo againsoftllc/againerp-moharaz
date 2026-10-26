@@ -359,8 +359,8 @@ export function PartnerLedgerPanel({
       {
         colId: "document",
         headerName: "Type",
-        width: 104,
-        minWidth: 92,
+        width: 132,
+        minWidth: 100,
         cellRenderer: (p: ICellRendererParams<PartnerLedgerLine>) => {
           const doc = p.data?.document;
           if (!doc) return null;
@@ -654,6 +654,9 @@ export function PartnerLedgerPanel({
       >
         <AgainListGrid<PartnerLedgerLine>
           embedded
+          // columns keep their own widths and the table scrolls sideways inside the drawer (docs/common/drawercommon.md),
+          // instead of being squeezed to fit - Reference and Type were cut off at "PR-202…" / "Purcha…"
+          autoFit={false}
           className={fillHeight ? "flex min-h-[220px] flex-1 flex-col" : "h-[360px]"}
           gridClassName="[&_.ag-root-wrapper]:flex [&_.ag-root-wrapper]:flex-col [&_.ag-root-wrapper-body]:min-h-0 [&_.ag-root-wrapper-body]:flex-1 [&_.ag-paging-panel]:shrink-0 [&_.ag-paging-panel]:pl-[220px]"
           rowData={filtered}
