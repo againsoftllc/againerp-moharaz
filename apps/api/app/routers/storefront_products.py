@@ -21,6 +21,7 @@ from app.deps.storefront_customer_auth import (
 from app.models.catalog_attribute import CatalogAttribute
 from app.models.catalog_attribute_group import CatalogAttributeGroup
 from app.models.catalog_product import CatalogProduct
+from app.services.core.module_settings import get_module_setting
 from app.models.catalog_product_attribute_value import CatalogProductAttributeValue
 from app.models.catalog_product_review import CatalogProductReview
 from app.models.catalog_product_qa import CatalogProductQa
@@ -214,14 +215,23 @@ def _load_public_qa(
     *,
     limit: int = 50,
 ) -> list[StorefrontQaRead]:
-    """Public Q&A: answered only (pending wait for admin reply — same as reviews)."""
+    """Public Q&A: answered questions, or pending ones too when Website settings → Q&A visibility says so."""
     if not catalog_product_id:
         return []
+    product = db.get(CatalogProduct, catalog_product_id)
+    company_id = (product.company_id if product else None) or "default"
+    if not get_module_setting(db, company_id, "catalog", "group_qa_enabled"):
+        return []
+    shown = (
+        ("answered", "pending")
+        if get_module_setting(db, company_id, "catalog", "qa_public_visibility") == "all"
+        else ("answered",)
+    )
     rows = (
         db.query(CatalogProductQa)
         .filter(
             CatalogProductQa.product_id == catalog_product_id,
-            CatalogProductQa.status == "answered",
+            CatalogProductQa.status.in_(shown),
         )
         .order_by(CatalogProductQa.created_at.desc())
         .limit(limit)
@@ -1209,6 +1219,8 @@ def create_storefront_product_review(
         name = ctx[2].name or "Customer"
 
     sentiment = "positive" if payload.rating >= 4 else "negative" if payload.rating <= 2 else "neutral"
+    # Website settings → "Auto-approve reviews": shown on the product page straight away.
+    auto_approve = get_module_setting(db, product.company_id or "default", "catalog", "reviews_auto_approve")
     row = CatalogProductReview(
         id=str(uuid.uuid4()),
         review_number=_next_storefront_review_number(db),
@@ -1221,7 +1233,7 @@ def create_storefront_product_review(
         customer_id=customer_id,
         customer_name=name,
         review_type="text",
-        status="pending",
+        status="approved" if auto_approve else "pending",
         rating=payload.rating,
         title=title,
         body=body,
@@ -1264,6 +1276,8 @@ def create_storefront_product_qa(
 ) -> StorefrontQaCreateResponse:
     """Shopper question → catalog_product_qa (pending until answered)."""
     _ec, product = _resolve_catalog_for_slug(db, slug)
+    if not get_module_setting(db, product.company_id or "default", "catalog", "group_qa_enabled"):
+        raise HTTPException(status_code=403, detail="Questions are turned off for this store")
     name = payload.customer_name.strip()
     if ctx and not name:
         name = ctx[2].name or "Customer"

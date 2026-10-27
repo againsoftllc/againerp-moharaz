@@ -1,14 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   CATALOG_SETTINGS_SECTIONS,
   defaultCatalogSettingsValues,
+  mergeCatalogSettings,
   type CatalogSettingField,
   type CatalogSettingsValues,
-} from "@/lib/mock-data/catalog-settings";
+} from "@/lib/catalog/catalog-settings";
+import { fetchModuleSettings, saveModuleSettings } from "@/lib/api/module-settings";
 import { Button } from "@/components/ui/button";
 import { FieldHelpTip } from "@/components/sales/field-help-tip";
 
@@ -74,12 +77,8 @@ function SettingCard({
   const value = values[field.key];
   const inputId = `catalog-setting-${field.key}`;
 
-  const runAction = (label: string, href?: string) => {
-    if (href) {
-      router.push(href);
-      return;
-    }
-    toast.info(`${label} — mock`);
+  const runAction = (_label: string, href?: string) => {
+    if (href) router.push(href);
   };
 
   if (field.type === "inline_number") {
@@ -323,12 +322,34 @@ function SettingCard({
   );
 }
 
-/** Catalog settings form — same layout as sales settings, catalog-focused fields. */
+/** Website → Settings (catalog) — same layout as sales settings. Saved per company on the server. */
 export function CatalogSettingsForm() {
   const [values, setValues] = useState<CatalogSettingsValues>(() =>
     defaultCatalogSettingsValues(),
   );
+  const [saved, setSaved] = useState<CatalogSettingsValues>(() => defaultCatalogSettingsValues());
   const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetchModuleSettings("catalog");
+      const next = mergeCatalogSettings(res.values);
+      setSaved(next);
+      setValues(next);
+      setDirty(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not load website settings");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const sections = useMemo(() => CATALOG_SETTINGS_SECTIONS, []);
 
@@ -337,13 +358,24 @@ export function CatalogSettingsForm() {
     setDirty(true);
   };
 
-  const handleSave = () => {
-    setDirty(false);
-    toast.success("Catalog settings saved (mock)");
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await saveModuleSettings("catalog", values);
+      const next = mergeCatalogSettings(res.values);
+      setSaved(next);
+      setValues(next);
+      setDirty(false);
+      toast.success("Website settings saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save website settings");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDiscard = () => {
-    setValues(defaultCatalogSettingsValues());
+    setValues(saved);
     setDirty(false);
     toast.message("Changes discarded");
   };
@@ -358,6 +390,17 @@ export function CatalogSettingsForm() {
           <p className="mt-0.5 text-[13px]" style={{ color: again.help }}>
             Catalog
           </p>
+          <p className="mt-1 text-[12px]" style={{ color: again.help }}>
+            Reviews on/off and guest reviews:{" "}
+            <Link href="/website/configuration" className="font-medium text-primary hover:underline">
+              Site configuration
+            </Link>
+            . SEO defaults:{" "}
+            <Link href="/seo/config" className="font-medium text-primary hover:underline">
+              SEO
+            </Link>
+            . Products per page, sort and out-of-stock: each category page&apos;s settings.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {dirty ? (
@@ -367,8 +410,8 @@ export function CatalogSettingsForm() {
           ) : null}
           <Button
             size="sm"
-            onClick={handleSave}
-            disabled={!dirty}
+            onClick={() => void handleSave()}
+            disabled={!dirty || saving || loading}
             className="bg-[#714B67] text-white hover:bg-[#5c3d54]"
           >
             Save
@@ -376,7 +419,11 @@ export function CatalogSettingsForm() {
         </div>
       </div>
 
-      <div className="space-y-5" data-key="catalog_management">
+      <div
+        className={loading ? "pointer-events-none space-y-5 opacity-60" : "space-y-5"}
+        data-key="catalog_management"
+        aria-busy={loading}
+      >
         {sections.map((section) => {
           const visibleFields = section.fields.filter(
             (f) => !("visibleWhen" in f && f.visibleWhen) || values[f.visibleWhen!],

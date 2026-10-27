@@ -81,6 +81,7 @@ import { DigitalFilesSection, flushPendingDigitalFiles } from "@/components/prod
 import type { PendingFile } from "@/components/products/digital-files-section";
 import type { DigitalFile, ProductDetail } from "@/lib/api/catalog-products";
 import { fetchDigitalFiles } from "@/lib/api/catalog-products";
+import { useModuleSettings } from "@/lib/workspace/use-module-settings";
 import { ActivityTriggerButton } from "@/components/activity/activity-trigger-button";
 import {
   DROPSHIPPING_MODULE_BASE,
@@ -424,6 +425,8 @@ export function ProductForm({
   const slugManuallyEdited = useRef(!!initialProduct?.slug);
   /** the stock status picked by hand before Manage Stock was switched on (restored when it is switched off) */
   const lastManualStockStatus = useRef<ProductFormValues["stockStatus"]>("");
+  // Website settings → "Default product status" for a new product (arrives after the first render).
+  const { values: catalogSettings, loaded: catalogSettingsLoaded } = useModuleSettings("catalog");
   const [values, setValues] = useState<ProductFormValues>(() => ({
     ...PRODUCT_FORM_DEFAULT_VALUES,
     ...(initialProduct
@@ -457,6 +460,12 @@ export function ProductForm({
       : {}),
     ...(initialValuesOverride ?? {}),
   }));
+
+  useEffect(() => {
+    if (mode !== "create" || !catalogSettingsLoaded || initialProduct?.status || initialValuesOverride?.status) return;
+    const preset: ProductStatus = catalogSettings.default_product_status === "published" ? "published" : "draft";
+    setValues((v) => (v.status === PRODUCT_FORM_DEFAULT_VALUES.status ? { ...v, status: preset } : v));
+  }, [mode, catalogSettingsLoaded, catalogSettings.default_product_status, initialProduct?.status, initialValuesOverride?.status]);
 
   useEffect(() => {
     onValuesChange?.(values);

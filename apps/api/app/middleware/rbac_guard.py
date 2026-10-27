@@ -59,6 +59,7 @@ PATH_MODULES: tuple[tuple[str, str], ...] = (
     ("commerce/inventory", "inventory"),
     ("commerce/suppliers", "purchase"),
     ("commerce/supplier-portal", "purchase"),
+    ("vendors", "purchase"),
     ("supplier-catalog", "purchase"),
     ("purchase-orders", "purchase"),
     ("purchase-receipts", "purchase"),

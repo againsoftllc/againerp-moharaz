@@ -71,6 +71,7 @@ from app.services.collaboration import (
     on_item_updated,
 )
 from app.services.items.item_identity_service import ItemIdentityService
+from app.services.core.module_settings import clean_sku_prefix, enforce_publish_rules, get_module_setting
 
 router = APIRouter(prefix="/products", tags=["catalog-products"])
 
@@ -1071,6 +1072,10 @@ def create_product(
         cat = db.get(CatalogCategory, category_ids[0])
         if cat:
             data["category"] = cat.name
+    if data.get("status") == "published":
+        enforce_publish_rules(
+            db, company_id, brand=data.get("brand"), brand_id=data.get("brand_id"), category_ids=list(category_ids or [])
+        )
     row = CatalogProduct(**data)
     db.add(row)
     db.flush()
@@ -1127,8 +1132,12 @@ def _free_slug(db: Session, wanted: str, company_id: str, *, exclude_product_id:
 
 
 def _generate_sku(db: Session, identity_svc: "ItemIdentityService", company_id: str) -> str:
-    """The next serial SKU (`SKU-000001`, `SKU-000002` ...) - a product saved with no SKU gets one."""
-    return identity_svc.next_serial_sku(company_id)
+    """The next serial SKU (`SKU-000001`, `SKU-000002` ...) - a product saved with no SKU gets one.
+    Website settings can turn this off (the SKU is then required) or change the prefix."""
+    if not get_module_setting(db, company_id, "catalog", "auto_generate_sku"):
+        raise HTTPException(status_code=400, detail="Enter a SKU. Website settings turn off automatic SKUs.")
+    prefix = clean_sku_prefix(get_module_setting(db, company_id, "catalog", "sku_prefix"))
+    return identity_svc.next_serial_sku(company_id, prefix=prefix)
 
 
 def _sku_conflict_detail(db: Session, sku: str, company_id: str) -> str:
@@ -1355,6 +1364,20 @@ def update_product(
     if free != slug:
         slug = free
         changes["slug"] = free
+
+    publishing = changes.get("status", row.status) == "published"
+    if publishing and (
+        {"status", "brand", "brand_id", "category_id"} & changes.keys() or category_ids_payload is not None
+    ):
+        enforce_publish_rules(
+            db,
+            company_id,
+            brand=changes.get("brand", row.brand),
+            brand_id=changes.get("brand_id", row.brand_id),
+            category_ids=list(category_ids_payload)
+            if category_ids_payload is not None
+            else [changes.get("category_id", row.category_id)],
+        )
 
     old_price = str(row.price)
     old_stock = str(row.stock)

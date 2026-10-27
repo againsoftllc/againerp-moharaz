@@ -6,6 +6,7 @@ so a company that never saved the page still gets the documented behaviour.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Optional
 
 from fastapi import HTTPException
@@ -14,13 +15,23 @@ from sqlalchemy.orm import Session
 from app.models.company_module_setting import CompanyModuleSetting
 
 MODULE_IDS: frozenset[str] = frozenset(
-    {"dashboard", "inventory", "rma", "service", "vendors", "finance", "crm", "media"}
+    {"dashboard", "inventory", "rma", "service", "vendors", "finance", "crm", "media", "catalog"}
 )
 
 # Keys read by backend code, with the value used until the company saves the page.
 BACKEND_DEFAULTS: dict[str, dict[str, Any]] = {
     "finance": {"requirePaymentAccount": False},
     "media": {"maxUploadMb": 25},
+    # Website → Settings (catalog). Defaults keep the behaviour from before the page saved anything.
+    "catalog": {
+        "auto_generate_sku": True,
+        "sku_prefix": "SKU-",
+        "require_brand": False,
+        "require_category": False,
+        "reviews_auto_approve": False,
+        "group_qa_enabled": True,
+        "qa_public_visibility": "answered_only",
+    },
 }
 
 MAX_VALUES_BYTES = 16_000
@@ -78,4 +89,31 @@ def require_payment_account_if_set(db: Session, company_id: str, payment_account
         raise HTTPException(
             status_code=400,
             detail="Choose a payment account. Finance settings require one on every manual payment.",
+        )
+
+
+def clean_sku_prefix(raw: Any) -> str:
+    """Catalog settings → SKU prefix, limited to characters that are safe in a SKU and in the serial lookup."""
+    prefix = re.sub(r"[^A-Za-z0-9_./-]", "", str(raw or ""))[:20]
+    return prefix or "SKU-"
+
+
+def enforce_publish_rules(
+    db: Session,
+    company_id: str,
+    *,
+    brand: Optional[str],
+    brand_id: Optional[str],
+    category_ids: list[Optional[str]],
+) -> None:
+    """Catalog settings → "Require brand" / "Require category": a product can't be published without them."""
+    missing = []
+    if get_module_setting(db, company_id, "catalog", "require_brand") and not ((brand or "").strip() or brand_id):
+        missing.append("a brand")
+    if get_module_setting(db, company_id, "catalog", "require_category") and not any(category_ids):
+        missing.append("a category")
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Set {' and '.join(missing)} before publishing. Website settings require it.",
         )

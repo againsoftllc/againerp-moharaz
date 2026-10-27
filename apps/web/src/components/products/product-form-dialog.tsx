@@ -72,7 +72,8 @@ export function ProductFormDialog({
     if (mode !== "create") return;
     const v = latestValuesRef.current;
     if (!v) return;
-    if (JSON.stringify(v) === JSON.stringify(PRODUCT_FORM_DEFAULT_VALUES)) return;
+    // the status can be preset from Website settings — that alone isn't an edit worth a draft
+    if (JSON.stringify({ ...v, status: PRODUCT_FORM_DEFAULT_VALUES.status }) === JSON.stringify(PRODUCT_FORM_DEFAULT_VALUES)) return;
     writeDraft<ProductFormValues>(DRAFT_KEY, v);
   };
 

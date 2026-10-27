@@ -50,6 +50,7 @@ from app.services.collaboration import on_item_created, on_item_published
 from app.services.ecommerce.ecommerce_item_service import EcommerceItemService
 from app.services.items.item_identity_service import ItemIdentityService
 from app.services.provider_mapping_service import slugify
+from app.services.core.module_settings import clean_sku_prefix, get_module_setting
 
 
 # Brands/categories are split per channel (admin "catalog" vs "dropshipping" frontstore) and
@@ -797,7 +798,9 @@ def create_product_from_draft(
     elif draft.sku:
         sku = _unique_sku(db, re.sub(r"\s+", "-", draft.sku.strip()).upper()[:40], identity_svc)
     else:
-        sku = identity_svc.next_serial_sku(getattr(user, "company_id", None) or "default")
+        company = getattr(user, "company_id", None) or "default"
+        prefix = clean_sku_prefix(get_module_setting(db, company, "catalog", "sku_prefix"))
+        sku = identity_svc.next_serial_sku(company, prefix=prefix)
 
     company_id = getattr(user, "company_id", None) or "default"
 
