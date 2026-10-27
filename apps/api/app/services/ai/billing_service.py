@@ -223,10 +223,29 @@ def set_on_demand(db: Session, company_id: str, enabled: bool) -> AiSubscription
     return sub
 
 
-def pay_invoice(db: Session, company_id: str, invoice_id: str) -> AiOverageInvoice:
-    """No real payment gateway is wired up yet — this just marks the invoice
-    settled, matching a manual/offline payment being recorded. Wire a real
-    processor here before relying on this for actual money collection."""
+def assert_self_service_package_change(db: Session, company_id: str, package_id: str) -> None:
+    """A company may move to a plan that costs the same or less on its own. A pricier plan is charged
+    for, and no online payment is wired for AI plans, so AgainERP staff switch it once paid
+    (super admin → company → AI billing)."""
+    package = db.get(AiPackage, package_id)
+    if not package or not package.is_active:
+        raise HTTPException(status_code=404, detail="Package not found")
+    sub = get_or_create_subscription(db, company_id)
+    current = db.get(AiPackage, sub.package_id)
+    if current and package.price_bdt > current.price_bdt:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"Upgrading to {package.name} costs ৳{package.price_bdt:,.0f} a month. "
+                "Contact AgainERP to pay for the upgrade; the plan is switched once the payment is received."
+            ),
+        )
+
+
+def record_invoice_payment(db: Session, company_id: str, invoice_id: str) -> AiOverageInvoice:
+    """AgainERP staff record a payment received outside the app (bank, bKash…) for an overage
+    invoice. Super-admin only: there is no online payment for AI invoices, so a company can
+    never settle its own invoice."""
     invoice = db.get(AiOverageInvoice, invoice_id)
     if not invoice or invoice.company_id != company_id:
         raise HTTPException(status_code=404, detail="Invoice not found")

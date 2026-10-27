@@ -222,7 +222,7 @@ function slugFromUrl(url: string) {
   }
 }
 
-function isHttpUrl(value: string) {
+export function isHttpUrl(value: string) {
   try {
     const parsed = new URL(value);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
@@ -231,7 +231,7 @@ function isHttpUrl(value: string) {
   }
 }
 
-function extractYouTubeId(url: string) {
+export function extractYouTubeId(url: string) {
   try {
     const parsed = new URL(url);
     if (parsed.hostname.includes("youtu.be")) {
@@ -250,7 +250,7 @@ function extractYouTubeId(url: string) {
   return null;
 }
 
-function extractVimeoId(url: string) {
+export function extractVimeoId(url: string) {
   try {
     const parsed = new URL(url);
     if (!parsed.hostname.includes("vimeo.com")) return null;
@@ -261,15 +261,15 @@ function extractVimeoId(url: string) {
   }
 }
 
-function isDirectImageUrl(url: string) {
+export function isDirectImageUrl(url: string) {
   return /\.(png|jpe?g|gif|webp|svg|avif|bmp)(\?.*)?$/i.test(url);
 }
 
-function isDirectVideoUrl(url: string) {
+export function isDirectVideoUrl(url: string) {
   return /\.(mp4|webm|mov|m4v|ogv)(\?.*)?$/i.test(url);
 }
 
-function isDocumentUrl(url: string) {
+export function isDocumentUrl(url: string) {
   return /\.(pdf|docx?|xlsx?|pptx?|txt|csv|rtf|odt|ods)(\?.*)?$/i.test(url);
 }
 
@@ -424,7 +424,7 @@ export function createImportedMediaItem({
   } satisfies MediaLibraryItem;
 }
 
-function importSingleExternalUrl(sourceUrl: string, importedBy: "url" | "ai", index = 0) {
+export function importSingleExternalUrl(sourceUrl: string, importedBy: "url" | "ai", index = 0) {
   const meta = classifyExternalUrl(sourceUrl);
   if (!meta) return null;
 
@@ -446,45 +446,6 @@ export function parseMediaInputLines(raw: string) {
     .split(/\n|,/)
     .map((line) => line.trim())
     .filter(Boolean);
-}
-
-export async function mockImportMediaFromInput(
-  raw: string,
-  mode: "ai" | "url",
-): Promise<MediaLibraryItem[]> {
-  const lines = parseMediaInputLines(raw);
-  if (!lines.length) return [];
-
-  await new Promise((resolve) => setTimeout(resolve, mode === "ai" ? 1200 : 500));
-
-  const items: MediaLibraryItem[] = [];
-
-  for (const line of lines) {
-    if (!isHttpUrl(line)) continue;
-
-    if (mode === "ai" && !isDirectImageUrl(line) && !isDirectVideoUrl(line) && !isDocumentUrl(line) && !extractYouTubeId(line) && !extractVimeoId(line)) {
-      const host = slugFromUrl(line) || "website";
-      const scrapeCount = 3 + (line.length % 3);
-      for (let i = 0; i < scrapeCount; i++) {
-        items.push(
-          createImportedMediaItem({
-            sourceUrl: line,
-            previewUrl: `https://picsum.photos/seed/ai${host}${i}/900/900`,
-            importedBy: "ai",
-            index: i,
-            type: "image",
-            provider: "external",
-          }),
-        );
-      }
-      continue;
-    }
-
-    const imported = importSingleExternalUrl(line, mode);
-    if (imported) items.push(imported);
-  }
-
-  return items;
 }
 
 export function updateMediaLibraryItem(

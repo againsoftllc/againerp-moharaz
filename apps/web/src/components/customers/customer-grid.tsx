@@ -7,12 +7,15 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
   type SyntheticEvent,
 } from "react";
 import { useRouter } from "next/navigation";
-import type { ColDef, ICellRendererParams, SortChangedEvent } from "ag-grid-community";
+import type { ColDef, GridApi, ICellRendererParams, SortChangedEvent } from "ag-grid-community";
+import { gridToTable } from "@/lib/list-io/grid-table";
+import type { TableData } from "@/lib/list-io/spreadsheet";
 import {
   ClipboardList,
   Crown,
@@ -271,6 +274,8 @@ export type CustomerGridHandle = {
   openFilters: () => void;
   openColumns: () => void;
   openCreate: () => void;
+  /** The visible columns of the rows loaded in the grid (the current page). */
+  getExportTable: (opts?: { numbersAsText?: boolean }) => TableData;
 };
 
 export const CustomerGrid = forwardRef<CustomerGridHandle, Props>(function CustomerGrid(
@@ -385,10 +390,12 @@ export const CustomerGrid = forwardRef<CustomerGridHandle, Props>(function Custo
     [onOpenCustomer, router],
   );
 
+  const gridApiRef = useRef<GridApi<Customer> | null>(null);
   useImperativeHandle(ref, () => ({
     openFilters: () => setFilterSheetOpen(true),
     openColumns: () => setColumnSheetOpen(true),
     openCreate: () => {},
+    getExportTable: (opts) => (gridApiRef.current ? gridToTable<Customer>(gridApiRef.current, opts) : { headers: [], rows: [] }),
   }));
 
   useEffect(() => {
@@ -867,6 +874,7 @@ export const CustomerGrid = forwardRef<CustomerGridHandle, Props>(function Custo
 
   return (
       <AgainListGrid<Customer>
+        apiRef={gridApiRef}
         className={className}
         rowData={rows}
         columnDefs={columnDefs}

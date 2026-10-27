@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { fetchModuleSettings, saveModuleSettings } from "@/lib/api/module-settings";
 import {
   SIMPLE_MODULE_SETTINGS,
+  clearLegacyModuleSettings,
   defaultSimpleModuleValues,
-  readSimpleModuleSettings,
-  writeSimpleModuleSettings,
+  mergeModuleSettings,
+  readLegacyModuleSettings,
   type SimpleSettingField,
   type SimpleSettingsValues,
 } from "@/lib/workspace/simple-module-settings";
@@ -131,12 +134,33 @@ function SettingField({
 export function SimpleModuleSettingsForm({ moduleId }: { moduleId: string }) {
   const def = SIMPLE_MODULE_SETTINGS[moduleId];
   const [draft, setDraft] = useState<SimpleSettingsValues>(() => defaultSimpleModuleValues(moduleId));
+  const [saved, setSaved] = useState<SimpleSettingsValues>(() => defaultSimpleModuleValues(moduleId));
   const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetchModuleSettings(moduleId);
+      const values = mergeModuleSettings(moduleId, res.values);
+      setSaved(values);
+      // Never saved for this company: start from what this browser kept before settings moved to the server.
+      const legacy = res.saved ? null : readLegacyModuleSettings(moduleId);
+      setDraft(legacy ? mergeModuleSettings(moduleId, legacy) : values);
+      setDirty(Boolean(legacy));
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not load settings");
+    } finally {
+      setLoading(false);
+    }
+  }, [moduleId]);
 
   useEffect(() => {
-    setDraft(readSimpleModuleSettings(moduleId));
-    setDirty(false);
-  }, [moduleId]);
+    void load();
+  }, [load]);
 
   const sections = useMemo(() => def?.sections ?? [], [def]);
 
@@ -149,14 +173,25 @@ export function SimpleModuleSettingsForm({ moduleId }: { moduleId: string }) {
     setDirty(true);
   };
 
-  const handleSave = () => {
-    writeSimpleModuleSettings(moduleId, draft);
-    setDirty(false);
-    toast.success(`${def.title} saved`);
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await saveModuleSettings(moduleId, draft);
+      const values = mergeModuleSettings(moduleId, res.values);
+      setSaved(values);
+      setDraft(values);
+      setDirty(false);
+      clearLegacyModuleSettings(moduleId);
+      toast.success(`${def.title} saved`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save settings");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDiscard = () => {
-    setDraft(readSimpleModuleSettings(moduleId));
+    setDraft(saved);
     setDirty(false);
   };
 
@@ -166,6 +201,14 @@ export function SimpleModuleSettingsForm({ moduleId }: { moduleId: string }) {
         <div>
           <h1 className="text-[18px] font-semibold text-foreground">{def.title}</h1>
           <p className="mt-0.5 text-[13px] text-muted-foreground">{def.subtitle}</p>
+          {def.note ? (
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              {def.note.text}{" "}
+              <Link href={def.note.href} className="font-medium text-primary hover:underline">
+                {def.note.linkLabel}
+              </Link>
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {dirty ? (
@@ -173,13 +216,28 @@ export function SimpleModuleSettingsForm({ moduleId }: { moduleId: string }) {
               Discard
             </Button>
           ) : null}
-          <Button type="button" size="sm" className="rounded-none" disabled={!dirty} onClick={handleSave}>
-            Save
+          <Button
+            type="button"
+            size="sm"
+            className="rounded-none"
+            disabled={!dirty || saving || loading}
+            onClick={() => void handleSave()}
+          >
+            {saving ? "Saving…" : "Save"}
           </Button>
         </div>
       </div>
 
-      <div className="space-y-4">
+      {loadError ? (
+        <div className="mb-4 flex flex-wrap items-center gap-3 border border-destructive/40 bg-destructive/5 px-4 py-3 text-[13px] text-destructive">
+          <span>{loadError}</span>
+          <Button type="button" variant="outline" size="sm" className="rounded-none" onClick={() => void load()}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
+      <div className={loading ? "pointer-events-none space-y-4 opacity-60" : "space-y-4"} aria-busy={loading}>
         {sections.map((section) => (
           <section key={section.id} className="overflow-hidden rounded-none border border-border bg-card">
             <div className="border-b border-border bg-muted px-4 py-2">

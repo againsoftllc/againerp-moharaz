@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { CompanyAiBillingSection } from "@/components/super-admin/company-ai-billing-section";
 
 const STATUS_VARIANT: Record<Company["status"], "success" | "warning" | "outline" | "muted"> = {
   active: "success",
@@ -326,6 +327,8 @@ export function CompanyDetailPanel({
                 </Button>
               </div>
             </div>
+
+            <CompanyAiBillingSection companyId={company.id} />
 
             <div className="space-y-3 border p-4">
               <h3 className="text-sm font-semibold">Subscription status</h3>

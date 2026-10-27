@@ -372,10 +372,16 @@ class StorefrontPaymentOptionRead(BaseModel):
     plugin_id: str = "builtin"
 
 
+class StorefrontEmiPlanRead(BaseModel):
+    months: int
+    charge_percent: float = 0
+
+
 class StorefrontEmiBankRead(BaseModel):
     id: str
     name: str
     months: List[int] = []
+    plans: List[StorefrontEmiPlanRead] = []
 
 
 class StorefrontCheckoutOptionsRead(BaseModel):

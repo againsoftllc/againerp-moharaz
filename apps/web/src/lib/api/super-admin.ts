@@ -193,3 +193,51 @@ export async function updatePlan(id: string, payload: Partial<SubscriptionPlan>)
   });
   return res.data;
 }
+
+export type CompanyAiPackage = {
+  id: string;
+  slug: string;
+  name: string;
+  price_bdt: string;
+  included_tokens: number;
+  description: string;
+};
+
+export type CompanyAiInvoice = {
+  id: string;
+  period_start: string;
+  period_end: string;
+  overage_tokens: number;
+  amount_bdt: string;
+  status: string;
+  paid_at: string | null;
+  created_at: string;
+};
+
+export type CompanyAiBilling = {
+  package: CompanyAiPackage | null;
+  packages: CompanyAiPackage[];
+  invoices: CompanyAiInvoice[];
+};
+
+export async function getCompanyAiBilling(companyId: string) {
+  const res = await saFetch<{ data: CompanyAiBilling }>(`/api/v1/super-admin/companies/${companyId}/ai-billing`);
+  return res.data;
+}
+
+/** Record a payment AgainERP received outside the app for an AI overage invoice. */
+export async function recordCompanyAiInvoicePayment(companyId: string, invoiceId: string) {
+  const res = await saFetch<{ data: CompanyAiBilling }>(
+    `/api/v1/super-admin/companies/${companyId}/ai-billing/invoices/${invoiceId}/record-payment`,
+    { method: "POST" },
+  );
+  return res.data;
+}
+
+export async function setCompanyAiPackage(companyId: string, packageId: string) {
+  const res = await saFetch<{ data: CompanyAiBilling }>(`/api/v1/super-admin/companies/${companyId}/ai-billing/package`, {
+    method: "POST",
+    body: JSON.stringify({ package_id: packageId }),
+  });
+  return res.data;
+}

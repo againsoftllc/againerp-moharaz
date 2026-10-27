@@ -20,14 +20,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { installBkashPlugin } from "@/lib/api/bkash-plugin";
-import { installSslcommerzPlugin } from "@/lib/api/sslcommerz-plugin";
-import { installPaypalPlugin } from "@/lib/api/paypal-plugin";
-import { installStripePlugin } from "@/lib/api/stripe-plugin";
-import { upsertPlatformSetting } from "@/lib/api/platform-settings";
-import { installSmartPcBuilderPlugin } from "@/lib/api/smart-pc-builder-plugin";
-import { installMarketingTrackingPlugin } from "@/lib/api/marketing-tracking-plugin";
 import { fetchServerPluginStates } from "@/lib/api/plugin-install-state";
+import { registerPluginInstall } from "@/lib/plugins/plugin-install";
 
 type StatusFilter = "all" | "installed" | "available";
 
@@ -37,22 +31,7 @@ const STATUS_TABS: { id: StatusFilter; label: string }[] = [
   { id: "available", label: "Available" },
 ];
 
-/** Install a plugin: the browser state, then the API registration the storefront checkout reads. Throws when the API refuses. */
-export async function registerPluginInstall(pluginId: string): Promise<void> {
-  usePluginsStore.getState().installPlugin(pluginId);
-  if (pluginId === "bkash") await installBkashPlugin();
-  else if (pluginId === "sslcommerz") await installSslcommerzPlugin();
-  else if (pluginId === "paypal") await installPaypalPlugin();
-  else if (pluginId === "stripe") await installStripePlugin();
-  else if (pluginId === "smart-pc-builder") await installSmartPcBuilderPlugin();
-  else if (pluginId === "marketing-tracking") await installMarketingTrackingPlugin();
-  else if (pluginId === "ai-search") {
-    await upsertPlatformSetting("plugin.ai_search.installed", "true");
-    await upsertPlatformSetting("plugin.ai_search.enabled", "true");
-  } else if (pluginId === "bank-emi") {
-    await upsertPlatformSetting("plugin.bank_emi.installed", "true");
-  }
-}
+export { registerPluginInstall };
 
 export function PluginsHome({ embedded = false }: { embedded?: boolean }) {
   const [query, setQuery] = useState("");

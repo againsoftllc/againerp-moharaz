@@ -1,4 +1,5 @@
-import { readInventorySettings } from "@/lib/mock-data/inventory-settings";
+import { fetchModuleSettings } from "@/lib/api/module-settings";
+import { mergeInventorySettings, type InventorySettingsValues } from "@/lib/inventory/inventory-settings";
 
 export type ProductFieldVisibility = {
   barcodeType: boolean;
@@ -25,12 +26,21 @@ export type ProductFieldVisibility = {
   openingStock: boolean;
 };
 
-/** Which Add Product fields the admin has left visible, per /inventory/settings
- * → Product Settings. Any key missing from a pre-existing localStorage blob
- * (saved before this setting existed) defaults to visible, matching each
- * setting's own `defaultValue: true`. */
-export function readProductFieldVisibility(): ProductFieldVisibility {
-  const v = readInventorySettings();
+/** Every field visible: used until the company's choice has loaded. */
+export const ALL_PRODUCT_FIELDS_VISIBLE: ProductFieldVisibility = toVisibility(mergeInventorySettings(null));
+
+/** Which Add Product fields the company has left visible, per /inventory/settings → Product Settings.
+ * Falls back to everything visible when the settings can't be read. */
+export async function fetchProductFieldVisibility(): Promise<ProductFieldVisibility> {
+  try {
+    const res = await fetchModuleSettings("inventory");
+    return toVisibility(mergeInventorySettings(res.values));
+  } catch {
+    return ALL_PRODUCT_FIELDS_VISIBLE;
+  }
+}
+
+function toVisibility(v: InventorySettingsValues): ProductFieldVisibility {
   return {
     barcodeType: v.product_field_barcode_type !== false,
     businessLocations: v.product_field_business_locations !== false,

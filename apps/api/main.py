@@ -20,6 +20,7 @@ from app.routers import (
     company_registration,
     super_admin_auth,
     super_admin_companies,
+    super_admin_ai_billing,
     super_admin_plans,
     catalog_ai,
     ephemeral_store,
@@ -183,6 +184,7 @@ from app.routers import (
     plugins_sms_gateway,
     plugins_price_update,
     ui_preferences,
+    module_settings,
     zkteco_iclock,
     provider_import_staging,
     provider_mapping,
@@ -778,6 +780,7 @@ app.include_router(company_registration.router, prefix="/api/v1")
 app.include_router(workspace_company.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(super_admin_auth.router, prefix="/api/v1")
 app.include_router(super_admin_companies.router, prefix="/api/v1")
+app.include_router(super_admin_ai_billing.router, prefix="/api/v1")
 app.include_router(super_admin_plans.router, prefix="/api/v1")
 app.include_router(
     auth_roles.router,
@@ -977,6 +980,7 @@ app.include_router(plugins_cloudflare.router, prefix="/api/v1")
 app.include_router(plugins_sms_gateway.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(plugins_price_update.router, prefix="/api/v1")
 app.include_router(ui_preferences.router, prefix="/api/v1")
+app.include_router(module_settings.router, prefix="/api/v1")
 app.include_router(zkteco_iclock.router)
 app.include_router(
     provider_import_staging.router,

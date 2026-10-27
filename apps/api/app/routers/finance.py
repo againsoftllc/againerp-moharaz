@@ -55,6 +55,7 @@ from app.schemas.finance import (
     FinanceTaxSummaryRead,
     FinanceTaxSummaryResponse,
 )
+from app.services.core.module_settings import require_payment_account_if_set
 from app.services.finance import dashboard_period_service
 from app.services.finance.constants import account_normal_balance
 from app.services.finance.partner_trading_service import partner_trading
@@ -469,6 +470,7 @@ def settle_receivable(
     _: AuthUser = Depends(require_permission("finance", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> FinanceReceivableListResponse:
+    require_payment_account_if_set(db, company_id, payload.payment_account_id)
     service = FinanceService(db)
     receivable = service.get_receivable(receivable_id, company_id=company_id)
     receivable, _payment = service.settle_receivable(
@@ -574,6 +576,7 @@ def settle_payable(
     _: AuthUser = Depends(require_permission("finance", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> FinancePayableListResponse:
+    require_payment_account_if_set(db, company_id, payload.payment_account_id)
     service = FinanceService(db)
     payable = service.get_payable(payable_id, company_id=company_id)
     payable, _payment = service.settle_payable(

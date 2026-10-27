@@ -11,8 +11,13 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ProductImportDialog } from "@/components/products/product-import-dialog";
+import { downloadPdf, downloadXlsx, fileStamp } from "@/lib/list-io/spreadsheet";
 import type { Product } from "@/lib/mock-data/products";
 import type { ProductGridHandle } from "@/components/products/product-grid";
 import { ListGridHeaderStart } from "@/components/shared/list-grid-header-start";
@@ -59,6 +64,24 @@ function InventoryCatalogContent() {
   const { products, loading, error, refetch } = useCatalogProducts({ channel: "catalog", scope: "inventory", status: "!unlisted" });
   const { categories } = useCatalogCategories({ channel: "catalog" });
   const canWrite = useAdminCanWrite();
+  const [importOpen, setImportOpen] = useState(false);
+
+  // Export: the columns visible in the table, for every row the search / filters leave - as Excel or PDF
+  const exportList = async (format: "xlsx" | "pdf") => {
+    const table = productGridRef.current?.getExportTable({ numbersAsText: format === "pdf" });
+    if (!table || table.rows.length === 0) {
+      toast.error("Nothing to export");
+      return;
+    }
+    try {
+      const name = `inventory-catalog-${fileStamp()}`;
+      if (format === "xlsx") await downloadXlsx(table, name, "Catalog");
+      else await downloadPdf(table, name, "Inventory catalog");
+      toast.success(`Exported ${table.rows.length} products, ${table.headers.length} columns`);
+    } catch (err) {
+      toast.error(err instanceof Error ? `Export failed: ${err.message}` : "Export failed");
+    }
+  };
   const apiHealth = useApiHealth();
   const productGridRef = useRef<ProductGridHandle>(null);
   const [advancedFilterCount, setAdvancedFilterCount] = useState(0);
@@ -239,14 +262,22 @@ function InventoryCatalogContent() {
             </DropdownMenuItem>
           ) : null}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => toast.info("Import — prototype")}>
-            <Upload className="mr-1.5 h-3 w-3" />
-            Import
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => toast.success("Export started (mock CSV)")}>
-            <Download className="mr-1.5 h-3 w-3" />
-            Export
-          </DropdownMenuItem>
+          {canWrite ? (
+            <DropdownMenuItem onClick={() => setImportOpen(true)}>
+              <Upload className="mr-1.5 h-3 w-3" />
+              Import
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Download className="mr-1.5 h-3 w-3" />
+              Export
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem onClick={() => void exportList("xlsx")}>Excel (.xlsx)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void exportList("pdf")}>PDF</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         </DropdownMenuContent>
       </DropdownMenu>
     </ListGridHeaderStart>
@@ -300,6 +331,16 @@ function InventoryCatalogContent() {
           onEdit={canWrite ? handleEditFromView : undefined}
         />
       )}
+
+      {canWrite ? (
+        <ProductImportDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          products={products}
+          categories={categories}
+          onDone={() => void refetch()}
+        />
+      ) : null}
 
       {canWrite && (
         <InventoryProductQuickAdd

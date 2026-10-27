@@ -21,6 +21,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Customer, CustomerStatus } from "@/lib/mock-data/customers";
@@ -34,6 +37,8 @@ import { useCustomerStore } from "@/lib/store/customer-store";
 import { useApiHealth } from "@/lib/api/use-api-health";
 import { cn } from "@/lib/utils";
 import { ListGridHeaderStart } from "@/components/shared/list-grid-header-start";
+import { exportListTable } from "@/lib/list-io/export-list";
+import { CustomerImportDialog } from "@/components/customers/customer-import-dialog";
 
 function readFilterFromUrl(): CustomerListFilter {
   if (typeof window === "undefined") return "all";
@@ -57,6 +62,14 @@ export function CustomersListScreen({
   const canWrite = useAdminCanWrite();
   const apiHealth = useApiHealth();
   const gridRef = useRef<CustomerGridHandle>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const exportCustomers = (format: "xlsx" | "pdf") =>
+    exportListTable(gridRef.current?.getExportTable({ numbersAsText: format === "pdf" }), format, {
+      fileName: "customers",
+      title: "Customers",
+      noun: "customers",
+      pageOnly: true,
+    });
   const [listFilter, setListFilter] = useState<CustomerListFilter>(readFilterFromUrl);
   const [activeNav, setActiveNav] = useState("contacts");
   const [activeSub, setActiveSub] = useState("customers");
@@ -311,14 +324,22 @@ export function CustomersListScreen({
             ) : null}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => toast.info("Import — prototype")}>
-            <Upload className="mr-1.5 h-3 w-3" />
-            Import
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => toast.success("Export started (mock CSV)")}>
-            <Download className="mr-1.5 h-3 w-3" />
-            Export
-          </DropdownMenuItem>
+          {canWrite ? (
+            <DropdownMenuItem onClick={() => setImportOpen(true)}>
+              <Upload className="mr-1.5 h-3 w-3" />
+              Import
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Download className="mr-1.5 h-3 w-3" />
+              Export
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem onClick={() => void exportCustomers("xlsx")}>Excel (.xlsx)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void exportCustomers("pdf")}>PDF</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         </DropdownMenuContent>
       </DropdownMenu>
     </ListGridHeaderStart>
@@ -369,6 +390,15 @@ export function CustomersListScreen({
           <Plus className="h-5 w-5" />
         </Button>
       )}
+
+      {canWrite ? (
+        <CustomerImportDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          customers={customers}
+          onDone={() => void refetch(listParams, { fresh: true })}
+        />
+      ) : null}
 
       <AgainPartnerDrawer
         open={drawerOpen}

@@ -1,4 +1,5 @@
-/** Local module configuration — used by modules that do not yet have a dedicated settings store. */
+/** Field lists of the simple module settings pages. Values are saved per company through
+ * `/api/v1/module-settings/{module}`; every field listed here is read by the module it configures. */
 
 export type SimpleSettingValue = boolean | string | number;
 
@@ -45,6 +46,8 @@ export type SimpleSettingsSection = {
 export type SimpleModuleSettingsDef = {
   title: string;
   subtitle: string;
+  /** Shown under the subtitle: where related settings live. */
+  note?: { text: string; href: string; linkLabel: string };
   sections: SimpleSettingsSection[];
 };
 
@@ -109,46 +112,25 @@ export const SIMPLE_MODULE_SETTINGS: Record<string, SimpleModuleSettingsDef> = {
   },
   rma: {
     title: "RMA Settings",
-    subtitle: "Return claims, restock, and replacement rules.",
+    subtitle: "Defaults used when agents work on return claims.",
     sections: [
       {
         id: "claims",
         title: "Claims",
         fields: [
           {
-            key: "requirePhotos",
-            type: "boolean",
-            label: "Require photos",
-            help: "Ask for product photos before a claim can be submitted.",
-            defaultValue: true,
-          },
-          {
-            key: "autoApproveUnder",
-            type: "number",
-            label: "Auto-approve under",
-            help: "Automatically approve claims at or below this amount. 0 disables auto-approve.",
-            defaultValue: 0,
-            min: 0,
-            suffix: "amount",
-          },
-          {
-            key: "restockOnReceive",
-            type: "boolean",
-            label: "Restock on receive",
-            help: "Put received units back into sellable stock after QC pass.",
-            defaultValue: false,
-          },
-          {
             key: "defaultResolution",
             type: "select",
             label: "Default resolution",
-            help: "Pre-filled when an agent opens a new claim.",
-            defaultValue: "replace",
+            help: "Pre-selected in Set resolution when a claim has no resolution yet.",
+            defaultValue: "paid_repair",
             options: [
+              { value: "paid_repair", label: "Paid repair" },
+              { value: "warranty_repair", label: "Warranty repair" },
               { value: "replace", label: "Replacement" },
               { value: "refund", label: "Refund" },
-              { value: "repair", label: "Repair" },
-              { value: "credit", label: "Store credit" },
+              { value: "store_credit", label: "Store credit" },
+              { value: "supplier_return", label: "Return to supplier" },
             ],
           },
         ],
@@ -240,33 +222,23 @@ export const SIMPLE_MODULE_SETTINGS: Record<string, SimpleModuleSettingsDef> = {
   },
   finance: {
     title: "Finance Settings",
-    subtitle: "Journals, payments, and posting controls.",
+    subtitle: "Payment controls. Posted journals can never be edited; reverse them instead.",
+    note: {
+      text: "The fiscal year and accounting periods are set in Company setup.",
+      href: "/workspace/setup?tab=periods",
+      linkLabel: "Open periods",
+    },
     sections: [
       {
-        id: "posting",
-        title: "Posting",
+        id: "payments",
+        title: "Payments",
         fields: [
-          {
-            key: "lockPostedJournal",
-            type: "boolean",
-            label: "Lock posted journals",
-            help: "Posted entries cannot be edited — reverse them instead.",
-            defaultValue: true,
-          },
           {
             key: "requirePaymentAccount",
             type: "boolean",
             label: "Require payment account",
-            help: "Every payment must pick a cash or bank account.",
-            defaultValue: true,
-          },
-          {
-            key: "fiscalYearStartMonth",
-            type: "select",
-            label: "Fiscal year starts",
-            help: "Used on P&L and other period reports.",
-            defaultValue: "1",
-            options: MONTH_OPTIONS,
+            help: "Settling a receivable or payable, or paying an expense, must name the cash or bank account. Off: the default account for the payment method is used.",
+            defaultValue: false,
           },
         ],
       },
@@ -400,9 +372,10 @@ export const SIMPLE_MODULE_SETTINGS: Record<string, SimpleModuleSettingsDef> = {
             key: "defaultType",
             type: "select",
             label: "Default library tab",
-            help: "Opened first when you enter Media.",
-            defaultValue: "image",
+            help: "The type filter the media library opens with.",
+            defaultValue: "all",
             options: [
+              { value: "all", label: "All types" },
               { value: "image", label: "Images" },
               { value: "video", label: "Videos" },
               { value: "document", label: "Documents" },
@@ -412,7 +385,7 @@ export const SIMPLE_MODULE_SETTINGS: Record<string, SimpleModuleSettingsDef> = {
             key: "maxUploadMb",
             type: "number",
             label: "Max upload size",
-            help: "Largest file accepted in the media library.",
+            help: "Largest single file accepted by Upload in the media library.",
             defaultValue: 25,
             min: 1,
             max: 500,
@@ -422,7 +395,7 @@ export const SIMPLE_MODULE_SETTINGS: Record<string, SimpleModuleSettingsDef> = {
             key: "showUsedIn",
             type: "boolean",
             label: "Show used-in",
-            help: "List products and pages that reference each file.",
+            help: "List the products and pages that reference a file in its details panel.",
             defaultValue: true,
           },
         ],
@@ -445,26 +418,44 @@ export function defaultSimpleModuleValues(moduleId: string): SimpleSettingsValue
   return values;
 }
 
-const STORAGE_KEY = "againerp.module.config";
+const LEGACY_STORAGE_KEY = "againerp.module.config";
 
-function readAll(): Record<string, SimpleSettingsValues> {
-  if (typeof window === "undefined") return {};
+/** Values an earlier version kept in this browser, offered once so nothing is lost on the move to the server. */
+export function readLegacyModuleSettings(moduleId: string): SimpleSettingsValues | null {
+  if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Record<string, SimpleSettingsValues>;
+    const raw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!raw) return null;
+    const stored = (JSON.parse(raw) as Record<string, SimpleSettingsValues>)[moduleId];
+    return stored ? pickKnownValues(moduleId, stored) : null;
   } catch {
-    return {};
+    return null;
   }
 }
 
-export function readSimpleModuleSettings(moduleId: string): SimpleSettingsValues {
-  const stored = readAll()[moduleId];
-  return { ...defaultSimpleModuleValues(moduleId), ...(stored ?? {}) };
+export function clearLegacyModuleSettings(moduleId: string) {
+  try {
+    const raw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!raw) return;
+    const all = JSON.parse(raw) as Record<string, SimpleSettingsValues>;
+    delete all[moduleId];
+    if (Object.keys(all).length) window.localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(all));
+    else window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    /* storage unavailable: nothing to clear */
+  }
 }
 
-export function writeSimpleModuleSettings(moduleId: string, values: SimpleSettingsValues) {
-  const all = readAll();
-  all[moduleId] = { ...defaultSimpleModuleValues(moduleId), ...values };
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+/** Only the fields the page still defines, so retired settings are dropped on the next save. */
+export function pickKnownValues(moduleId: string, values: SimpleSettingsValues): SimpleSettingsValues {
+  const defaults = defaultSimpleModuleValues(moduleId);
+  const out: SimpleSettingsValues = {};
+  for (const key of Object.keys(defaults)) {
+    if (key in values) out[key] = values[key];
+  }
+  return out;
+}
+
+export function mergeModuleSettings(moduleId: string, saved: SimpleSettingsValues | null | undefined): SimpleSettingsValues {
+  return { ...defaultSimpleModuleValues(moduleId), ...pickKnownValues(moduleId, saved ?? {}) };
 }

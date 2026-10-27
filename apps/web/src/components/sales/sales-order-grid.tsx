@@ -7,10 +7,13 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
-import type { ColDef, ICellRendererParams } from "ag-grid-community";
+import type { ColDef, GridApi, ICellRendererParams } from "ag-grid-community";
+import { gridToTable } from "@/lib/list-io/grid-table";
+import type { TableData } from "@/lib/list-io/spreadsheet";
 import {
   ClipboardList,
   Eye,
@@ -246,6 +249,8 @@ type Props = {
 export type SalesOrderGridHandle = {
   openFilters: () => void;
   openColumns: () => void;
+  /** The visible columns of the rows loaded in the grid (the current page when paging on the server). */
+  getExportTable: (opts?: { numbersAsText?: boolean }) => TableData;
 };
 
 export const SalesOrderGrid = forwardRef<SalesOrderGridHandle, Props>(function SalesOrderGrid(
@@ -366,11 +371,13 @@ export const SalesOrderGrid = forwardRef<SalesOrderGridHandle, Props>(function S
     onAdvancedFilterCountChange?.(advancedCount);
   }, [advancedCount, onAdvancedFilterCountChange]);
 
+  const gridApiRef = useRef<GridApi<Order> | null>(null);
   useImperativeHandle(
     ref,
     () => ({
       openFilters: () => setFilterSheetOpen(true),
       openColumns: () => setColumnSheetOpen(true),
+      getExportTable: (opts) => (gridApiRef.current ? gridToTable<Order>(gridApiRef.current, opts) : { headers: [], rows: [] }),
     }),
     [],
   );
@@ -857,6 +864,7 @@ export const SalesOrderGrid = forwardRef<SalesOrderGridHandle, Props>(function S
 
   return (
     <AgainListGrid<Order>
+      apiRef={gridApiRef}
       className={className}
       rowData={filtered}
       columnDefs={columnDefs}

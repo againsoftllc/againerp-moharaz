@@ -273,6 +273,12 @@ KNOWN_KEYS: dict[str, dict[str, Any]] = {
         "group": "payments",
         "label": "Bank EMI Plugin",
     },
+    "plugin.bank_emi.banks": {
+        "description": "Banks and EMI plans offered at checkout (JSON list of {id, name, plans: [{months, chargePercent, active}]})",
+        "is_secret": False,
+        "group": "payments",
+        "label": "Bank EMI banks & plans",
+    },
     "plugin.ai_search.installed": {
         "description": "AI Search plugin installed (storefront AI search and shopping assistant)",
         "is_secret": False,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -9,12 +9,13 @@ import { FieldHelpTip } from "@/components/sales/field-help-tip";
 import {
   INVENTORY_SETTINGS_SECTIONS,
   defaultInventorySettingsValues,
+  clearLegacyInventorySettings,
   mergeInventorySettings,
-  readInventorySettings,
-  writeInventorySettings,
+  readLegacyInventorySettings,
   type InventorySettingField,
   type InventorySettingsValues,
-} from "@/lib/mock-data/inventory-settings";
+} from "@/lib/inventory/inventory-settings";
+import { fetchModuleSettings, saveModuleSettings } from "@/lib/api/module-settings";
 
 /** Again settings palette — same tokens as catalog-settings-form.tsx, CSS vars
  * follow light/dark theme. */
@@ -294,14 +295,52 @@ function SettingCard({
   );
 }
 
-/** Inventory settings — same layout/tokens as catalog-settings-form.tsx
- * (/website/settings), but with real localStorage persistence (not mock):
- * the Product Settings section's toggles gate real fields in the Add
- * Product drawer, so Save/Discard must actually work. */
+/** Inventory settings — same layout/tokens as catalog-settings-form.tsx (/website/settings). Saved per company:
+ * the Product Settings toggles gate real fields in the Add Product drawer for every user. */
 export function InventorySettingsForm() {
-  const [saved, setSaved] = useState<InventorySettingsValues>(() => readInventorySettings());
+  const [saved, setSaved] = useState<InventorySettingsValues>(() => defaultInventorySettingsValues());
   const [values, setValues] = useState<InventorySettingsValues>(() => saved);
   const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetchModuleSettings("inventory");
+      const next = mergeInventorySettings(res.values);
+      setSaved(next);
+      // Never saved for this company: start from what this browser kept before settings moved to the server.
+      const legacy = res.saved ? null : readLegacyInventorySettings();
+      setValues(legacy ? mergeInventorySettings(legacy) : next);
+      setDirty(Boolean(legacy));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not load inventory settings");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const persist = async (next: InventorySettingsValues, message: string) => {
+    setSaving(true);
+    try {
+      const res = await saveModuleSettings("inventory", next);
+      const stored = mergeInventorySettings(res.values);
+      setSaved(stored);
+      setValues(stored);
+      setDirty(false);
+      clearLegacyInventorySettings();
+      toast.success(message);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save inventory settings");
+    } finally {
+      setSaving(false);
+    }
+  };
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => new Set());
 
   const toggleSection = (id: string) => {
@@ -318,14 +357,7 @@ export function InventorySettingsForm() {
     setDirty(true);
   };
 
-  const handleSave = () => {
-    const next = mergeInventorySettings(values);
-    writeInventorySettings(next);
-    setSaved(next);
-    setValues(next);
-    setDirty(false);
-    toast.success("Inventory settings saved");
-  };
+  const handleSave = () => void persist(mergeInventorySettings(values), "Inventory settings saved");
 
   const handleDiscard = () => {
     setValues(saved);
@@ -333,14 +365,7 @@ export function InventorySettingsForm() {
     toast.message("Changes discarded");
   };
 
-  const handleReset = () => {
-    const next = defaultInventorySettingsValues();
-    writeInventorySettings(next);
-    setSaved(next);
-    setValues(next);
-    setDirty(false);
-    toast.success("Inventory settings reset to defaults");
-  };
+  const handleReset = () => void persist(defaultInventorySettingsValues(), "Inventory settings reset to defaults");
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-4 px-1 pb-8 pt-2 sm:px-2">
@@ -354,7 +379,7 @@ export function InventorySettingsForm() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleReset}>
+          <Button variant="outline" size="sm" onClick={handleReset} disabled={saving || loading}>
             Reset to defaults
           </Button>
           {dirty ? (
@@ -365,7 +390,7 @@ export function InventorySettingsForm() {
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={!dirty}
+            disabled={!dirty || saving || loading}
             className="bg-[#714B67] text-white hover:bg-[#5c3d54]"
           >
             Save
@@ -373,7 +398,7 @@ export function InventorySettingsForm() {
         </div>
       </div>
 
-      <div className="space-y-5">
+      <div className={cn("space-y-5", loading && "pointer-events-none opacity-60")} aria-busy={loading}>
         {INVENTORY_SETTINGS_SECTIONS.map((section) => {
           const visibleFields = section.fields.filter((f) => !f.visibleWhen || Boolean(values[f.visibleWhen]));
           const collapsed = collapsedSections.has(section.id);

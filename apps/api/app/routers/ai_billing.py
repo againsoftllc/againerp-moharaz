@@ -64,6 +64,7 @@ def change_package(
     user: AuthUser = Depends(require_permission("workspace", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> AiPlanOverviewResponse:
+    billing_service.assert_self_service_package_change(db, company_id, payload.package_id)
     billing_service.select_package(db, company_id, payload.package_id)
     overview = billing_service.plan_overview(db, company_id)
     db.commit()
@@ -81,15 +82,3 @@ def toggle_on_demand(
     overview = billing_service.plan_overview(db, company_id)
     db.commit()
     return AiPlanOverviewResponse(data=_overview_read(overview))
-
-
-@router.post("/invoices/{invoice_id}/pay", response_model=AiOverageInvoiceRead)
-def pay_invoice(
-    invoice_id: str,
-    db: Session = Depends(get_db),
-    user: AuthUser = Depends(require_permission("workspace", "write")),
-    company_id: str = Depends(get_current_company_id),
-) -> AiOverageInvoiceRead:
-    invoice = billing_service.pay_invoice(db, company_id, invoice_id)
-    db.commit()
-    return AiOverageInvoiceRead.model_validate(invoice)

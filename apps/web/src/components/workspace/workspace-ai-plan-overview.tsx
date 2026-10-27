@@ -14,7 +14,6 @@ import {
   fetchAiPlanOverview,
   changeAiPackage,
   setAiOnDemand,
-  payAiInvoice,
   type ApiAiPackage,
   type ApiAiPlanOverview,
 } from "@/lib/api/ai-billing";
@@ -59,20 +58,6 @@ export function WorkspaceAiPlanOverview() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  async function handlePay() {
-    if (!overview?.unpaid_invoice) return;
-    setBusy(true);
-    try {
-      await payAiInvoice(overview.unpaid_invoice.id);
-      toast.success("Invoice paid");
-      void load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Payment failed");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function handleSelectPackage(id: string) {
     setBusy(true);
@@ -119,7 +104,7 @@ export function WorkspaceAiPlanOverview() {
             <div>
               <p className="text-sm font-semibold text-red-500">Payment Required</p>
               <p className="mt-0.5 text-xs text-red-500/80">
-                You have an unpaid invoice. Pay it to continue using the AI assistant.
+                You have an unpaid invoice. The AI assistant resumes once AgainERP records your payment.
               </p>
             </div>
           </div>
@@ -127,11 +112,10 @@ export function WorkspaceAiPlanOverview() {
             <p className="text-sm text-red-500/90">
               {formatCurrency(Number(unpaid_invoice.amount_bdt))} invoice from {formatDate(unpaid_invoice.created_at.slice(0, 10))}
             </p>
-            {canWrite ? (
-              <Button size="sm" disabled={busy} onClick={() => void handlePay()} className="bg-red-600 text-white hover:bg-red-700">
-                <CreditCard className="mr-1.5 h-3.5 w-3.5" /> Pay
-              </Button>
-            ) : null}
+            <p className="flex items-center gap-1.5 text-xs text-red-500/90">
+              <CreditCard className="h-3.5 w-3.5 shrink-0" />
+              Pay AgainERP by bank or bKash, quoting invoice {unpaid_invoice.id.slice(0, 8).toUpperCase()}.
+            </p>
           </div>
         </div>
       ) : null}
@@ -179,12 +163,14 @@ export function WorkspaceAiPlanOverview() {
           <div className="pr-8">
             <h2 className="text-base font-semibold">Choose a plan</h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Switching takes effect immediately; your current billing period doesn't change.
+              Moving to a plan that costs the same or less takes effect immediately. A pricier plan is switched by
+              AgainERP once you have paid for it.
             </p>
           </div>
           <div className="mt-4 space-y-3">
             {packages.map((p) => {
               const isCurrent = p.id === pkg.id;
+              const isUpgrade = Number(p.price_bdt) > Number(pkg.price_bdt);
               return (
                 <div
                   key={p.id}
@@ -201,7 +187,12 @@ export function WorkspaceAiPlanOverview() {
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">{formatTokens(p.included_tokens)} tokens/month included</p>
                   <p className="mt-1 text-xs text-muted-foreground">{p.description}</p>
-                  {!isCurrent ? (
+                  {!isCurrent && isUpgrade ? (
+                    <p className="mt-3 text-xs font-medium text-muted-foreground">
+                      Contact AgainERP to upgrade — the plan is switched once paid.
+                    </p>
+                  ) : null}
+                  {!isCurrent && !isUpgrade ? (
                     <Button
                       size="sm"
                       className="mt-3"

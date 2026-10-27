@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.services.media_storage import save_media_bytes, get_cloudflare_plugin, local_public_url
@@ -27,6 +31,8 @@ from app.schemas.media import (
     MediaUpdate,
     derive_labels_from_file_name,
 )
+from app.services.catalog_ai.scraper import fetch_page
+from app.services.core.module_settings import get_module_setting
 from app.services.media_migrate import migrate_media_by_ids, migrate_one_with_bytes
 from app.services.cloudflare_client import CloudflareError
 
@@ -206,6 +212,15 @@ async def upload_media(
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
 
+    # Media settings → "Max upload size" (MB, per file).
+    max_mb = float(get_module_setting(db, company_id, "media", "maxUploadMb") or 0)
+    if max_mb > 0:
+        for upload in files:
+            if upload.size is not None and upload.size > max_mb * 1024 * 1024:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"{upload.filename} is larger than the {max_mb:g} MB upload limit set in Media settings.",
+                )
     created: List[Media] = []
     for upload in files:
         filename = upload.filename or "upload.bin"
@@ -217,6 +232,11 @@ async def upload_media(
         safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)
         stored = f"{uuid.uuid4().hex}_{safe_name}"
         content = await upload.read()
+        if max_mb > 0 and len(content) > max_mb * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{filename} is larger than the {max_mb:g} MB upload limit set in Media settings.",
+            )
 
         mime = upload.content_type or "application/octet-stream"
         media_type = _classify_filename(filename, mime)
@@ -251,6 +271,43 @@ async def upload_media(
 
     data = [_to_read(r) for r in created]
     return MediaListResponse(data=data, meta=MediaListMeta(count=len(data)))
+
+
+class PageImagesRequest(BaseModel):
+    url: str
+
+
+class PageImagesResponse(BaseModel):
+    url: str
+    title: str
+    images: List[str]
+
+
+def _require_public_page(url: str) -> None:
+    parts = urlparse(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise HTTPException(status_code=422, detail="Enter a full http(s) page address")
+    try:
+        infos = socket.getaddrinfo(parts.hostname, None)
+    except OSError:
+        raise HTTPException(status_code=422, detail=f"Could not find the site {parts.hostname}")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise HTTPException(status_code=422, detail="That address is not a public website")
+
+
+@router.post("/page-images", response_model=PageImagesResponse)
+def page_images(
+    payload: PageImagesRequest,
+    _: object = Depends(require_write_access),
+) -> PageImagesResponse:
+    """The product / gallery images a web page shows (Upload → AI Upload). Nothing is saved here:
+    the admin picks what to add and the library stores those URLs like any other import."""
+    url = payload.url.strip()
+    _require_public_page(url)
+    page = fetch_page(url)
+    return PageImagesResponse(url=page.url, title=page.title, images=page.image_urls)
 
 
 @router.post("/migrate", response_model=MediaMigrateResponse)

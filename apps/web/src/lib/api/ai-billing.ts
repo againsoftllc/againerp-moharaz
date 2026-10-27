@@ -60,6 +60,3 @@ export async function setAiOnDemand(enabled: boolean): Promise<ApiAiPlanOverview
   return res.data;
 }
 
-export async function payAiInvoice(invoiceId: string): Promise<ApiAiOverageInvoice> {
-  return apiFetch<ApiAiOverageInvoice>(`${BASE}/invoices/${invoiceId}/pay`, { method: "POST" });
-}

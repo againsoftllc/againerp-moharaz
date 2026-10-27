@@ -4,7 +4,8 @@ import { useRef, useState } from "react";
 import { Link2, Loader2, Sparkles, Upload } from "lucide-react";
 import type { MediaLibraryItem } from "@/lib/mock-data/media-library";
 import { filterSafeUploadFiles, SAFE_FILE_INPUT_ACCEPT, SAFE_UPLOAD_HINT } from "@/lib/media/safe-upload-types";
-import { mockImportMediaFromInput } from "@/lib/mock-data/media-library";
+import { importMediaFromInput } from "@/lib/media/media-import";
+import { useModuleSettings } from "@/lib/workspace/use-module-settings";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,16 +28,25 @@ export function MediaLibraryUploadPanel({ onUploadFiles, onImport, compact }: Pr
   const [urlRows, setUrlRows] = useState<string[]>([""]);
   const [aiOpen, setAiOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const maxUploadMb = Number(useModuleSettings("media").values.maxUploadMb) || 0;
 
   const handleFiles = (files: FileList | null) => {
     if (!files?.length || !onUploadFiles) return;
 
-    const { allowed, rejected } = filterSafeUploadFiles(files);
+    const { allowed: safe, rejected } = filterSafeUploadFiles(files);
     if (rejected.length) {
       toast.error(
         `${rejected.length} file${rejected.length === 1 ? "" : "s"} blocked — only safe images, videos, PDF, DOCX, Excel, TXT, and CSV allowed.`,
       );
     }
+    // Media settings → "Max upload size" (the server enforces it too).
+    const tooLarge = maxUploadMb > 0 ? safe.filter((file) => file.size > maxUploadMb * 1024 * 1024) : [];
+    if (tooLarge.length) {
+      toast.error(
+        `${tooLarge.map((file) => file.name).join(", ")} ${tooLarge.length === 1 ? "is" : "are"} larger than the ${maxUploadMb} MB limit in Media settings.`,
+      );
+    }
+    const allowed = safe.filter((file) => !tooLarge.includes(file));
     if (!allowed.length) return;
 
     const transfer = new DataTransfer();
@@ -52,15 +62,16 @@ export function MediaLibraryUploadPanel({ onUploadFiles, onImport, compact }: Pr
 
     setLoading(true);
     try {
-      const imported = await mockImportMediaFromInput(raw, mode);
+      const { items: imported, failed } = await importMediaFromInput(raw, mode);
+      for (const miss of failed) toast.error(`${miss.url}: ${miss.reason}`);
       if (!imported.length) {
-        toast.error("No valid URLs found");
+        if (!failed.length) toast.error("No valid URLs found");
         return;
       }
       onImport?.(imported);
       toast.success(
         mode === "ai"
-          ? `AI imported ${imported.length} file${imported.length === 1 ? "" : "s"} to local storage`
+          ? `Found ${imported.length} image${imported.length === 1 ? "" : "s"} on the page — added to Media Library`
           : `${imported.length} item${imported.length === 1 ? "" : "s"} added to Media Library — select from the grid`,
       );
       if (mode === "ai") {
@@ -142,7 +153,7 @@ export function MediaLibraryUploadPanel({ onUploadFiles, onImport, compact }: Pr
             <div>
               <p className="text-sm font-medium">AI media import</p>
               <p className="text-[11px] text-muted-foreground">
-                Paste a website link or one/more direct image URLs. AI scrapes and saves to your server.
+                Paste a product or gallery page link, or direct image URLs. The images the page shows are added to the library.
               </p>
             </div>
           </div>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Download, Filter, Plus, RefreshCw, Settings2, Upload } from "lucide-react";
+import { Download, Filter, Plus, RefreshCw, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   SalesOrderGrid,
@@ -23,9 +23,13 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ListGridHeaderStart } from "@/components/shared/list-grid-header-start";
+import { exportListTable } from "@/lib/list-io/export-list";
 import type { Order, OrderStatus } from "@/lib/mock-data/orders";
 import { useAdminCanWrite, useAdminIsAdmin } from "@/lib/hooks/use-admin-can-write";
 import { useSalesOrders } from "@/lib/api/use-sales-orders";
@@ -72,6 +76,15 @@ export default function SalesPage() {
   const isAdmin = useAdminIsAdmin();
   const apiHealth = useApiHealth();
   const gridRef = useRef<SalesOrderGridHandle>(null);
+  const exportOrders = (format: "xlsx" | "pdf") => {
+    const quotations = listFilter !== "all";
+    return exportListTable(gridRef.current?.getExportTable({ numbersAsText: format === "pdf" }), format, {
+      fileName: quotations ? "quotations" : "sales-orders",
+      title: quotations ? "Quotations" : "Sales orders",
+      noun: quotations ? "quotations" : "orders",
+      pageOnly: true,
+    });
+  };
   const {
     orders,
     total,
@@ -280,14 +293,16 @@ export default function SalesPage() {
             ) : null}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => toast.info("Import — prototype")}>
-            <Upload className="mr-1.5 h-3 w-3" />
-            Import
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => toast.success("Export started (mock CSV)")}>
-            <Download className="mr-1.5 h-3 w-3" />
-            Export
-          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Download className="mr-1.5 h-3 w-3" />
+              Export
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuItem onClick={() => void exportOrders("xlsx")}>Excel (.xlsx)</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void exportOrders("pdf")}>PDF</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         </DropdownMenuContent>
       </DropdownMenu>
     </ListGridHeaderStart>

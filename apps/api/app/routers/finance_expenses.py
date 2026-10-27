@@ -27,6 +27,7 @@ from app.schemas.finance import (
     FinanceExpenseSummaryResponse,
     FinanceExpenseUpdate,
 )
+from app.services.core.module_settings import require_payment_account_if_set
 from app.services.finance.finance_service import FinanceService
 from app.services.core.approval_service import assert_can_approve
 
@@ -272,6 +273,7 @@ def pay_expense(
 ) -> FinanceExpenseResponse:
     service = FinanceService(db)
     expense = service.get_expense(expense_id, company_id=company_id)
+    require_payment_account_if_set(db, company_id, payload.payment_account_id or expense.payment_account_id)
     service.pay_expense(
         expense,
         payment_method=payload.payment_method,

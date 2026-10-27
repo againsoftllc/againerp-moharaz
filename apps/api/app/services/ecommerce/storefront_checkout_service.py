@@ -66,6 +66,33 @@ def _loyalty_enabled(db: Session) -> bool:
     return str(row.value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _setting_value(db: Session, key: str) -> str:
+    row = db.query(PlatformSetting).filter(PlatformSetting.key == key).first()
+    return str(row.value).strip() if row is not None and row.value is not None else ""
+
+
+def _emi_banks(db: Session) -> list[dict[str, Any]]:
+    """Banks and plans from Workspace → Plugins → Bank EMI; none while the plugin is not installed."""
+    if _setting_value(db, "plugin.bank_emi.installed").lower() != "true":
+        return []
+    try:
+        banks = json.loads(_setting_value(db, "plugin.bank_emi.banks") or "[]")
+    except ValueError:
+        return []
+    out: list[dict[str, Any]] = []
+    for bank in banks if isinstance(banks, list) else []:
+        if not isinstance(bank, dict) or not bank.get("id") or not bank.get("name"):
+            continue
+        plans = [
+            {"months": int(p["months"]), "charge_percent": float(p.get("chargePercent") or 0)}
+            for p in bank.get("plans") or []
+            if isinstance(p, dict) and p.get("months") and p.get("active", True) is not False
+        ]
+        if plans:
+            out.append({"id": str(bank["id"]), "name": str(bank["name"]), "months": [p["months"] for p in plans], "plans": plans})
+    return out
+
+
 class CheckoutError(ValueError):
     """Checkout validation or placement failure."""
 
@@ -124,13 +151,7 @@ class StorefrontCheckoutService:
             **shipping,
             "payment_methods": payment_options_as_dicts(self._db),
             "reward_points_enabled": _loyalty_enabled(self._db),
-            "emi_banks": [
-                {"id": "city", "name": "City Bank", "months": [3, 6, 9, 12]},
-                {"id": "brac", "name": "BRAC Bank", "months": [3, 6, 12]},
-                {"id": "ebl", "name": "Eastern Bank", "months": [6, 12]},
-                {"id": "dutch", "name": "Dutch-Bangla Bank", "months": [3, 6, 9, 12]},
-                {"id": "scb", "name": "Standard Chartered", "months": [6, 12]},
-            ],
+            "emi_banks": _emi_banks(self._db),
         }
 
     def preview(

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { FilterSelect } from "@/components/shared/filter-select";
+import { useModuleSettings } from "@/lib/workspace/use-module-settings";
 import { useCommerceSuppliers } from "@/lib/api/use-commerce-suppliers";
 import {
   addRmaCharge,
@@ -739,9 +740,15 @@ export function ResolveDrawer({
   ticket: RmaTicket;
   onDone: () => void;
 }) {
+  const { values: rmaSettings, loaded: rmaSettingsLoaded } = useModuleSettings("rma");
+  const defaultResolution = (rmaSettings.defaultResolution as RmaResolutionType) || "paid_repair";
   const [type, setType] = useState<RmaResolutionType>(
-    (ticket.resolution_type as RmaResolutionType) || "paid_repair",
+    (ticket.resolution_type as RmaResolutionType) || defaultResolution,
   );
+  // RMA settings → "Default resolution" arrives after the first render.
+  useEffect(() => {
+    if (open && rmaSettingsLoaded && !ticket.resolution_type) setType(defaultResolution);
+  }, [open, rmaSettingsLoaded, ticket.resolution_type, defaultResolution]);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 

@@ -21,6 +21,7 @@ import { isTypeAllowedForPicker } from "@/lib/media/picker-accept";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { MediaLibraryDetailPanel } from "@/components/media/media-library-detail-panel";
+import { useModuleSettings } from "@/lib/workspace/use-module-settings";
 import { MediaLibraryUploadPanel } from "@/components/media/media-library-upload-panel";
 import { MediaTileCover } from "@/components/media/media-tile-cover";
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
@@ -94,6 +95,7 @@ export function MediaLibraryBrowser({
   const page = variant === "page";
   const focusedItem = items.find((item) => item.id === focusedId) ?? null;
   const usageMap = useMediaUsageMap();
+  const showUsedIn = useModuleSettings("media").values.showUsedIn !== false;
   const [shown, setShown] = useState(TILE_BATCH);
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -456,7 +458,7 @@ export function MediaLibraryBrowser({
             <MediaLibraryDetailPanel
               item={focusedItem}
               usageCount={focusedUsageCount}
-              usageRefs={focusedUsageRefs}
+              usageRefs={showUsedIn ? focusedUsageRefs : []}
               onUpdate={canWrite ? (patch) => {
                 if (!focusedItem) return;
                 onItemUpdate(focusedItem.id, patch);

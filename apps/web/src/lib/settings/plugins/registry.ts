@@ -45,49 +45,6 @@ export const PLUGIN_REGISTRY: PluginDef[] = [
     ],
   },
   {
-    id: "steadfast",
-    name: "Steadfast Courier",
-    description: "Steadfast parcel booking, tracking, and COD management.",
-    category: "shipping",
-    version: "1.0.0",
-    author: "Steadfast Courier",
-    website: "https://steadfast.com.bd",
-    brandColor: "#0066B3",
-    sections: [
-      {
-        id: "connection",
-        title: "API Connection",
-        fields: [
-          { key: "api_key", label: "API Key", type: "password", defaultValue: "", required: true },
-          { key: "secret_key", label: "Secret Key", type: "password", defaultValue: "", required: true },
-          {
-            key: "environment",
-            label: "Environment",
-            type: "select",
-            defaultValue: "sandbox",
-            options: [
-              { label: "Sandbox", value: "sandbox" },
-              { label: "Production", value: "production" },
-            ],
-          },
-        ],
-      },
-      {
-        id: "automation",
-        title: "Automation",
-        fields: [
-          {
-            key: "auto_create_shipment",
-            label: "Auto Create Parcel on Confirm",
-            type: "toggle",
-            defaultValue: false,
-          },
-          { key: "cod_enabled", label: "COD Shipments", type: "toggle", defaultValue: true },
-        ],
-      },
-    ],
-  },
-  {
     id: "bkash",
     name: "bKash Payment Gateway",
     description: "Accept bKash payments and auto-verify transactions.",
@@ -528,35 +485,6 @@ export const PLUGIN_REGISTRY: PluginDef[] = [
         title: "Cloudflare Images",
         description: "Optional image API",
         fields: [],
-      },
-    ],
-  },
-  {
-    id: "whatsapp",
-    name: "WhatsApp Business",
-    description: "Order updates and marketing via WhatsApp Business API.",
-    category: "communication",
-    version: "1.0.0",
-    author: "Meta",
-    website: "https://business.whatsapp.com",
-    brandColor: "#25D366",
-    sections: [
-      {
-        id: "connection",
-        title: "API Setup",
-        fields: [
-          { key: "phone_number_id", label: "Phone Number ID", type: "text", defaultValue: "" },
-          { key: "access_token", label: "Access Token", type: "password", defaultValue: "" },
-          { key: "business_account_id", label: "Business Account ID", type: "text", defaultValue: "" },
-        ],
-      },
-      {
-        id: "notifications",
-        title: "Notifications",
-        fields: [
-          { key: "order_confirm", label: "Order Confirmation Message", type: "toggle", defaultValue: true },
-          { key: "shipped_notify", label: "Shipped Notification", type: "toggle", defaultValue: true },
-        ],
       },
     ],
   },

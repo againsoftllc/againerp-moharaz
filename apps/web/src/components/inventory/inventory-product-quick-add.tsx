@@ -21,7 +21,7 @@ import { useCatalogBrands, createCatalogBrand, deleteCatalogBrand, patchCatalogB
 import { useCatalogMedia, uploadCatalogMediaFiles, createCatalogMediaBatch } from "@/lib/api/use-catalog-media";
 import { useInventoryWarehouses } from "@/lib/api/use-inventory";
 import { marginFromSelling, sellingFromMargin } from "@/lib/pricing/margin";
-import { readProductFieldVisibility } from "@/lib/inventory/use-product-field-visibility";
+import { ALL_PRODUCT_FIELDS_VISIBLE, fetchProductFieldVisibility } from "@/lib/inventory/use-product-field-visibility";
 import { CategoryCombobox } from "@/components/categories/category-combobox";
 import { CategoryFormDialog } from "@/components/categories/category-form-dialog";
 import { CategoryPickDrawer } from "@/components/categories/category-pick-drawer";
@@ -319,7 +319,7 @@ export function InventoryProductQuickAdd({
   const [supplierWarranty, setSupplierWarranty] = useState("");
   const [supplierPreferred, setSupplierPreferred] = useState(false);
   const [restoredDraftAt, setRestoredDraftAt] = useState<string | null>(null);
-  const [fieldVisibility, setFieldVisibility] = useState(() => readProductFieldVisibility());
+  const [fieldVisibility, setFieldVisibility] = useState(ALL_PRODUCT_FIELDS_VISIBLE);
   const isEdit = Boolean(productId);
 
   const locationMatches = useMemo(() => {
@@ -447,7 +447,7 @@ export function InventoryProductQuickAdd({
 
   useEffect(() => {
     if (!open) return;
-    setFieldVisibility(readProductFieldVisibility());
+    void fetchProductFieldVisibility().then(setFieldVisibility);
     if (!productId) {
       reset();
       const draft = readDraft<QuickAddDraftPayload>(DRAFT_KEY);

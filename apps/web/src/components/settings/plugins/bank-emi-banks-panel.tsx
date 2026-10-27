@@ -14,12 +14,14 @@ import { calculatePlanRow } from "@/lib/plugins/bank-emi/calculator";
 import type { EmiBank } from "@/lib/plugins/bank-emi/types";
 import { EmiPlansModal } from "@/components/settings/plugins/emi-plans-modal";
 import { usePluginsStore } from "@/lib/store/plugins-store";
+import { fetchPlatformSettings, upsertPlatformSetting } from "@/lib/api/platform-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn, formatCurrency } from "@/lib/utils";
 
 const PREVIEW_AMOUNT = 14000;
+const EMI_BANKS_SETTING_KEY = "plugin.bank_emi.banks";
 
 type Props = {
   pluginId: string;
@@ -29,9 +31,34 @@ export function BankEmiBanksPanel({ pluginId }: Props) {
   const pluginState = usePluginsStore((s) => s.plugins[pluginId]);
   const savePluginConfig = usePluginsStore((s) => s.savePluginConfig);
 
+  // Saved on the server (the storefront checkout reads the same setting); the browser copy is only a fallback
+  // for banks set up before the setting existed, so they can be saved once.
+  const [serverBanksJson, setServerBanksJson] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetchPlatformSettings()
+      .then((rows) => {
+        if (cancelled) return;
+        const value = rows.find((r) => r.key === EMI_BANKS_SETTING_KEY)?.value;
+        setServerBanksJson(value && value.trim() ? value : null);
+      })
+      .catch((err) => toast.error(err instanceof Error ? err.message : "Could not load EMI banks"))
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const savedBanks = useMemo(
-    () => parseBanksFromConfig(pluginState?.config),
-    [pluginState?.config],
+    () =>
+      parseBanksFromConfig(
+        serverBanksJson ? { banks_json: serverBanksJson } : pluginState?.config,
+      ),
+    [serverBanksJson, pluginState?.config],
   );
 
   const [banks, setBanks] = useState<EmiBank[]>(savedBanks);
@@ -42,8 +69,9 @@ export function BankEmiBanksPanel({ pluginId }: Props) {
   useEffect(() => {
     setBanks(savedBanks);
     setSelectedId(savedBanks[0]?.id ?? "");
-    setDirty(false);
-  }, [savedBanks]);
+    // Nothing saved on the server yet: what is shown (the defaults or this browser's copy) still needs a Save.
+    setDirty(loaded && !serverBanksJson);
+  }, [savedBanks, loaded, serverBanksJson]);
 
   const selected = banks.find((b) => b.id === selectedId) ?? banks[0];
 
@@ -116,14 +144,20 @@ export function BankEmiBanksPanel({ pluginId }: Props) {
     toast.success(`Copied plans from ${source.name}`);
   };
 
-  const handleSave = () => {
-    savePluginConfig(
-      pluginId,
-      { banks_json: serializeBanks(banks) },
-      { labels: { banks_json: "Banks & EMI plans" } },
-    );
-    setDirty(false);
-    toast.success("Banks and EMI rates saved");
+  const handleSave = async () => {
+    const json = serializeBanks(banks);
+    setSaving(true);
+    try {
+      await upsertPlatformSetting(EMI_BANKS_SETTING_KEY, json);
+      savePluginConfig(pluginId, { banks_json: json }, { labels: { banks_json: "Banks & EMI plans" } });
+      setServerBanksJson(json);
+      setDirty(false);
+      toast.success("Banks and EMI rates saved — checkout now offers them");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save EMI banks");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -140,7 +174,7 @@ export function BankEmiBanksPanel({ pluginId }: Props) {
             <Eye className="mr-1.5 h-3.5 w-3.5" />
             Preview
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={!dirty}>
+          <Button size="sm" onClick={() => void handleSave()} disabled={!dirty || saving || !loaded}>
             Save banks
           </Button>
         </div>

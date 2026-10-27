@@ -41,6 +41,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useModuleSettings } from "@/lib/workspace/use-module-settings";
 import { ContentDataSkeleton } from "@/components/layout/content-data-skeleton";
 
 type MediaLibraryPageProps = {
@@ -75,9 +76,14 @@ function MediaLibraryPageContent({ title = "Media" }: MediaLibraryPageProps) {
   const [savingStorage, setSavingStorage] = useState(false);
   const [migrating, setMigrating] = useState(false);
 
+  // Media settings → "Default library tab" applies when the URL doesn't pick a type.
+  const hasTypeParam = searchParams.has("type");
+  const { values: mediaSettings, loaded: mediaSettingsLoaded } = useModuleSettings("media");
+  const defaultType = parseMediaType(String(mediaSettings.defaultType ?? "all"));
   useEffect(() => {
-    setTypeFilter(typeFromUrl);
-  }, [typeFromUrl]);
+    if (hasTypeParam) setTypeFilter(typeFromUrl);
+    else if (mediaSettingsLoaded) setTypeFilter(defaultType);
+  }, [hasTypeParam, typeFromUrl, mediaSettingsLoaded, defaultType]);
 
   const handleTypeFilterChange = (next: "all" | MediaLibraryItemType) => {
     setTypeFilter(next);

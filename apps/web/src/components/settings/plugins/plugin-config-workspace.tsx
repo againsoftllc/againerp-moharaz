@@ -16,66 +16,55 @@ import { findPlugin, PLUGIN_CATEGORIES } from "@/lib/settings/plugins/registry";
 import { usePluginsStore } from "@/lib/store/plugins-store";
 import { useSmartPcBuilderNavStore } from "@/lib/store/smart-pc-builder-nav-store";
 import { fetchServerPluginStates } from "@/lib/api/plugin-install-state";
+import { registerPluginInstall } from "@/lib/plugins/plugin-install";
 import {
-  installCloudflarePlugin,
   uninstallCloudflarePlugin,
   updateCloudflarePlugin,
   useCloudflarePlugin,
 } from "@/lib/api/use-cloudflare-plugin";
 import {
-  installAgainDropApiPlugin,
   uninstallAgainDropApiPlugin,
   updateAgainDropApiPlugin,
   type AgainDropApiPluginUpdateInput,
 } from "@/lib/api/again-drop-api-plugin";
 import {
-  installBkashPlugin,
   uninstallBkashPlugin,
   updateBkashPlugin,
 } from "@/lib/api/bkash-plugin";
 import {
-  installSslcommerzPlugin,
   uninstallSslcommerzPlugin,
   updateSslcommerzPlugin,
 } from "@/lib/api/sslcommerz-plugin";
 import {
-  installPaypalPlugin,
   uninstallPaypalPlugin,
   updatePaypalPlugin,
 } from "@/lib/api/paypal-plugin";
 import {
-  installStripePlugin,
   uninstallStripePlugin,
   updateStripePlugin,
 } from "@/lib/api/stripe-plugin";
 import { upsertPlatformSetting } from "@/lib/api/platform-settings";
 import {
-  installZktecoPlugin,
   uninstallZktecoPlugin,
   updateZktecoPlugin,
 } from "@/lib/api/zkteco-plugin";
 import {
-  installPathaoPlugin,
   uninstallPathaoPlugin,
   updatePathaoPlugin,
 } from "@/lib/api/pathao-plugin";
 import {
-  installMarketingTrackingPlugin,
   uninstallMarketingTrackingPlugin,
   updateMarketingTrackingPlugin,
 } from "@/lib/api/marketing-tracking-plugin";
 import {
-  installAgainBuilderPlugin,
   uninstallAgainBuilderPlugin,
   updateAgainBuilderPlugin,
 } from "@/lib/api/again-builder-plugin";
 import {
-  installSmartPcBuilderPlugin,
   uninstallSmartPcBuilderPlugin,
   updateSmartPcBuilderPlugin,
 } from "@/lib/api/smart-pc-builder-plugin";
 import {
-  installPriceUpdatePlugin,
   uninstallPriceUpdatePlugin,
   updatePriceUpdatePlugin,
 } from "@/lib/api/price-update-plugin";
@@ -91,7 +80,6 @@ import { ZktecoPluginPanel } from "@/components/settings/plugins/zkteco-plugin-p
 import { PathaoPluginPanel } from "@/components/settings/plugins/pathao-plugin-panel";
 import { SmsGatewayPluginPanel } from "@/components/settings/plugins/sms-gateway-plugin-panel";
 import {
-  installSmsGatewayPlugin,
   isSmsGatewayPluginId as isSmsGateway,
   uninstallSmsGatewayPlugin,
   updateSmsGatewayPlugin,
@@ -116,7 +104,6 @@ export function PluginConfigWorkspace({ pluginId }: Props) {
   const cloudflareState = useCloudflarePlugin();
   const cloudflareApi = pluginId === "cloudflare" ? cloudflareState.plugin : null;
   const history = usePluginsStore((s) => s.history);
-  const installPlugin = usePluginsStore((s) => s.installPlugin);
   const uninstallPlugin = usePluginsStore((s) => s.uninstallPlugin);
   const setEnabled = usePluginsStore((s) => s.setEnabled);
   const savePluginConfig = usePluginsStore((s) => s.savePluginConfig);
@@ -261,87 +248,17 @@ export function PluginConfigWorkspace({ pluginId }: Props) {
     toast.success("Configuration reset to defaults");
   };
 
-  const handleInstall = () => {
-    installPlugin(pluginId);
-    if (pluginId === "cloudflare") {
-      void installCloudflarePlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register Cloudflare plugin");
-      });
+  const [installing, setInstalling] = useState(false);
+  const handleInstall = async () => {
+    setInstalling(true);
+    try {
+      await registerPluginInstall(pluginId);
+      toast.success(`${plugin?.name} installed`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Could not install ${plugin?.name ?? "the plugin"}`);
+    } finally {
+      setInstalling(false);
     }
-    if (pluginId === "again-drop-api") {
-      void installAgainDropApiPlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register AgainDropAPI plugin");
-      });
-    }
-    if (pluginId === "bkash") {
-      void installBkashPlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register bKash plugin");
-      });
-    }
-    if (pluginId === "sslcommerz") {
-      void installSslcommerzPlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register SSLCommerz plugin");
-      });
-    }
-    if (pluginId === "paypal") {
-      void installPaypalPlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register PayPal plugin");
-      });
-    }
-    if (pluginId === "stripe") {
-      void installStripePlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register Stripe plugin");
-      });
-    }
-    if (pluginId === "zkteco") {
-      void installZktecoPlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register ZKTeco plugin");
-      });
-    }
-    if (pluginId === "pathao") {
-      void installPathaoPlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register Pathao plugin");
-      });
-    }
-    if (isSmsGateway(pluginId)) {
-      void installSmsGatewayPlugin(pluginId).catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register SMS gateway");
-      });
-    }
-    if (pluginId === "marketing-tracking") {
-      void installMarketingTrackingPlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register Marketing Tracking plugin");
-      });
-    }
-    if (pluginId === "again-builder") {
-      void installAgainBuilderPlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register Again Builder plugin");
-      });
-    }
-    if (pluginId === "smart-pc-builder") {
-      void installSmartPcBuilderPlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register Smart PC Builder plugin");
-      });
-    }
-    if (pluginId === "price-update") {
-      void installPriceUpdatePlugin().catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register Price Compare plugin");
-      });
-    }
-    if (pluginId === "bank-emi") {
-      void upsertPlatformSetting("plugin.bank_emi.installed", "true").catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to enable Bank EMI for checkout");
-      });
-    }
-    if (pluginId === "ai-search") {
-      void Promise.all([
-        upsertPlatformSetting("plugin.ai_search.installed", "true"),
-        upsertPlatformSetting("plugin.ai_search.enabled", "true"),
-      ]).catch((err) => {
-        toast.error(err instanceof Error ? err.message : "Failed to register AI Search plugin");
-      });
-    }
-    toast.success(`${plugin?.name} installed`);
   };
 
   const handleUninstall = () => {
@@ -453,8 +370,12 @@ export function PluginConfigWorkspace({ pluginId }: Props) {
               <p className="mt-4 text-[11px] text-muted-foreground">অথবা আগে plugin install করুন</p>
             </div>
           ) : null}
-          <Button className={pluginId === "cloudflare" ? "mt-3" : "mt-6"} onClick={handleInstall}>
-            Install Plugin
+          <Button
+            className={pluginId === "cloudflare" ? "mt-3" : "mt-6"}
+            disabled={installing}
+            onClick={() => void handleInstall()}
+          >
+            {installing ? "Installing…" : "Install Plugin"}
           </Button>
           <p className="mt-3">
             <Link href="/workspace/plugins" className="text-xs text-muted-foreground hover:text-foreground">
