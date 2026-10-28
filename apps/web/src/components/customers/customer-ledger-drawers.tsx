@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { FilterSelect } from "@/components/shared/filter-select";
+import { ChequeFormDrawer } from "@/components/finance/cheque-form-drawer";
 import {
   raiseCustomerInvoice,
   recordCustomerLedgerPayment,
@@ -50,6 +51,7 @@ export function CustomerRecordPaymentDrawer({
   const [writeOffReason, setWriteOffReason] = useState("");
   const [showWriteOff, setShowWriteOff] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [chequeOpen, setChequeOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -67,9 +69,15 @@ export function CustomerRecordPaymentDrawer({
   const writeOffValue = Number.parseFloat(writeOffAmount) || 0;
   const blocked = value <= 0 && writeOffValue <= 0;
   const overpaying = value > 0 && value + writeOffValue > outstanding && outstanding > 0;
+  // A cheque is not money in yet: it goes on the cheque register and the bank still has to honour it.
+  const byCheque = method === "cheque";
 
   const submit = async () => {
     if (blocked) return;
+    if (byCheque) {
+      setChequeOpen(true);
+      return;
+    }
     setSaving(true);
     try {
       const payment = await recordCustomerLedgerPayment(customerId, {
@@ -97,6 +105,7 @@ export function CustomerRecordPaymentDrawer({
   };
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-[420px] max-w-[92vw] flex-col p-0">
         <div className="border-b border-border px-4 py-3">
@@ -249,11 +258,22 @@ export function CustomerRecordPaymentDrawer({
             Cancel
           </Button>
           <Button size="sm" className="rounded-none" disabled={blocked || saving} onClick={() => void submit()}>
-            {saving ? "Recording…" : "Record payment"}
+            {saving ? "Recording…" : byCheque ? "Receive cheque…" : "Record payment"}
           </Button>
         </div>
       </SheetContent>
     </Sheet>
+      <ChequeFormDrawer
+        open={chequeOpen}
+        onOpenChange={setChequeOpen}
+        initial={{ direction: "received", partyId: customerId, amount: value > 0 ? String(value) : undefined }}
+        onCreated={(cheque) => {
+          toast.success(`Cheque ${cheque.cheque_number} received from ${customerName ?? "the customer"} — it follows the cheque until the bank honours it`);
+          onOpenChange(false);
+          onRecorded?.();
+        }}
+      />
+    </>
   );
 }
 

@@ -23,6 +23,7 @@ from app.schemas.auth_roles import (
     RolePermissionsPut,
     RoleRead,
     RoleResponse,
+    RoleTemplateListResponse,
     RoleUpdate,
 )
 from app.services import rbac as rbac_service
@@ -93,6 +94,13 @@ def list_modules(
     return ModuleListResponse(data=[ModuleInfo(**m) for m in rbac_service.module_registry()])
 
 
+@router.get("/templates", response_model=RoleTemplateListResponse)
+def list_role_templates(
+    _: AuthUser = Depends(require_admin_user),
+) -> RoleTemplateListResponse:
+    return RoleTemplateListResponse(data=rbac_service.role_templates())
+
+
 @router.get("", response_model=RoleListResponse)
 def list_roles(
     db: Session = Depends(get_db),
@@ -114,6 +122,8 @@ def create_role(
     _: AuthUser = Depends(require_system_manager),
     company_id: str = Depends(get_current_company_id),
 ) -> RoleResponse:
+    if payload.template and payload.template not in {t["id"] for t in rbac_service.role_templates()}:
+        raise HTTPException(status_code=400, detail="Unknown role template")
     slug = (payload.slug or _slugify(payload.name)).lower()
     # Slugs collide only within what this company can see — another tenant's
     # custom role of the same name is none of its business.
@@ -128,13 +138,17 @@ def create_role(
         company_id=company_id,
         name=payload.name.strip(),
         slug=slug,
-        description=(payload.description or "").strip() or None,
+        description=(payload.description or "").strip()
+        or (next((t["description"] for t in rbac_service.role_templates() if t["id"] == payload.template), "") or None),
         is_system=False,
         is_active=True,
     )
     db.add(role)
     db.flush()
-    rbac_service.ensure_role_permissions(db, role)
+    if payload.template:
+        rbac_service.apply_role_template(db, role, payload.template)
+    else:
+        rbac_service.ensure_role_permissions(db, role)
     db.commit()
     db.refresh(role)
     return RoleResponse(data=_role_read(db, role))

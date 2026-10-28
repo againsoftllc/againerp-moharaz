@@ -55,3 +55,31 @@ export async function fetchAdminMe(): Promise<{
 export async function logoutAdmin(): Promise<void> {
   await apiFetch("/api/v1/auth/logout", { method: "POST" });
 }
+
+/** One signed-in device of a member. */
+export type ApiSession = {
+  id: string;
+  device: string;
+  ip: string | null;
+  created_at: string;
+  expires_at: string;
+  /** The session this browser is using. */
+  current: boolean;
+};
+
+/** Change your own password. Every other session of yours ends; this one stays. */
+export async function changeMyPassword(currentPassword: string, newPassword: string): Promise<ApiUser> {
+  const res = await apiFetch<ApiMeResponse>("/api/v1/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  return res.data;
+}
+
+export async function fetchMySessions(): Promise<ApiSession[]> {
+  return (await apiFetch<{ data: ApiSession[] }>("/api/v1/auth/sessions")).data;
+}
+
+export async function signOutOtherSessions(): Promise<ApiSession[]> {
+  return (await apiFetch<{ data: ApiSession[] }>("/api/v1/auth/sessions/sign-out-others", { method: "POST" })).data;
+}

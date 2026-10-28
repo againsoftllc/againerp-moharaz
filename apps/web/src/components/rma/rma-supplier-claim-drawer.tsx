@@ -37,7 +37,6 @@ import { openRmaClaimCopy } from "@/lib/rma/rma-print";
 import { cn } from "@/lib/utils";
 
 type Form = {
-  supplier_reference: string;
   problem: string;
   diagnosis: string;
   accessories_sent: string;
@@ -49,7 +48,6 @@ type Form = {
 };
 
 const toForm = (c: RmaClaim): Form => ({
-  supplier_reference: c.supplier_reference ?? "",
   problem: c.problem ?? "",
   diagnosis: c.diagnosis ?? "",
   accessories_sent: c.accessories_sent ?? "",
@@ -112,7 +110,9 @@ export function RmaSupplierClaimDrawer({
   onDone: () => void;
 }) {
   const canWrite = useAdminCanWrite();
-  const canApprove = usePermission("rma_claim_approve", "write");
+  // the Approve permission on RMA (Workspace › Roles) decides every RMA document, as it does in the other modules
+  const holdsRmaApprove = usePermission("rma", "approve");
+  const canApprove = usePermission("rma_claim_approve", "write") || holdsRmaApprove;
   const canDispatch = usePermission("rma_dispatch", "write");
   const canReprint = usePermission("rma_reprint", "write");
   const [claim, setClaim] = useState<RmaClaim | null>(null);
@@ -189,12 +189,14 @@ export function RmaSupplierClaimDrawer({
     }
   };
 
-  const save = () =>
-    claim && form
-      ? run(
-          () =>
-            updateRmaClaim(claim.id, {
-              supplier_reference: nullable(form.supplier_reference),
+  // Saving a draft finalizes it, as in Sales: an approver's claim is approved, anyone else's is sent for approval
+  const save = () => {
+    if (!claim || !form) return undefined;
+    const finalizes = claim.status === "draft" || claim.status === "correction_requested";
+    return run(
+      async () => {
+        let next = dirty
+          ? await updateRmaClaim(claim.id, {
               problem: form.problem,
               diagnosis: nullable(form.diagnosis),
               accessories_sent: nullable(form.accessories_sent),
@@ -203,10 +205,14 @@ export function RmaSupplierClaimDrawer({
               courier: nullable(form.courier),
               tracking_number: nullable(form.tracking_number),
               expected_return_date: nullable(form.expected_return_date),
-            }),
-          "Saved",
-        )
-      : undefined;
+            })
+          : claim;
+        if (finalizes) next = await (canApprove ? decideRmaClaim(next.id, "approved") : submitRmaClaim(next.id));
+        return next;
+      },
+      !finalizes ? "Saved" : canApprove ? "Claim approved" : "Sent for approval",
+    );
+  };
 
   const decide = (decision: "approved" | "rejected" | "correction_requested") => {
     if (!claim) return;
@@ -278,8 +284,8 @@ export function RmaSupplierClaimDrawer({
             ) : (
               <>
                 {(status === "draft" || status === "correction_requested") && (
-                  <AgainDrawerButton variant="primary" onClick={() => void run(() => submitRmaClaim(claim.id), "Sent for approval")} disabled={busy || !canWrite}>
-                    Send for approval
+                  <AgainDrawerButton variant="primary" onClick={() => void save()} disabled={busy || !canWrite}>
+                    {busy ? "Saving…" : "Save"}
                   </AgainDrawerButton>
                 )}
                 {status === "pending_approval" && (
@@ -358,13 +364,10 @@ export function RmaSupplierClaimDrawer({
                 <Auto label="Serial" value={claim.serial_number} />
                 <Auto label="Product" value={claim.product_name ? `${claim.product_name}${claim.sku ? ` (${claim.sku})` : ""}` : claim.sku} />
                 <Auto label="Purchase receipt" value={claim.purchase_receipt_no} />
-                <Auto label="Vendor invoice" value={claim.vendor_invoice_no} />
+                {claim.vendor_invoice_no ? <Auto label="Vendor invoice" value={claim.vendor_invoice_no} /> : null}
               </Section>
 
               <Section title="Claim">
-                <AgainFormRow label="Supplier ref.">
-                  <AgainUnderlineInput value={form.supplier_reference} onChange={(v) => patch({ supplier_reference: v })} readOnly={!editable} placeholder="The supplier's RMA number" />
-                </AgainFormRow>
                 <AgainFormRow label="Problem">
                   <AgainUnderlineTextarea value={form.problem} onChange={(v) => patch({ problem: v })} rows={2} readOnly={!editable} />
                 </AgainFormRow>

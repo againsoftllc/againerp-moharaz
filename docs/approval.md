@@ -24,9 +24,11 @@ permission cannot finalize the action alone**: it waits in **Inventory › Appro
 5. The sender can **cancel** a still-pending request. Everyone sees their own requests under *Approve*; approvers also see
    everything they may decide.
 
-Who is an approver for an action: the System Manager, or a role with **Approve** on that action's module. For the four RMA
+Who is an approver for an action: the System Manager, or a role with **Approve** on that action's module. For the five RMA
 actions, anyone who already holds the matching privileged RMA right (`rma_approve`, `rma_delivery_approve`,
-`rma_claim_approve`, `rma_receive_approve`) is also an approver, so nobody loses a right they had.
+`rma_claim_approve`, `rma_receive_approve`, `rma_settlement_approve`) is also an approver, so nobody loses a right they had.
+The other way round holds too: **Approve on the RMA module alone decides every RMA document**, in the RMA drawers as well as
+here (see "RMA" below), so a role needs one tick, not five.
 
 ## The Approve screen
 
@@ -41,7 +43,7 @@ actions column, and the standard footer. It opens on **Pending**.
 - **A click on a row (or its Reference) opens the document in its ORIGINAL drawer**, the same one its own page opens, so the
   approver cross-checks the real thing: the sales order drawer for a sales order / invoice / delivery challan / sales return
   made from an order, the quotation in the sales drawer, the receipt drawer, the purchase return drawer, the sales return
-  drawer, the stock adjustment drawer, the stock transfer drawer, the RMA drawer for the four RMA decisions, and the customer
+  drawer, the stock adjustment drawer, the stock transfer drawer, the RMA drawer for the RMA decisions, and the customer
   (Ledger tab) or supplier drawer for a Collection / Payment / Party Adjustment. There is no separate approval drawer.
 - Requests that have no drawer of their own (a standalone invoice, a voucher between accounts, an expense payment, a payment
   against an invoice, a confirm of several orders) open a small **review dialog** with the request's values read now (a confirm
@@ -50,6 +52,7 @@ actions column, and the standard footer. It opens on **Pending**.
   the opened drawer is not held (they hold Approve), and the API closes the waiting request as approved ("Finalized directly
   from the document"). This applies to calls that move one document forward; payments and vouchers carry their own values and
   are only closed by Approve / Reject.
+- RMA documents that were sent for approval are rows too (see "RMA documents on the Approve screen").
 - The list reads the latest 200 requests and refreshes every 30 seconds.
 
 ## What needs approval
@@ -78,11 +81,55 @@ The groups and names are the ones on the Approve screen. **Module** is the modul
 | Document | Finalizing call (only when `decision` is `approved`) | What it does |
 |---|---|---|
 | Complain Receive | `POST /rma/tickets/{id}/decision` | accepts the complaint; the received unit goes into the RMA store |
-| Customer Delivery | `POST /rma/deliveries/{id}/decision` | the unit leaves the RMA store, charges are billed |
+| Customer Delivery | `POST /rma/deliveries/{id}/decision` | what the customer gets is posted, by delivery type (same unit, same product with a new serial, a different product, or cash back), with the charges (service charge, fine) invoiced and whatever is collected or paid back posted to Finance — a delivery that moves money also needs the settlement approval right; see [RMA.md](./RMA.md) B.11 |
 | Replacement Claim | `POST /rma/claims/{id}/decision` | approves the supplier claim |
-| Replacement Receive | `POST /rma/receipts/{id}/decision` | the replacement comes back from the supplier into the RMA store |
+| Replacement Receive | `POST /rma/receipts/{id}/decision` | what the supplier sent back is posted, by receipt type (same unit, same product with a new serial, a different product, or cash back: no unit, the money goes to Finance — that one also needs the settlement approval right; see [RMA.md](./RMA.md)) |
+| Settlement | `POST /rma/settlements/{id}/decision` | the money in / out of the RMA is posted to Finance |
 
 Rejecting or asking for a correction (`rejected`, `correction_requested`) never needs approval.
+
+### RMA documents on the Approve screen
+
+The whole RMA runs on the same system, and it behaves like Sales: **there is no separate Approve or Send for approval button.
+Saving is what finalizes.** In the New RMA drawer and in the complaint, delivery, claim, receipt and settlement drawers, a draft
+(or a document sent back for correction) shows **Save**, and Save does the rest by who presses it:
+
+- **An approver** (System Manager, a role with Approve on RMA, or the document's privileged right): Save approves it
+  automatically (an approved delivery / settlement is posted, an approved receipt stocks the unit). The document is saved, sent
+  and decided in one step (`POST …/decision` with `approved` also accepts a draft or a document sent back for correction).
+- **A user without the right:** Save sends it for approval ("Sent for approval"): the document waits as *Pending approval* and
+  is a row on the Approve screen, which an approver decides there or in the RMA drawer.
+
+An approver keeps **Approve / Return for correction / Reject** on a document that someone else already sent (*Pending approval*).
+
+Every RMA document (the complaint, a customer delivery, a supplier claim, a supplier receipt, a settlement) that was sent waits as
+*Pending approval* until it is decided. Those waiting
+documents are **rows on Inventory › Approve** (group RMA), next to the held calls, with the same columns and the same
+**Approve / Reject** buttons first in the row:
+
+| Row type | Document | Reference | Party | Amount |
+|---|---|---|---|---|
+| Complain Receive | the complaint (RMA) | RMA number | customer | – |
+| Customer Delivery | a customer delivery | delivery number | customer | delivery total |
+| Replacement Claim | a supplier claim | claim number | supplier | – |
+| Replacement Receive | a supplier receipt | receipt number | supplier | – |
+| Settlement | a settlement | settlement number | party | amount |
+
+- **Nothing is copied.** The rows are read from the RMA tables, so the RMA drawer and the Approve screen never disagree. A row
+  leaves *Pending* as soon as the document is decided anywhere (in its own drawer or here) and then reads *Approved* or
+  *Rejected* with who decided and the reason (a document sent back for correction reads *Rejected*, with that note).
+- A click on the row opens the RMA drawer, as for the RMA decisions above.
+- **Approve** and **Reject** run the document's own decision endpoint as the approver, so every RMA rule still applies (the unit
+  is stocked once, charges are billed once, the settlement is posted through Finance within the approver's limits). A refusal
+  stays on the row as the message. Reject asks for a reason (the RMA requires one); if none is typed, "Rejected from the Approve
+  screen" is recorded.
+- The sender is the person who made the document; the sender sees their own documents here but cannot decide them, and they are
+  cancelled from the RMA itself (no *Cancel request* button on these rows).
+- A held call for the same document (a user without the right who pressed Approve in the drawer) already is a row, so the
+  document is not listed a second time while that request is pending.
+- Counts: these rows are in the Approve badge for the people who can decide them and in the RMA count for everyone.
+- Who decides: the System Manager, a role with **Approve on RMA**, or the privileged right of that document (above). The RMA
+  drawers enable their Approve / Reject / Send back buttons for the same people.
 
 ### Accounts & Finance (module `finance`)
 | Document | Finalizing call | What it does |
@@ -146,8 +193,8 @@ which checks every action against the real routes and the model fields the descr
 
 ## Tested
 
-`scripts/verify_approval_registry.py` (routes and fields) plus an end-to-end run against the live API: every one of the 26
-calls above is held for a user without Approve and appears under the right group (Purchase 3, Sales 12, RMA 4, Finance 7);
+`scripts/verify_approval_registry.py` (routes and fields) plus an end-to-end run against the live API: every one of the 27
+calls above is held for a user without Approve and appears under the right group (Purchase 3, Sales 12, RMA 5, Finance 7);
 non-finalizing calls (quotation `sent`, RMA `rejected`, a sales return without `auto_credit`, bulk `cancelled`) pass straight
 through; an approver is never held; and approving really runs the stored call for a quotation (PATCH + body), a stock
 adjustment, a stock transfer (ship and receive), a goods receipt and a bulk order confirm. In the browser: pressing Save on a
@@ -155,3 +202,11 @@ draft sales order as a user without Approve shows one "Sent for approval" notice
 Approve / Reject as the first buttons of its row, the confirmation names the request, Approve confirms the order, Reject
 records the reason, a click on the row opens the original drawer (sales order, quotation, receipt, …), and the Reference link
 opens the sales order drawer.
+
+RMA documents (against the live stack): a complaint sent for approval by a user without the right is a row for the approver
+(group RMA, type Complain Receive, sender, reference), counted in the badge and the RMA count; the sender sees it as theirs and
+is refused when trying to approve it; Approve from the list approves the complaint in the RMA and the row moves to *Approved*
+with the approver's name; a second Approve is refused (already handled); Reject with a reason rejects the complaint with that
+reason and lists it under *Rejected*; a role that only has **Approve on RMA** (no privileged RMA right) sees the row and
+approves it. In the browser: the row shows Approve / Reject first, a click on the reference opens the RMA drawer showing
+*Pending approval*, and Reject with a reason rejects it and removes the row from *Pending*.

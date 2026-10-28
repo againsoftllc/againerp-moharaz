@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useIsSystemManager } from "@/lib/auth/permissions";
-import { useScopeSites } from "@/lib/store/scope-sites";
 import { AgainSystray } from "@/components/again/again-systray";
 import { WorkspaceNavDrawerToggle } from "@/components/workspace/workspace-nav-drawer-toggle";
 
@@ -45,23 +44,20 @@ const DIRECT_LINKS: NavLink[] = [{ id: "media", label: "Media", href: "/workspac
 const APPS_HREF = "/workspace/apps";
 const BILLING_HREF = "/workspace/billing";
 
-const SITES_HREF = "/workspace/sites";
-
-const CONFIG_LINKS: NavLink[] = [
-  { id: "company", label: "Company", href: "/workspace/setup" },
-  { id: "branches", label: "Branches", href: "/workspace/branches" },
-  { id: "sequences", label: "Document Numbering", href: "/workspace/sequences" },
-  { id: "periods", label: "Accounting Periods", href: "/workspace/periods" },
-  { id: "approvals", label: "Approval Limits", href: "/workspace/approval-limits" },
-  { id: "ai-approvals", label: "AI Approvals", href: "/workspace/ai-approvals" },
-  { id: "ai-usage", label: "AI Usage", href: "/workspace/ai-usage" },
-  { id: "general", label: "General Settings", href: "/workspace/business" },
-  { id: "localisation", label: "Localisation", href: "/workspace/business?tab=localisation" },
-  { id: "payments", label: "Payment Gateways", href: "/workspace/business?tab=payments" },
-  { id: "shipping", label: "Shipping Methods", href: "/workspace/business?tab=shipping" },
-  { id: "notifications", label: "Email / SMS", href: "/workspace/business?tab=notifications" },
-  { id: "permission", label: "Permission", href: "/workspace/business?tab=permission" },
+/**
+ * Configuration, grouped the Odoo way (Settings › Users & Companies …): a few entries under headers, and pages that belong together
+ * share one entry with tabs (Users | Roles | Approval Limits, Usage | Approvals; the company's business locations, localisation, invoice layout,
+ * document numbering and accounting periods are tabs of Company). Only what the ERP actually reads is listed.
+ */
+const CONFIG_ENTRIES: NavEntry[] = [
+  { kind: "header", id: "h-company", label: "Company" },
+  { kind: "item", id: "company", label: "Company", href: "/workspace/setup" },
+  { kind: "header", id: "h-access", label: "Users & access" },
+  { kind: "item", id: "users", label: "Users & Roles", href: "/workspace/users" },
+  { kind: "header", id: "h-ai", label: "Assistant" },
+  { kind: "item", id: "ai", label: "AI Usage & Approvals", href: "/workspace/ai-usage" },
 ];
+
 
 const NAV_MENUS: NavMenu[] = [
   // Apps is one page (modules + plugins in one grid) - a plain link, no sub menu
@@ -76,21 +72,9 @@ const NAV_MENUS: NavMenu[] = [
     children: [] as NavEntry[],
   })),
   {
-    id: "sites",
-    label: "Sites",
-    href: SITES_HREF,
-    // Children are filled in at render time from the stores in the database.
-    children: [] as NavEntry[],
-  },
-  {
     id: "configuration",
     label: "Configuration",
-    children: CONFIG_LINKS.map((child) => ({
-      kind: "item" as const,
-      id: child.id,
-      label: child.label,
-      href: child.href,
-    })),
+    children: CONFIG_ENTRIES,
   },
 ];
 
@@ -118,17 +102,6 @@ function resolveWorkspaceNav(
   if (isActiveHref(pathname, BILLING_HREF)) {
     return { activeNav: "billing", activeSub: "billing" };
   }
-  // Sites (includes legacy /workspace/website and /workspace/stores)
-  if (
-    isActiveHref(pathname, SITES_HREF) ||
-    isActiveHref(pathname, "/workspace/website") ||
-    isActiveHref(pathname, "/workspace/stores")
-  ) {
-    const siteId = pathname.startsWith(`${SITES_HREF}/`)
-      ? pathname.slice(SITES_HREF.length + 1).split("/")[0]
-      : "";
-    return { activeNav: "sites", activeSub: siteId || "sites-all" };
-  }
   if (isActiveHref(pathname, "/workspace/media") || isActiveHref(pathname, "/media")) {
     return { activeNav: "media", activeSub: "media" };
   }
@@ -137,55 +110,28 @@ function resolveWorkspaceNav(
       return { activeNav: item.id, activeSub: item.id };
     }
   }
-  // Users + Roles both live under Configuration → Permission
+  // Users + Roles share one entry (tabs on the page)
   if (
     isActiveHref(pathname, "/workspace/users") ||
-    isActiveHref(pathname, "/workspace/roles")
+    isActiveHref(pathname, "/workspace/roles") ||
+    isActiveHref(pathname, "/workspace/approval-limits") ||
+    isActiveHref(pathname, "/workspace/security")
   ) {
-    return { activeNav: "configuration", activeSub: "permission" };
+    return { activeNav: "configuration", activeSub: "users" };
   }
-  if (isActiveHref(pathname, "/workspace/setup")) {
+  // Company holds its branches, warehouses, localisation and invoice layout as tabs
+  if (
+    isActiveHref(pathname, "/workspace/setup") ||
+    isActiveHref(pathname, "/workspace/branches") ||
+    isActiveHref(pathname, "/workspace/sequences") ||
+    isActiveHref(pathname, "/workspace/periods") ||
+    isActiveHref(pathname, "/workspace/localisation")
+  ) {
     return { activeNav: "configuration", activeSub: "company" };
   }
-  if (isActiveHref(pathname, "/workspace/branches")) {
-    return { activeNav: "configuration", activeSub: "branches" };
-  }
-  if (isActiveHref(pathname, "/workspace/sequences")) {
-    return { activeNav: "configuration", activeSub: "sequences" };
-  }
-  if (isActiveHref(pathname, "/workspace/periods")) {
-    return { activeNav: "configuration", activeSub: "periods" };
-  }
-  if (isActiveHref(pathname, "/workspace/approval-limits")) {
-    return { activeNav: "configuration", activeSub: "approvals" };
-  }
-  if (isActiveHref(pathname, "/workspace/ai-approvals")) {
-    return { activeNav: "configuration", activeSub: "ai-approvals" };
-  }
-  if (isActiveHref(pathname, "/workspace/ai-usage")) {
-    return { activeNav: "configuration", activeSub: "ai-usage" };
-  }
-  if (pathname === "/workspace/business") {
-    const tab = searchParams?.get("tab") || "general";
-    if (
-      tab === "localisation" ||
-      tab === "payments" ||
-      tab === "shipping" ||
-      tab === "notifications" ||
-      tab === "permission"
-    ) {
-      return { activeNav: "configuration", activeSub: tab };
-    }
-    return { activeNav: "configuration", activeSub: "general" };
-  }
-  if (isActiveHref(pathname, "/workspace/localisation")) {
-    return { activeNav: "configuration", activeSub: "localisation" };
-  }
-  for (const child of CONFIG_LINKS) {
-    const hrefPath = child.href.split("?")[0]!;
-    if (hrefPath !== "/workspace/business" && isActiveHref(pathname, hrefPath)) {
-      return { activeNav: "configuration", activeSub: child.id };
-    }
+  // AI usage + AI approvals share one entry (tabs on the page)
+  if (isActiveHref(pathname, "/workspace/ai-usage") || isActiveHref(pathname, "/workspace/ai-approvals")) {
+    return { activeNav: "configuration", activeSub: "ai" };
   }
   // Other /workspace/* categories (e.g. checkout) still highlight Configuration.
   if (pathname.startsWith("/workspace/")) {
@@ -376,40 +322,22 @@ export function WorkspaceModuleNavbar() {
   const searchParams = useSearchParams();
   const { activeNav, activeSub } = resolveWorkspaceNav(pathname, searchParams);
   const isSystemManager = useIsSystemManager();
-  const sites = useScopeSites();
 
   const menus = useMemo(
     () =>
       NAV_MENUS.filter((menu) => menu.id !== "billing" || isSystemManager).map((menu) => {
-        if (menu.id === "sites") {
-          const children: NavEntry[] = [
-            { kind: "item", id: "sites-all", label: "All stores", href: SITES_HREF },
-          ];
-          if (sites.length) {
-            children.push({ kind: "header", id: "sites-header", label: "Stores" });
-            for (const site of sites) {
-              children.push({
-                kind: "item",
-                id: site.id,
-                label: site.name,
-                href: `${SITES_HREF}/${site.id}`,
-              });
-            }
-          }
-          return { ...menu, children };
-        }
         // Users + roles are System Manager only, so do not advertise the link.
         if (menu.id === "configuration" && !isSystemManager) {
           return {
             ...menu,
             children: menu.children.filter(
-              (child) => !("id" in child && child.id === "permission"),
+              (child) => !("id" in child && (child.id === "users" || child.id === "h-access")),
             ),
           };
         }
         return menu;
       }),
-    [isSystemManager, sites],
+    [isSystemManager],
   );
 
   return (

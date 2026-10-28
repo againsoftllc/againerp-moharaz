@@ -21,6 +21,7 @@ from app.schemas.rma.settlement import (
     RmaSettlementUpdate,
 )
 from app.services import rbac
+from app.services.rma import decision_rights
 from app.services.core.approval_service import assert_can_approve
 from app.services.rma import rma_service, settlement_service
 
@@ -133,7 +134,7 @@ def decide_settlement(
     company_id: str = Depends(get_current_company_id),
 ) -> RmaSettlementResponse:
     """Approve (posts the payment and journal through Finance, once), reject, or send back."""
-    _need(db, user, "rma_settlement_approve", "approve or reject settlements")
+    decision_rights.need_to_decide(db, user, "rma_settlement_approve", "approve or reject settlements")
     s = _settlement(db, settlement_id, company_id)
     if payload.decision == "approved":
         assert_can_approve(db, company_id, user, "finance.payment", s.amount, what="RMA settlement")

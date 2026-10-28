@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Download, Plus, RefreshCw, Settings2 } from "lucide-react";
+import { Download, Filter, RefreshCw, Settings2, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ import { ListGridOpenFallback } from "@/components/shared/list-grid-open-fallbac
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { useApiHealth } from "@/lib/api/use-api-health";
 import { useInventoryWarehouses } from "@/lib/api/use-inventory";
+import { useWarehouseAccess } from "@/lib/auth/warehouse-access";
 import {
   cancelStockTransfer,
   fetchStockTransfer,
@@ -37,6 +38,7 @@ function StockTransfersContent() {
   const canWrite = useAdminCanWrite();
   const apiHealth = useApiHealth();
   const { warehouses } = useInventoryWarehouses();
+  const warehouseAccess = useWarehouseAccess();
   const gridRef = useRef<StockTransferGridHandle>(null);
   const [filterCount, setFilterCount] = useState(0);
   const [rows, setRows] = useState<ApiStockTransfer[]>([]);
@@ -81,7 +83,7 @@ function StockTransfersContent() {
     <ListGridHeaderStart title="Stock Transfers">
       {canWrite ? (
         <Button size="sm" className="rounded-none" onClick={() => setCreateOpen(true)}>
-          New Transfer
+          New
         </Button>
       ) : null}
       <DropdownMenu>
@@ -90,7 +92,7 @@ function StockTransfersContent() {
             type="button"
             variant="outline"
             size="icon"
-            className={cn("relative h-[26px] w-[26px] shrink-0 rounded-none")}
+            className="relative h-[26px] w-[26px] shrink-0 rounded-none"
             aria-label="Settings"
           >
             <Settings2 className="h-3.5 w-3.5" />
@@ -112,11 +114,21 @@ function StockTransfersContent() {
             <RefreshCw className={cn("mr-1.5 h-3 w-3", loading && "animate-spin")} />
             Refresh
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => gridRef.current?.openFilters()}>
+            <Filter className="mr-1.5 h-3 w-3" />
+            Filters
+            {filterCount > 0 ? <span className="ml-auto text-[10px] text-muted-foreground">{filterCount}</span> : null}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => gridRef.current?.openColumns()}>
+            <SlidersHorizontal className="mr-1.5 h-3 w-3" />
+            Columns
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => gridRef.current?.exportCsv()}>
             <Download className="mr-1.5 h-3.5 w-3" />
             Export
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => gridRef.current?.resetFilters()}>Reset filters</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </ListGridHeaderStart>
@@ -127,7 +139,7 @@ function StockTransfersContent() {
       <StockTransferGrid
         ref={gridRef}
         transfers={rows}
-        warehouses={warehouses}
+        warehouses={warehouseAccess.pickable(warehouses)}
         loading={loading && rows.length === 0}
         onView={async (row) => {
           try {
@@ -163,11 +175,11 @@ function StockTransfersContent() {
         }}
         onFilterCountChange={setFilterCount}
         headerLeftActions={headerLeftActions}
-        footerLeftActions={
+        footerLeftActions={(visible) => (
           <span className="px-2 text-[10px] text-muted-foreground">
-            {loading ? "Loading…" : `${rows.length} transfer${rows.length === 1 ? "" : "s"}`}
+            {loading ? "Loading…" : `${visible.length} shown`}
           </span>
-        }
+        )}
         className="min-h-0 flex-1"
       />
 
@@ -189,16 +201,6 @@ function StockTransfersContent() {
         onChanged={load}
       />
 
-      {canWrite && (
-        <Button
-          size="sm"
-          className="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-none p-0 shadow-lg md:hidden"
-          onClick={() => setCreateOpen(true)}
-          aria-label="New transfer"
-        >
-          <Plus className="h-5 w-5" />
-        </Button>
-      )}
     </div>
   );
 }

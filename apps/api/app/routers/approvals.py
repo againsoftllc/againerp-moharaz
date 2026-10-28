@@ -22,6 +22,7 @@ from app.services.core import approval_gate as gate
 from app.services.core.approval_actions import ACTION_BY_KEY, ACTIONS
 from app.services.core.approval_details import build_document
 from app.services.core import approval_edit_requests as edits
+from app.services.core import approval_rma_documents as rmadocs
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
@@ -187,7 +188,8 @@ def list_approvals(
         .count()
     )
     # sales order edit requests sit in the same list: they are decisions waiting for the same people (docs/approval.md)
-    can_review = gate.Rights(db, user).can_approve_group("sales")
+    rights = gate.Rights(db, user)
+    can_review = rights.can_approve_group("sales")
     merged: list[ApprovalRead] = []
     if not group or group == "sales":
         wanted = {"pending": ("pending",), "approved": ("approved",), "rejected": ("rejected",), "cancelled": ()}
@@ -202,6 +204,21 @@ def list_approvals(
             merged.append(ApprovalRead(**row))
         waiting, mine_edits = edits.pending_counts(db, company_id, user, can_review=can_review)
         pending += waiting if can_review else mine_edits
+    # RMA documents sent for approval (complaint, delivery, claim, receipt, settlement) are decisions waiting for the same people
+    rma_pending = rmadocs.rma_rows(db, company_id, user, rights=rights, include_decided=False)
+    pending += len(rma_pending)
+    if not group or group == "rma":
+        wanted_rma = {"pending": ("pending",), "approved": ("approved",), "rejected": ("rejected",), "cancelled": ()}
+        needle_rma = (q or "").strip().lower()
+        native = rma_pending if status == "pending" else rmadocs.rma_rows(db, company_id, user, rights=rights, include_decided=True)
+        for row in native:
+            if status != "all" and row["status"] not in wanted_rma.get(status, ()):
+                continue
+            if mine and not row["is_mine"]:
+                continue
+            if needle_rma and needle_rma not in " ".join(str(row.get(k) or "") for k in ("label", "reference", "party", "requested_by_name", "summary")).lower():
+                continue
+            merged.append(ApprovalRead(**row))
     if not merged:
         total = query.count()
         rows = (
@@ -263,9 +280,11 @@ def approval_summary(
     counts["sales"] = int(counts.get("sales", 0)) + edits.pending_counts(db, company_id, user, can_review=True)[0]
     if can_review:
         group_can.add("sales")
+    rma_waiting, rma_mine, rma_total = rmadocs.pending_counts(db, company_id, user, rights=gate.Rights(db, user))
+    counts["rma"] = int(counts.get("rma", 0)) + rma_total
     return ApprovalSummary(
-        pending_for_me=for_me + edit_waiting,
-        my_pending=mine + edit_mine,
+        pending_for_me=for_me + edit_waiting + rma_waiting,
+        my_pending=mine + edit_mine + rma_mine,
         can_approve_any=bool(keys) or can_review,
         groups=[
             GroupSummary(key=key, label=label, pending=int(counts.get(key, 0)), can_approve=key in group_can)
@@ -369,6 +388,47 @@ def _review_edit(request_id: str, user: AuthUser, company_id: str, approve: bool
         db.close()
 
 
+async def _replay(request: Request, method: str, url: str, body: Optional[str]) -> tuple[bool, Optional[str], Optional[str]]:
+    """Run a call through the app as the person who is deciding: (ok, failure text, result text)."""
+    headers = {"Authorization": request.headers.get("authorization", ""), "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=request.app), base_url="http://approval.local", timeout=120.0
+        ) as client:
+            resp = await client.request(method, url, content=(body or "").encode("utf-8") or None, headers=headers)
+        ok = resp.status_code < 300
+        return ok, None if ok else _error_text(resp), resp.text[:4000] if ok else None
+    except Exception as exc:  # the replay itself broke
+        return False, f"The action could not be run: {exc}", None
+
+
+async def _decide_rma(request: Request, request_id: str, user: AuthUser, company_id: str, *, approve: bool, note: Optional[str]) -> dict[str, Any]:
+    """Approve / reject an RMA document: its own decision endpoint, run as the approver so every RMA rule still applies."""
+
+    def check() -> None:
+        db = SessionLocal()
+        try:
+            try:
+                doc = rmadocs.document_for(db, company_id, request_id)
+            except ValueError:
+                doc = None
+            if doc is None:
+                raise HTTPException(status_code=404, detail="Approval request not found")
+            if not rmadocs.can_decide(db, user, request_id):
+                raise HTTPException(status_code=403, detail="You do not have permission to decide this")
+            if doc.status != "pending_approval":
+                raise HTTPException(status_code=409, detail="This request was already handled")
+        finally:
+            db.close()
+
+    await run_in_threadpool(check)
+    path, body = rmadocs.decision_call(request_id, approve=approve, note=note)
+    ok, failure, _ = await _replay(request, "POST", path, body)
+    if not ok:
+        raise HTTPException(status_code=409, detail=failure or "The decision could not be recorded")
+    return {"data": {"id": request_id, "status": "approved" if approve else "rejected"}}
+
+
 @router.post("/{request_id}/approve")
 async def approve_request(
     request_id: str,
@@ -380,7 +440,8 @@ async def approve_request(
     """Approve = run the held call now, as the approver. A call that fails stays pending with the reason."""
     if edits.is_edit_id(request_id):
         return await run_in_threadpool(_review_edit, request_id, user, company_id, True, payload.note)
-    authorization = request.headers.get("authorization", "")
+    if rmadocs.is_rma_id(request_id):
+        return await _decide_rma(request, request_id, user, company_id, approve=True, note=payload.note)
 
     def claim() -> dict[str, Any]:
         db = SessionLocal()
@@ -409,19 +470,8 @@ async def approve_request(
     held = await run_in_threadpool(claim)
 
     url = held["path"] + (f"?{held['query']}" if held["query"] else "")
-    headers = {"Authorization": authorization, "Content-Type": "application/json"}
-    try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=request.app), base_url="http://approval.local", timeout=120.0
-        ) as client:
-            resp = await client.request(
-                held["method"], url, content=(held["body"] or "").encode("utf-8") or None, headers=headers
-            )
-        ok = resp.status_code < 300
-        failure = None if ok else _error_text(resp)
-        result = resp.text[:4000] if ok else None
-    except Exception as exc:  # the replay itself broke: put the request back so nothing is lost
-        ok, failure, result = False, f"The action could not be run: {exc}", None
+    # if the replay itself breaks the request goes back to pending, so nothing is lost
+    ok, failure, result = await _replay(request, held["method"], url, held["body"])
 
     def finish() -> None:
         db = SessionLocal()
@@ -451,13 +501,27 @@ async def approve_request(
 
 
 @router.post("/{request_id}/reject")
-def reject_request(
+async def reject_request(
     request_id: str,
     payload: DecisionIn,
-    db: Session = Depends(get_db),
+    request: Request,
     user: AuthUser = Depends(get_current_user),
     company_id: str = Depends(get_current_company_id),
 ) -> dict[str, Any]:
+    if rmadocs.is_rma_id(request_id):
+        return await _decide_rma(request, request_id, user, company_id, approve=False, note=payload.note)
+    return await run_in_threadpool(_reject_held, request_id, payload, user, company_id)
+
+
+def _reject_held(request_id: str, payload: DecisionIn, user: AuthUser, company_id: str) -> dict[str, Any]:
+    db = SessionLocal()
+    try:
+        return _reject_held_in(db, request_id, payload, user, company_id)
+    finally:
+        db.close()
+
+
+def _reject_held_in(db: Session, request_id: str, payload: DecisionIn, user: AuthUser, company_id: str) -> dict[str, Any]:
     if edits.is_edit_id(request_id):
         return _review_edit(request_id, user, company_id, False, payload.note)
     row = _own_row(db, request_id, company_id)
@@ -484,6 +548,8 @@ def cancel_request(
     """The sender takes a still-pending request back."""
     if edits.is_edit_id(request_id):
         raise HTTPException(status_code=400, detail="An order edit request is decided by an approver; it cannot be cancelled here")
+    if rmadocs.is_rma_id(request_id):
+        raise HTTPException(status_code=400, detail="Cancel an RMA document from the RMA itself")
     row = _own_row(db, request_id, company_id)
     if row.requested_by != user.id:
         raise HTTPException(status_code=403, detail="Only the sender can cancel a request")

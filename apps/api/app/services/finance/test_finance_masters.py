@@ -18,6 +18,7 @@ from app.models.core_sequence import CoreSequence
 from app.models.finance import FinanceAccount, FinanceJournalEntry, FinanceJournalLine, FinancePayable, FinancePayment, FinancePaymentAccount
 from app.models.finance_master import FinanceBank, FinanceBankBranch, FinanceOpeningBatch, FinanceOpeningLine
 from app.models.finance_period import FinancePeriod
+from app.models.finance_settlement import FinanceAllocation
 from app.services.finance import master_service as masters
 from app.services.finance.finance_service import FinanceService
 from app.services.finance.posting import money
@@ -35,7 +36,7 @@ class FinanceMasterTests(TestCase):
                 FinanceAccount.__table__, FinancePaymentAccount.__table__, FinanceJournalEntry.__table__,
                 FinanceJournalLine.__table__, FinancePayment.__table__, FinancePayable.__table__, CoreSequence.__table__,
                 FinancePeriod.__table__, FinanceBank.__table__, FinanceBankBranch.__table__, FinanceOpeningBatch.__table__,
-                FinanceOpeningLine.__table__,
+                FinanceOpeningLine.__table__, FinanceAllocation.__table__,
             ],
         )
         self.db: Session = sessionmaker(bind=engine)()

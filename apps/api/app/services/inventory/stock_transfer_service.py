@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from fastapi import HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.auth_user import AuthUser
@@ -65,6 +66,7 @@ class StockTransferService:
         status: Optional[str] = None,
         from_warehouse_id: Optional[str] = None,
         to_warehouse_id: Optional[str] = None,
+        warehouse_ids: Optional[list[str]] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[InventoryStockTransfer], int]:
@@ -77,6 +79,13 @@ class StockTransferService:
             query = query.filter(InventoryStockTransfer.from_warehouse_id == from_warehouse_id)
         if to_warehouse_id:
             query = query.filter(InventoryStockTransfer.to_warehouse_id == to_warehouse_id)
+        if warehouse_ids is not None:  # a member limited to some warehouses: transfers out of or into theirs
+            query = query.filter(
+                or_(
+                    InventoryStockTransfer.from_warehouse_id.in_(warehouse_ids),
+                    InventoryStockTransfer.to_warehouse_id.in_(warehouse_ids),
+                )
+            )
         total = query.count()
         rows = (
             query.order_by(InventoryStockTransfer.created_at.desc())
@@ -104,20 +113,7 @@ class StockTransferService:
         notes: Optional[str] = None,
         actor_id: Optional[str] = None,
     ) -> InventoryStockTransfer:
-        if from_warehouse_id == to_warehouse_id:
-            raise HTTPException(
-                status_code=400,
-                detail="Source and destination warehouse must be different.",
-            )
-        if not lines:
-            raise HTTPException(status_code=400, detail="At least one transfer line is required")
-
-        source = self._require_warehouse(from_warehouse_id)
-        dest = self._require_warehouse(to_warehouse_id)
-        if not source.is_active:
-            raise HTTPException(status_code=400, detail=f"Source warehouse {source.name} is inactive")
-        if not dest.is_active:
-            raise HTTPException(status_code=400, detail=f"Destination warehouse {dest.name} is inactive")
+        self._validate_route(from_warehouse_id, to_warehouse_id, lines)
 
         transfer = InventoryStockTransfer(
             company_id=company_id,
@@ -140,6 +136,60 @@ class StockTransferService:
         self._event(transfer, "Transfer Created", actor_id)
         self._db.flush()
         return transfer
+
+    def update_transfer(
+        self,
+        transfer_id: str,
+        *,
+        from_warehouse_id: str,
+        to_warehouse_id: str,
+        lines: list[TransferLineInput],
+        transfer_date: Optional[date] = None,
+        reference_number: Optional[str] = None,
+        notes: Optional[str] = None,
+        actor_id: Optional[str] = None,
+    ) -> InventoryStockTransfer:
+        """Edit a draft: nothing has left the source warehouse yet, so the header and every line can change."""
+        transfer = self._require_transfer(transfer_id, for_update=True)
+        if transfer.status != "draft":
+            raise HTTPException(
+                status_code=400,
+                detail="Only draft transfers can be edited. A shipped transfer can only be received.",
+            )
+        self._validate_route(from_warehouse_id, to_warehouse_id, lines)
+
+        transfer.from_warehouse_id = from_warehouse_id
+        transfer.to_warehouse_id = to_warehouse_id
+        transfer.transfer_date = transfer_date or transfer.transfer_date
+        transfer.reference_number = (reference_number or "").strip() or None
+        transfer.notes = (notes or "").strip() or None
+        for old in list(transfer.lines):
+            self._db.delete(old)  # its serial links go with it (cascade)
+        self._db.flush()
+        self._db.expire(transfer, ["lines"])
+
+        seen_serials: set[str] = set()
+        for line_in in lines:
+            self._add_draft_line(transfer, line_in, seen_serials)
+        self._event(transfer, "Transfer Updated", actor_id)
+        self._db.flush()
+        return transfer
+
+    def _validate_route(self, from_warehouse_id: str, to_warehouse_id: str, lines: list[TransferLineInput]) -> None:
+        if from_warehouse_id == to_warehouse_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Source and destination warehouse must be different.",
+            )
+        if not lines:
+            raise HTTPException(status_code=400, detail="At least one transfer line is required")
+
+        source = self._require_warehouse(from_warehouse_id)
+        dest = self._require_warehouse(to_warehouse_id)
+        if not source.is_active:
+            raise HTTPException(status_code=400, detail=f"Source warehouse {source.name} is inactive")
+        if not dest.is_active:
+            raise HTTPException(status_code=400, detail=f"Destination warehouse {dest.name} is inactive")
 
     def ship_transfer(self, transfer_id: str, *, actor_id: Optional[str] = None) -> InventoryStockTransfer:
         transfer = self._require_transfer(transfer_id, for_update=True)
@@ -708,6 +758,7 @@ def transfer_to_read(db: Session, transfer: InventoryStockTransfer) -> dict:
                 received_qty=line.received_qty,
                 remaining_qty=max(0, line.shipped_qty - line.received_qty),
                 available_qty=available,
+                unit_cost=stock.unit_cost if stock else None,
                 notes=line.notes,
                 serials=[
                     StockTransferSerialRead(
@@ -737,7 +788,9 @@ def transfer_to_read(db: Session, transfer: InventoryStockTransfer) -> dict:
         requested_by=transfer.requested_by,
         requested_by_name=users.get(transfer.requested_by or ""),
         shipped_by=transfer.shipped_by,
+        shipped_by_name=users.get(transfer.shipped_by or ""),
         received_by=transfer.received_by,
+        received_by_name=users.get(transfer.received_by or ""),
         notes=transfer.notes,
         shipped_at=transfer.shipped_at,
         completed_at=transfer.completed_at,

@@ -14,8 +14,15 @@ Posting pattern (A/R side shown; A/P mirrors it)::
     clear    Dr 2150                          Cr Bank
     bounce   Dr 2150                          Cr 2100
 
+    represent (bounced cheque sent to the bank again)
+             received: Dr 1160 Cr 1100 · issued: Dr 2100 Cr 2150   (+ a fresh FinancePayment)
+
 The cheque's ``FinancePayment`` has no payment account until clearance, so the bank balance and
 the cash-flow report only move on the clearing event.
+
+Journal entries are unique per (source_type, source_id) and ``_post_journal`` hands back an
+existing entry instead of posting twice, so every re-presentation starts a new posting cycle keyed
+by its own event id (see ``_cycle_key``) — a second bounce must post, not silently reuse the first.
 """
 
 from __future__ import annotations
@@ -25,13 +32,14 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.models.finance import (
     FinanceAccount,
     FinanceCheque,
     FinanceChequeEvent,
+    FinanceJournalEntry,
     FinancePayable,
     FinancePayment,
     FinanceReceivable,
@@ -59,7 +67,17 @@ TRANSITIONS: dict[str, dict[str, str]] = {
     "clear": {"deposited": "cleared", "issued": "cleared", "presented": "cleared"},
     "bounce": {"deposited": "bounced", "issued": "bounced", "presented": "bounced"},
     "cancel": {"received": "cancelled", "issued": "cancelled", "deposited": "cancelled", "presented": "cancelled"},
+    # Dishonoured cheque sent to the bank again (OnerERP D → S).
+    "represent": {"bounced": "deposited"},
+    # Dishonoured cheque settled some other way — replacement cheque, cash (OnerERP D → B). Nothing posts:
+    # the bounce already put the amount back on the party's account.
+    "close": {"bounced": "cancelled"},
 }
+
+# An issued cheque goes back to the supplier, who presents it at their bank — it never enters ours.
+ISSUED_TRANSITIONS: dict[str, dict[str, str]] = {"represent": {"bounced": "presented"}}
+
+BULK_LIMIT = 200
 
 # GL accounts the cheque flow depends on: code -> (expected type, label). Missing or repurposed
 # accounts stop the posting with a clear message instead of silently using the wrong ledger.
@@ -72,10 +90,11 @@ REQUIRED_ACCOUNTS = {
 }
 
 
-def next_status(action: str, current: str) -> str:
+def next_status(action: str, current: str, direction: str = "received") -> str:
     """Pure transition lookup — raises ValueError when the action is not valid for ``current``."""
+    moves = ISSUED_TRANSITIONS.get(action) if direction == "issued" else None
     try:
-        return TRANSITIONS[action][current]
+        return (moves or TRANSITIONS[action])[current]
     except KeyError:
         raise ValueError(f"Cannot {action} a cheque that is {current}") from None
 
@@ -107,6 +126,21 @@ def build_clearance_lines(direction: str, amount: Decimal, bank_gl: str, party_i
     return [
         (CHEQUES_ISSUED_CODE, amount, ZERO, desc, "supplier", party_id, ZERO),
         (bank_gl, ZERO, amount, desc, "supplier", party_id, ZERO),
+    ]
+
+
+def build_represent_lines(direction: str, amount: Decimal, party_id: str, number: str) -> list[tuple]:
+    """A dishonoured cheque going back to the bank pays the party again. A received one goes straight to
+    Cheques Under Collection (it is being deposited); an issued one is outstanding with the supplier again."""
+    desc = f"Cheque {number} re-presented"
+    if direction == "received":
+        return [
+            (CHEQUES_UNDER_COLLECTION_CODE, amount, ZERO, desc, "customer", party_id, ZERO),
+            (AR_CODE, ZERO, amount, desc, "customer", party_id, ZERO),
+        ]
+    return [
+        (AP_CODE, amount, ZERO, desc, "supplier", party_id, ZERO),
+        (CHEQUES_ISSUED_CODE, ZERO, amount, desc, "supplier", party_id, ZERO),
     ]
 
 
@@ -151,6 +185,10 @@ class ChequeService:
         direction: Optional[str] = None,
         status: Optional[str] = None,
         party_id: Optional[str] = None,
+        payment_account_id: Optional[str] = None,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+        search: Optional[str] = None,
         limit: int = 200,
         offset: int = 0,
     ) -> tuple[list[FinanceCheque], int]:
@@ -161,6 +199,14 @@ class ChequeService:
             query = query.filter(FinanceCheque.status == status)
         if party_id:
             query = query.filter(FinanceCheque.party_id == party_id)
+        if payment_account_id:
+            query = query.filter(FinanceCheque.payment_account_id == payment_account_id)
+        if date_from:
+            query = query.filter(FinanceCheque.cheque_date >= date_from)
+        if date_to:
+            query = query.filter(FinanceCheque.cheque_date <= date_to)
+        if search and search.strip():
+            query = query.filter(FinanceCheque.cheque_number.ilike(f"%{search.strip()}%"))
         total = query.count()
         rows = (
             query.order_by(FinanceCheque.cheque_date.desc(), FinanceCheque.created_at.desc())
@@ -177,6 +223,42 @@ class ChequeService:
             .order_by(FinanceChequeEvent.created_at.asc(), FinanceChequeEvent.id.asc())
             .all()
         )
+
+    def journal_entry_ids(self, cheque: FinanceCheque) -> list[str]:
+        """Every posting of the cheque, across re-presentation cycles, oldest first."""
+        keys = [cheque.id] + [
+            row.id
+            for row in self._db.query(FinanceChequeEvent.id).filter(
+                FinanceChequeEvent.cheque_id == cheque.id, FinanceChequeEvent.action == "represent",
+            )
+        ]
+        rows = (
+            self._db.query(FinanceJournalEntry.id)
+            .filter(
+                FinanceJournalEntry.company_id == cheque.company_id,
+                FinanceJournalEntry.source_id.in_(keys),
+                FinanceJournalEntry.source_type.like("cheque%"),
+            )
+            .order_by(FinanceJournalEntry.created_at.asc(), FinanceJournalEntry.entry_number.asc())
+            .all()
+        )
+        return [row.id for row in rows]
+
+    def event_stats(self, cheque_ids: list[str]) -> dict[str, dict]:
+        """Last treatment date and how often each cheque bounced — one query for a whole list page."""
+        if not cheque_ids:
+            return {}
+        rows = (
+            self._db.query(
+                FinanceChequeEvent.cheque_id,
+                func.max(FinanceChequeEvent.event_date),
+                func.sum(case((FinanceChequeEvent.action == "bounce", 1), else_=0)),
+            )
+            .filter(FinanceChequeEvent.cheque_id.in_(cheque_ids), FinanceChequeEvent.action != "edit")
+            .group_by(FinanceChequeEvent.cheque_id)
+            .all()
+        )
+        return {cid: {"last_action_date": last, "bounce_count": int(bounces or 0)} for cid, last, bounces in rows}
 
     # ── Create ───────────────────────────────────────────────────────────────
 
@@ -275,26 +357,7 @@ class ChequeService:
             lines=build_receipt_lines(direction, amount, party_id, cheque_number),
         )
         cheque.receipt_journal_entry_id = entry.id
-
-        payment = FinancePayment(
-            company_id=company_id,
-            payment_number=self._fin._next_payment_number(company_id),
-            payment_date=entry_date,
-            amount=amount,
-            payment_method="cheque",
-            payment_account_id=None,  # bank untouched until clearance
-            direction="inbound" if direction == "received" else "outbound",
-            source_type="cheque",
-            source_id=cheque.id,
-            party_type=party_type,
-            party_id=party_id,
-            journal_entry_id=entry.id,
-            reference=cheque_number,
-            notes=f"Cheque {cheque_number} · {bank_name}",
-        )
-        self._db.add(payment)
-        self._db.flush()
-        cheque.payment_id = payment.id
+        self._new_payment(cheque, entry_date, entry.id)
 
         if receivable:
             self._fin._apply_payment_to_receivable(receivable, amount)
@@ -362,6 +425,16 @@ class ChequeService:
         if notes is not None and (notes.strip() or None) != cheque.notes:
             changes.append("notes")
             cheque.notes = notes.strip() or None
+        if new_bank != cheque.bank_name or new_number != cheque.cheque_number:
+            # the party ledger and statements show the payment's reference — keep it on the corrected number
+            for payment in self._db.query(FinancePayment).filter(
+                FinancePayment.source_id == cheque.id, FinancePayment.source_type.in_(("cheque", "cheque_reversal")),
+            ):
+                payment.reference = new_number
+                if payment.notes:
+                    payment.notes = payment.notes.replace(f"Cheque {cheque.cheque_number}", f"Cheque {new_number}").replace(
+                        f"· {cheque.bank_name}", f"· {new_bank}",
+                    )
         cheque.bank_name = new_bank
         cheque.cheque_number = new_number
         if changes:
@@ -385,12 +458,24 @@ class ChequeService:
     ) -> FinanceCheque:
         cheque = self.get(cheque_id, company_id=company_id, lock=True)
         try:
-            new_status = next_status(action, cheque.status)
+            new_status = next_status(action, cheque.status, cheque.direction)
         except (ValueError, KeyError) as exc:
             # Repeating an action lands here too — the cheque has already moved on.
             raise HTTPException(status_code=409, detail=str(exc)) from None
 
-        when = action_date or date.today()
+        # A treatment can't be dated before the cheque's last one: the as-on reports read the status from
+        # event dates, so a back-dated cancel after a deposit would show the cheque as still deposited.
+        last_date = (
+            self._db.query(func.max(FinanceChequeEvent.event_date))
+            .filter(FinanceChequeEvent.cheque_id == cheque.id, FinanceChequeEvent.action != "edit")
+            .scalar()
+        )
+        when = action_date or max(date.today(), last_date or date.today())
+        if last_date and when < last_date:
+            raise HTTPException(
+                status_code=400,
+                detail=f"The date can't be before the cheque's last treatment ({last_date.isoformat()})",
+            )
         bank_charge = money(bank_charge or 0)
         if bank_charge < ZERO:
             raise HTTPException(status_code=400, detail="Bank charge cannot be negative")
@@ -399,6 +484,41 @@ class ChequeService:
         old_status = cheque.status
         self._require_accounts(company_id)
         entry_id: Optional[str] = None
+        cycle = self._cycle_key(cheque)
+
+        if action == "represent":
+            if cheque.direction == "received":
+                account = self._bank_account(company_id, payment_account_id or cheque.payment_account_id)
+                cheque.payment_account_id = account.id
+            # the cycle key is this event's id, so the event has to exist before the posting
+            event = self._log(cheque, action, old_status, new_status, when, None, actor, note)
+            self._db.flush()
+            entry = self._fin._post_journal(
+                company_id=company_id,
+                entry_date=when,
+                description=f"Cheque {cheque.cheque_number} re-presented",
+                source_type="cheque_represent",
+                source_id=event.id,
+                lines=build_represent_lines(cheque.direction, cheque.amount, cheque.party_id, cheque.cheque_number),
+            )
+            event.journal_entry_id = entry.id
+            if cheque.direction == "received":
+                cheque.deposit_journal_entry_id = entry.id
+            else:
+                cheque.receipt_journal_entry_id = entry.id
+            cheque.clearance_journal_entry_id = None
+            cheque.reversal_journal_entry_id = None
+            self._new_payment(cheque, when, entry.id)
+            self._reapply_settlement(cheque)
+            cheque.status = new_status
+            self._db.flush()
+            return cheque
+
+        if action == "close":
+            cheque.status = new_status
+            self._log(cheque, action, old_status, new_status, when, None, actor, note)
+            self._db.flush()
+            return cheque
 
         if action == "deposit":
             account = self._bank_account(company_id, payment_account_id)
@@ -408,7 +528,7 @@ class ChequeService:
                 entry_date=when,
                 description=f"Cheque {cheque.cheque_number} deposited — {account.name}",
                 source_type="cheque_deposit",
-                source_id=cheque.id,
+                source_id=cycle,
                 lines=[
                     (CHEQUES_UNDER_COLLECTION_CODE, cheque.amount, ZERO, f"Cheque {cheque.cheque_number}", "customer", cheque.party_id, ZERO),
                     (CHEQUES_IN_HAND_CODE, ZERO, cheque.amount, f"Cheque {cheque.cheque_number}", "customer", cheque.party_id, ZERO),
@@ -420,7 +540,9 @@ class ChequeService:
             pass  # issued cheque handed to the supplier / presented — no ledger movement
 
         elif action == "clear":
-            account = self._bank_account(company_id, payment_account_id or cheque.payment_account_id)
+            account = self._bank_account(
+                company_id, payment_account_id or cheque.payment_account_id or self._book_account_id(cheque),
+            )
             cheque.payment_account_id = account.id
             gl_code = self._fin._payment_account_gl_code(account)
             entry = self._fin._post_journal(
@@ -428,7 +550,7 @@ class ChequeService:
                 entry_date=when,
                 description=f"Cheque {cheque.cheque_number} cleared — {account.name}",
                 source_type="cheque_clearance",
-                source_id=cheque.id,
+                source_id=cycle,
                 lines=build_clearance_lines(cheque.direction, cheque.amount, gl_code, cheque.party_id, cheque.cheque_number),
             )
             cheque.clearance_journal_entry_id = entry_id = entry.id
@@ -447,7 +569,7 @@ class ChequeService:
                 entry_date=when,
                 description=f"Cheque {cheque.cheque_number} {label}",
                 source_type="cheque_reversal",
-                source_id=cheque.id,
+                source_id=cycle,
                 lines=build_reversal_lines(
                     cheque.direction, cheque.amount, holding, cheque.party_id, cheque.cheque_number, label,
                 ),
@@ -455,14 +577,121 @@ class ChequeService:
             cheque.reversal_journal_entry_id = entry_id = entry.id
             self._reverse_settlement(cheque, when, entry.id, label)
             if bank_charge > ZERO:
-                self._post_bank_charge(cheque, bank_charge, when, payment_account_id)
+                self._post_bank_charge(cheque, bank_charge, when, payment_account_id, cycle)
 
         cheque.status = new_status
         self._log(cheque, action, old_status, new_status, when, entry_id, actor, note)
         self._db.flush()
         return cheque
 
+    def apply_bulk(
+        self,
+        cheque_ids: list[str],
+        action: str,
+        *,
+        company_id: str,
+        action_date: Optional[date] = None,
+        payment_account_id: Optional[str] = None,
+        note: Optional[str] = None,
+        actor: Optional[str] = None,
+    ) -> list[dict]:
+        """Cheque Treatment: one action for many cheques. Each cheque runs in its own savepoint, so one
+        that cannot move (wrong status, closed period…) is reported and the rest still go through."""
+        ids = list(dict.fromkeys(cid for cid in cheque_ids if cid))
+        if not ids:
+            raise HTTPException(status_code=400, detail="Select at least one cheque")
+        if len(ids) > BULK_LIMIT:
+            raise HTTPException(status_code=400, detail=f"Treat at most {BULK_LIMIT} cheques at a time")
+        if action not in TRANSITIONS:
+            raise HTTPException(status_code=400, detail=f"Unknown action {action}")
+        results: list[dict] = []
+        for cheque_id in ids:
+            savepoint = self._db.begin_nested()
+            try:
+                cheque = self.apply_action(
+                    cheque_id,
+                    action,
+                    company_id=company_id,
+                    action_date=action_date,
+                    payment_account_id=payment_account_id,
+                    note=note,
+                    actor=actor,
+                )
+                savepoint.commit()
+                results.append(
+                    {"id": cheque_id, "cheque_number": cheque.cheque_number, "ok": True, "status": cheque.status, "error": None}
+                )
+            except HTTPException as exc:
+                savepoint.rollback()
+                number = (
+                    self._db.query(FinanceCheque.cheque_number)
+                    .filter(FinanceCheque.id == cheque_id, FinanceCheque.company_id == company_id)
+                    .scalar()
+                )
+                results.append(
+                    {"id": cheque_id, "cheque_number": number, "ok": False, "status": None, "error": str(exc.detail)}
+                )
+        return results
+
     # ── Helpers ──────────────────────────────────────────────────────────────
+
+    def _cycle_key(self, cheque: FinanceCheque) -> str:
+        """Source id for this cheque's postings: the cheque itself, or the latest re-presentation."""
+        latest = (
+            self._db.query(FinanceChequeEvent.id)
+            .filter(FinanceChequeEvent.cheque_id == cheque.id, FinanceChequeEvent.action == "represent")
+            .order_by(FinanceChequeEvent.created_at.desc(), FinanceChequeEvent.id.desc())
+            .first()
+        )
+        return latest.id if latest else cheque.id
+
+    def _book_account_id(self, cheque: FinanceCheque) -> Optional[str]:
+        """An issued cheque from a cheque book is drawn on that book's bank account."""
+        if cheque.direction != "issued":
+            return None
+        from app.services.finance.cheque_book_service import ChequeBookService
+
+        found = ChequeBookService(self._db).leaf_of_cheque(cheque.id)
+        return found[1].payment_account_id if found else None
+
+    def _new_payment(self, cheque: FinanceCheque, when: date, entry_id: str) -> FinancePayment:
+        """The cheque's party-ledger line. No payment account: the bank is untouched until clearance."""
+        payment = FinancePayment(
+            company_id=cheque.company_id,
+            payment_number=self._fin._next_payment_number(cheque.company_id),
+            payment_date=when,
+            amount=cheque.amount,
+            payment_method="cheque",
+            payment_account_id=None,
+            direction="inbound" if cheque.direction == "received" else "outbound",
+            source_type="cheque",
+            source_id=cheque.id,
+            party_type=cheque.party_type,
+            party_id=cheque.party_id,
+            journal_entry_id=entry_id,
+            reference=cheque.cheque_number,
+            notes=f"Cheque {cheque.cheque_number} · {cheque.bank_name}",
+        )
+        self._db.add(payment)
+        self._db.flush()
+        cheque.payment_id = payment.id
+        return payment
+
+    def _reapply_settlement(self, cheque: FinanceCheque) -> None:
+        """A re-presented cheque pays its invoice / bill again — as far as it is still open. Anything the
+        document no longer needs stays on the party ledger as an unapplied payment."""
+        if cheque.receivable_id:
+            receivable = self._db.get(FinanceReceivable, cheque.receivable_id)
+            if receivable is not None and receivable.status in ("open", "partial"):
+                applied = min(cheque.amount, money(receivable.balance))
+                if applied > ZERO:
+                    self._fin._apply_payment_to_receivable(receivable, applied)
+        if cheque.payable_id:
+            payable = self._db.get(FinancePayable, cheque.payable_id)
+            if payable is not None and payable.status in ("open", "partial"):
+                applied = min(cheque.amount, money(payable.balance))
+                if applied > ZERO:
+                    self._fin._apply_payment_to_payable(payable, applied)
 
     def _holding_code(self, cheque: FinanceCheque) -> str:
         if cheque.direction == "issued":
@@ -505,16 +734,18 @@ class ChequeService:
                 payable.status = "partial" if payable.amount_paid > ZERO else "open"
 
     def _post_bank_charge(
-        self, cheque: FinanceCheque, charge: Decimal, when: date, payment_account_id: Optional[str],
+        self, cheque: FinanceCheque, charge: Decimal, when: date, payment_account_id: Optional[str], cycle: str,
     ) -> None:
-        account = self._bank_account(cheque.company_id, payment_account_id or cheque.payment_account_id)
+        account = self._bank_account(
+            cheque.company_id, payment_account_id or cheque.payment_account_id or self._book_account_id(cheque),
+        )
         gl_code = self._fin._payment_account_gl_code(account)
         entry = self._fin._post_journal(
             company_id=cheque.company_id,
             entry_date=when,
             description=f"Bank charge — cheque {cheque.cheque_number}",
             source_type="cheque_bank_charge",
-            source_id=cheque.id,
+            source_id=cycle,
             lines=[
                 (BANK_CHARGES_CODE, charge, ZERO, f"Bank charge — cheque {cheque.cheque_number}", None, None, ZERO),
                 (gl_code, ZERO, charge, f"Bank charge — cheque {cheque.cheque_number}", None, None, ZERO),
@@ -536,7 +767,7 @@ class ChequeService:
                 notes=f"Bank charge — cheque {cheque.cheque_number}",
             )
         )
-        cheque.bank_charge = charge
+        cheque.bank_charge = money((cheque.bank_charge or ZERO) + charge)  # a re-presented cheque can bounce again
         cheque.bank_charge_journal_entry_id = entry.id
         cheque.payment_account_id = account.id
 
@@ -613,16 +844,16 @@ class ChequeService:
         entry_id: Optional[str],
         actor: Optional[str],
         note: Optional[str] = None,
-    ) -> None:
-        self._db.add(
-            FinanceChequeEvent(
-                cheque_id=cheque.id,
-                action=action,
-                from_status=from_status,
-                to_status=to_status,
-                event_date=when,
-                journal_entry_id=entry_id,
-                actor=actor,
-                note=(note or "").strip() or None,
-            )
+    ) -> FinanceChequeEvent:
+        event = FinanceChequeEvent(
+            cheque_id=cheque.id,
+            action=action,
+            from_status=from_status,
+            to_status=to_status,
+            event_date=when,
+            journal_entry_id=entry_id,
+            actor=actor,
+            note=(note or "").strip() or None,
         )
+        self._db.add(event)
+        return event

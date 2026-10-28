@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -26,6 +27,7 @@ class StockTransferLineRead(BaseModel):
     received_qty: int
     remaining_qty: int
     available_qty: Optional[int] = None
+    unit_cost: Optional[Decimal] = None  # the source warehouse's cost: what the transfer is worth
     notes: Optional[str] = None
     serials: List[StockTransferSerialRead] = []
 
@@ -53,7 +55,9 @@ class StockTransferRead(BaseModel):
     requested_by: Optional[str] = None
     requested_by_name: Optional[str] = None
     shipped_by: Optional[str] = None
+    shipped_by_name: Optional[str] = None
     received_by: Optional[str] = None
+    received_by_name: Optional[str] = None
     notes: Optional[str] = None
     shipped_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

@@ -32,13 +32,11 @@ from app.services.rma.constants import (
     BILL_STATUSES,
     CHARGE_KINDS,
     DECISION_ONLY_STATUSES,
-    FUNCTIONAL_RESULTS,
-    PHYSICAL_CONDITIONS,
-    QC_RESULTS,
     RESOLUTION_TYPES,
     RMA_STATUS_TRANSITIONS,
     RMA_STATUSES,
     RMA_TYPES,
+    SALE_SOURCES,
     SUPPLIER_JOB_STATUSES,
     WARRANTY_STATUSES,
 )
@@ -86,6 +84,12 @@ class TicketIntake:
     can_override: bool = False
     # False for a remote request: the unit is not here yet, so it is stocked when it is marked received.
     unit_received: bool = True
+    # No sale in this ERP: "previous" (sold before it; the old invoice no. and sale date measure the warranty) or "unknown".
+    sale_source: str = "system"
+    previous_invoice_no: Optional[str] = None
+    previous_sale_date: Optional[date] = None
+    # The serial came from generate_serials (the unit has none of its own).
+    serial_generated: bool = False
 
 
 # --------------------------------------------------------------- numbering
@@ -511,6 +515,8 @@ def lookup_by_serial(db: Session, serial_number: str, company_id: str = "default
 
 
 def create_ticket(db: Session, intake: TicketIntake) -> RmaTicket:
+    from app.services.rma import complaint_service
+
     # A registered serial identifies the unit itself, so it settles both the
     # duplicate-claim question and the sale behind the warranty.
     serial_ctx = None
@@ -559,6 +565,18 @@ def create_ticket(db: Session, intake: TicketIntake) -> RmaTicket:
         purchased = serial_ctx.purchased_on
         warranty_source = "serial"
 
+    # A sale this ERP knows wins; otherwise the counter says whether it was sold before the ERP or is unknown.
+    has_system_sale = order is not None or (serial_row is not None and bool(serial_row.order_id))
+    sale_source = "system" if has_system_sale else (intake.sale_source if intake.sale_source in SALE_SOURCES else "unknown")
+    if sale_source == "previous":
+        if not intake.previous_sale_date:
+            raise HTTPException(status_code=400, detail="A previous sale needs its sale date to measure the warranty.")
+        if intake.previous_sale_date > date.today():
+            raise HTTPException(status_code=400, detail="The previous sale date cannot be in the future.")
+        purchased = intake.previous_sale_date
+        verdict = warranty_rules.evaluate(warranty_text=warranty_rules.product_warranty_text(product), purchased_on=purchased)
+        warranty_source = "previous_sale"
+
     ticket = RmaTicket(
         company_id=intake.company_id,
         rma_number=next_rma_number(db, intake.company_id),
@@ -602,7 +620,8 @@ def create_ticket(db: Session, intake: TicketIntake) -> RmaTicket:
         rma_type=intake.rma_type if intake.rma_type in RMA_TYPES else "customer",
         reason_id=intake.reason_id,
         claim_group_id=intake.claim_group_id,
-        warehouse_id=intake.warehouse_id,
+        # the receiving store: the one chosen, else the company's only RMA store
+        warehouse_id=intake.warehouse_id or complaint_service.default_rma_store_id(db, intake.company_id),
         courier=intake.courier,
         tracking_number=intake.tracking_number,
         internal_notes=intake.internal_notes,
@@ -614,7 +633,11 @@ def create_ticket(db: Session, intake: TicketIntake) -> RmaTicket:
         diagnosis_report=intake.diagnosis_report,
         # A remote request has not arrived yet: its stock is posted when it is marked received.
         unit_received=intake.unit_received and intake.start_status != "awaiting_return",
+        sale_source=sale_source,
+        previous_invoice_no=(intake.previous_invoice_no or "").strip() or None if sale_source == "previous" else None,
+        serial_generated=intake.serial_generated,
     )
+    complaint_service.assert_customer_not_rma_locked(db, ticket.customer_id, intake.company_id)
     if intake.assigned_to_user_id:
         assignee = db.get(AuthUser, intake.assigned_to_user_id)
         if assignee is None or assignee.company_id != intake.company_id:
@@ -623,10 +646,13 @@ def create_ticket(db: Session, intake: TicketIntake) -> RmaTicket:
     db.add(ticket)
     db.flush()
 
-    from app.services.rma import complaint_service
-
     if not ticket.item_id:
         ticket.item_id = complaint_service.resolve_item_id(db, ticket)
+    if ticket.serial_generated:
+        complaint_service.check_generated_serial(
+            db, serial_number=ticket.serial_number, item_id=ticket.item_id, sku=ticket.sku, company_id=intake.company_id,
+            ticket_id=ticket.id,
+        )
     # Supplier / purchase invoice, resolved from the serial. A manual supplier is an authorized exception.
     trace = complaint_service.trace_purchase(db, ticket.serial_number, intake.company_id)
     complaint_service.apply_trace(ticket, trace)
@@ -810,6 +836,8 @@ def change_status(
             detail="Approve, reject or send back a complaint with the Complaint approval action, which records who decided and why.",
         )
     allowed = RMA_STATUS_TRANSITIONS.get(ticket.status, frozenset())
+    if ticket.status == "returned_from_supplier" and ticket.custody_state == "cash_back":
+        allowed = allowed | {"closed"}  # nothing is handed over after a cash back: the RMA closes once the customer is settled
     if to_status not in allowed:
         raise HTTPException(
             status_code=400,
@@ -961,7 +989,7 @@ def _recalculate(db: Session, ticket: RmaTicket) -> None:
     charges = db.query(RmaCharge).filter(RmaCharge.rma_id == ticket.id).all()
     parts = sum((c.line_total for c in charges if c.kind == "part"), ZERO)
     labour = sum((c.line_total for c in charges if c.kind == "labour"), ZERO)
-    misc = sum((c.line_total for c in charges if c.kind == "misc"), ZERO)
+    misc = sum((c.line_total for c in charges if c.kind in ("misc", "service", "fine")), ZERO)
     tax = sum(
         ((c.line_total * (c.tax_rate or ZERO)) / Decimal("100") for c in charges), ZERO
     )
@@ -984,9 +1012,14 @@ def add_charge(
     item_id: Optional[str] = None,
     sku: Optional[str] = None,
     notes: Optional[str] = None,
+    discount: Decimal = ZERO,
 ) -> RmaCharge:
     if kind not in CHARGE_KINDS:
         raise HTTPException(status_code=400, detail=f"Invalid charge kind: {kind}")
+    gross = (quantity * unit_price).quantize(Decimal("0.01"))
+    discount = (discount or ZERO).quantize(Decimal("0.01"))
+    if discount < ZERO or discount > gross:
+        raise HTTPException(status_code=400, detail=f"The discount must be between 0 and the line amount ({gross}).")
     if ticket.bill_status == "billed":
         raise HTTPException(
             status_code=400,
@@ -1002,7 +1035,8 @@ def add_charge(
         quantity=quantity,
         unit_price=unit_price,
         tax_rate=tax_rate,
-        line_total=(quantity * unit_price).quantize(Decimal("0.01")),
+        discount=discount,
+        line_total=gross - discount,
         notes=notes,
     )
     db.add(charge)
@@ -1199,40 +1233,6 @@ def list_reasons(db: Session, *, company_id: str, active_only: bool = True) -> l
     if active_only:
         query = query.filter(RmaReason.is_active.is_(True))
     return query.order_by(RmaReason.sort_order, RmaReason.name).all()
-
-
-def inspect_ticket(
-    db: Session,
-    ticket: RmaTicket,
-    *,
-    physical_condition: str,
-    functional_result: str,
-    qc_result: str,
-    notes: Optional[str] = None,
-    accessories: Optional[str] = None,
-    actor: Optional[str] = None,
-) -> RmaTicket:
-    if ticket.status in {"draft", "pending_approval", "approved", "awaiting_return"}:
-        raise HTTPException(status_code=400, detail="Receive the unit before inspection")
-    if physical_condition not in PHYSICAL_CONDITIONS:
-        raise HTTPException(status_code=400, detail="Invalid physical condition")
-    if functional_result not in FUNCTIONAL_RESULTS:
-        raise HTTPException(status_code=400, detail="Invalid functional result")
-    if qc_result not in QC_RESULTS:
-        raise HTTPException(status_code=400, detail="Invalid QC result")
-
-    ticket.physical_condition = physical_condition
-    ticket.functional_result = functional_result
-    ticket.qc_result = qc_result
-    ticket.inspection_notes = notes
-    ticket.inspected_by = actor
-    ticket.inspected_at = datetime.utcnow()
-    if accessories is not None:
-        ticket.accessories = accessories
-    if ticket.status == "received":
-        change_status(db, ticket, "diagnosing", actor=actor, note="Inspection recorded")
-    db.flush()
-    return ticket
 
 
 def set_resolution(

@@ -4,11 +4,12 @@ import {
   useCallback,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
   type Ref,
 } from "react";
-import type { ColDef } from "ag-grid-community";
+import type { ColDef, GridApi } from "ag-grid-community";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -44,6 +45,14 @@ export type FinanceAgListGridHandle = {
   openColumns: () => void;
   resetFilters: () => void;
   exportCsv: () => void;
+  /** Untick every row (lists with `selection`). */
+  clearSelection?: () => void;
+};
+
+/** Tick-box selection for a bulk action (the expense list's pattern): which rows can be ticked, and who hears about it. */
+export type FinanceAgListGridSelection = {
+  isRowSelectable?: (row: any) => boolean;
+  onChange: (rows: any[]) => void;
 };
 
 type RowBase = { id: string };
@@ -83,6 +92,10 @@ type Props = {
   /** Override the default page size (e.g. a statement-style report that must fit on one page). */
   paginationPageSize?: number;
   paginationPageSizeSelector?: number[];
+  /** Adds the tick-box column after the actions column; the bulk bar goes in `banner`. */
+  selection?: FinanceAgListGridSelection;
+  /** Strip above the grid — the bulk bar while rows are ticked. */
+  banner?: ReactNode;
 };
 
 export function FinanceAgListGrid({
@@ -108,7 +121,10 @@ export function FinanceAgListGrid({
   gridRef,
   paginationPageSize,
   paginationPageSizeSelector,
+  selection,
+  banner,
 }: Props) {
+  const apiRef = useRef<GridApi<RowBase> | null>(null);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [columnSheetOpen, setColumnSheetOpen] = useState(false);
 
@@ -154,6 +170,7 @@ export function FinanceAgListGrid({
       openColumns: () => setColumnSheetOpen(true),
       resetFilters: () => onResetFilters?.(),
       exportCsv,
+      clearSelection: () => apiRef.current?.deselectAll(),
     }),
     [exportCsv, onResetFilters],
   );
@@ -179,12 +196,32 @@ export function FinanceAgListGrid({
           ? (p: { data?: RowBase }) => (p.data ? rowActions(p.data) : null)
           : undefined,
       },
+      ...(selection
+        ? [
+            {
+              colId: "controls",
+              headerName: "",
+              headerCheckboxSelection: true,
+              headerCheckboxSelectionFilteredOnly: true,
+              checkboxSelection: true,
+              width: 40,
+              maxWidth: 40,
+              minWidth: 40,
+              pinned: "left" as const,
+              resizable: false,
+              sortable: false,
+              suppressMovable: true,
+              suppressHeaderMenuButton: true,
+              suppressSizeToFit: true,
+            },
+          ]
+        : []),
       ...columns.map((col) => ({
         ...col,
         hide: resolvedCols[col.colId] === false,
       })),
     ],
-    [columns, resolvedCols, rowActions],
+    [columns, resolvedCols, rowActions, selection],
   );
 
   const renderedFilterBar =
@@ -208,6 +245,20 @@ export function FinanceAgListGrid({
       onResetFilters={onResetFilters}
       onOpenColumns={() => setColumnSheetOpen(true)}
       onRowClicked={onRowClicked}
+      banner={banner}
+      apiRef={apiRef}
+      gridProps={
+        selection
+          ? {
+              rowSelection: "multiple",
+              suppressRowClickSelection: true,
+              isRowSelectable: selection.isRowSelectable
+                ? (node) => Boolean(node.data && selection.isRowSelectable!(node.data))
+                : undefined,
+              onSelectionChanged: (e) => selection.onChange(e.api.getSelectedRows()),
+            }
+          : undefined
+      }
       mobile={
         loading ? (
           <AgainListGridSkeleton rows={8} />

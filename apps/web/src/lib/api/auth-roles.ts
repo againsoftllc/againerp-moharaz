@@ -1,6 +1,13 @@
 import { apiFetch } from "@/lib/api/client";
 
-export type AuthModuleInfo = { id: string; label: string };
+export type AuthModuleInfo = {
+  id: string;
+  label: string;
+  /** The application area the role editor files this module under ("Finance", "After-sales" …). */
+  group: string;
+  /** One line on what the module opens. */
+  hint: string;
+};
 
 export type RolePermissionFlags = {
   module: string;
@@ -39,10 +46,25 @@ export async function fetchAuthRoles(): Promise<AuthRoleRecord[]> {
   return res.data;
 }
 
+/** A job-based starting point for a new role (Sales Executive, Accountant, Warehouse Keeper …). */
+export type AuthRoleTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  permissions: RolePermissionFlags[];
+};
+
+export async function fetchAuthRoleTemplates(): Promise<AuthRoleTemplate[]> {
+  const res = await apiFetch<{ data: AuthRoleTemplate[] }>(`${BASE}/templates`);
+  return res.data;
+}
+
 export async function createAuthRole(payload: {
   name: string;
   slug?: string;
   description?: string;
+  /** Id of a template from `fetchAuthRoleTemplates`; omitted = read-only on the business modules. */
+  template?: string;
 }): Promise<AuthRoleRecord> {
   const res = await apiFetch<{ data: AuthRoleRecord }>(BASE, {
     method: "POST",

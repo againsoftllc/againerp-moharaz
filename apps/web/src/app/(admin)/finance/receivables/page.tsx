@@ -25,6 +25,7 @@ import {
   type ApiFinanceReceivable,
 } from "@/lib/api/finance";
 import type { ReceivableGridHandle } from "@/components/finance/receivable-grid";
+import { fetchSettledBy, type SettledByMap } from "@/lib/api/finance-settlements";
 import { cn, formatMoney } from "@/lib/utils";
 
 const ReceivableGrid = dynamic(
@@ -44,6 +45,7 @@ export default function FinanceReceivablesPage() {
   const apiHealth = useApiHealth();
   const gridRef = useRef<ReceivableGridHandle>(null);
   const [rows, setRows] = useState<ApiFinanceReceivable[]>([]);
+  const [settledBy, setSettledBy] = useState<SettledByMap>({});
   const [paymentAccounts, setPaymentAccounts] = useState<ApiFinancePaymentAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +61,9 @@ export default function FinanceReceivablesPage() {
         fetchPaymentAccounts(),
       ]);
       setRows(res.data);
+      void fetchSettledBy("receivable", res.data.map((r) => r.id))
+        .then((sb) => setSettledBy(sb.data))
+        .catch(() => setSettledBy({}));
       setPaymentAccounts(accountsRes.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load receivables");
@@ -152,6 +157,7 @@ export default function FinanceReceivablesPage() {
   return (
     <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
       <ReceivableGrid
+        settledBy={settledBy}
         ref={gridRef}
         rows={rows}
         loading={loading && rows.length === 0}

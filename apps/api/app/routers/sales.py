@@ -15,6 +15,11 @@ from app.models.auth_user import AuthUser
 from app.models.sales_return import SalesReturn
 from app.services import rbac as rbac_service
 from app.services.auth_user_warehouses import resolve_user_warehouse
+from app.services.core.access_scope import (
+    assert_document_warehouse,
+    assert_documents_warehouse,
+    warehouse_scope,
+)
 from app.models.commerce_customer import CommerceCustomer, load_json
 from app.models.inventory_warehouse import InventoryWarehouse
 from app.models.item import Item
@@ -370,6 +375,13 @@ def _order_read(db: Session, order: SalesOrder) -> SalesOrderRead:
     )
 
 
+def _guard_delivery(db: Session, user: AuthUser, delivery_id: str) -> None:
+    """A delivery is posted only by a member who works in its order's warehouse."""
+    delivery = db.get(SalesDelivery, delivery_id)
+    if delivery is not None:
+        assert_document_warehouse(db, user, SalesOrder, delivery.sales_order_id, "warehouse_id")
+
+
 def _delivery_read(db: Session, delivery: SalesDelivery) -> SalesDeliveryRead:
     dlines = (
         db.query(SalesDeliveryLine)
@@ -623,7 +635,7 @@ def sales_top_products_report(
 @router.get("/quotations", response_model=SalesQuotationListResponse)
 def list_quotations(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("sales", "read")),
+    user: AuthUser = Depends(require_permission("sales", "read")),
     company_id: str = Depends(get_current_company_id),
     status: Optional[str] = Query(default=None),
     customer_id: Optional[str] = Query(default=None),
@@ -636,6 +648,7 @@ def list_quotations(
     svc = SalesService(db)
     offset = (page - 1) * per_page
     rows, total = svc.list_quotations(
+        warehouse_ids=warehouse_scope(db, user),
         company_id=company_id,
         status=status,
         customer_id=customer_id,
@@ -697,6 +710,7 @@ def replace_quotation(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesApiEnvelope:
+    assert_document_warehouse(db, user, SalesQuotation, quotation_id, "warehouse_id")
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
     current = db.get(SalesQuotation, quotation_id)
@@ -730,6 +744,7 @@ def delete_quotation(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesApiEnvelope:
+    assert_document_warehouse(db, user, SalesQuotation, quotation_id, "warehouse_id")
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
     quote = svc.delete_quotation(quotation_id, actor_id=user.id)
@@ -744,6 +759,7 @@ def duplicate_quotation(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesQuotationResponse:
+    assert_document_warehouse(db, user, SalesQuotation, quotation_id, "warehouse_id")
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
     quote = svc.duplicate_quotation(quotation_id, actor_id=user.id)
@@ -760,6 +776,7 @@ def update_quotation_status(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesQuotationResponse:
+    assert_document_warehouse(db, user, SalesQuotation, quotation_id, "warehouse_id")
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
     quote = svc.update_quotation_status(
@@ -781,6 +798,10 @@ def convert_quotation(
     warehouse_id: Optional[str] = Query(default=None),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesOrderResponse:
+    assert_document_warehouse(db, user, SalesQuotation, quotation_id, "warehouse_id")
+    # the order sells from the asked warehouse, else the quotation's; a member limited to some warehouses only from theirs
+    quote = db.get(SalesQuotation, quotation_id)
+    warehouse_id = resolve_user_warehouse(db, user, warehouse_id or (quote.warehouse_id if quote else None))
     svc = SalesService(db, company_id=company_id)
     order = svc.convert_quotation_to_order(quotation_id, warehouse_id=warehouse_id, actor_id=user.id)
     db.commit()
@@ -791,7 +812,7 @@ def convert_quotation(
 @router.get("/orders", response_model=SalesOrderListResponse)
 def list_orders(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("sales", "read")),
+    user: AuthUser = Depends(require_permission("sales", "read")),
     company_id: str = Depends(get_current_company_id),
     status: Optional[str] = Query(default=None),
     customer_id: Optional[str] = Query(default=None),
@@ -805,6 +826,7 @@ def list_orders(
     svc = SalesService(db)
     offset = (page - 1) * per_page
     rows, total = svc.list_orders(
+        warehouse_ids=warehouse_scope(db, user),
         company_id=company_id,
         status=status,
         customer_id=customer_id,
@@ -879,6 +901,7 @@ def update_order(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesOrderResponse:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     require_sales_write(user)
     order = db.get(SalesOrder, order_id)
     if not order or order.deleted_at is not None or (order.company_id or "default") != company_id:
@@ -905,6 +928,7 @@ def replace_order(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesApiEnvelope:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
     existing = svc.get_order(order_id)
@@ -959,6 +983,7 @@ def delete_order(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesApiEnvelope:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
     order = svc.delete_order(order_id, actor_id=user.id)
@@ -973,6 +998,7 @@ def duplicate_order(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesOrderResponse:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
     order = svc.duplicate_order(order_id, actor_id=user.id)
@@ -997,6 +1023,7 @@ def create_sales_order_pathao_consignment(
     Returns skipped=true (not an error) when the Pathao plugin isn't installed/enabled,
     so picking the "Pathao" shipping line never blocks saving an order.
     """
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     require_sales_write(user)
     order = db.get(SalesOrder, order_id)
     if not order or (order.company_id or "default") != company_id:
@@ -1034,6 +1061,7 @@ def bulk_delete_orders(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesApiEnvelope:
+    assert_documents_warehouse(db, user, SalesOrder, payload.ids, "warehouse_id")
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
     deleted = svc.bulk_delete_orders(payload.ids, actor_id=user.id)
@@ -1048,6 +1076,7 @@ def bulk_update_order_status(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesApiEnvelope:
+    assert_documents_warehouse(db, user, SalesOrder, payload.ids, "warehouse_id")
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
     updated = svc.bulk_update_order_status(payload.ids, payload.status, actor_id=user.id)
@@ -1062,6 +1091,7 @@ def confirm_order(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesOrderResponse:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     svc = SalesService(db, company_id=company_id)
     pending = svc.get_order(order_id)
     assert_can_approve(db, company_id, user, "sales.order", getattr(pending, "total", None))
@@ -1079,6 +1109,7 @@ def request_order_edit(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesOrderResponse:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
     order = svc.get_order(order_id)
@@ -1102,6 +1133,7 @@ def review_order_edit_request(
     user: AuthUser = Depends(require_system_manager),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesOrderResponse:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     svc = SalesService(db, company_id=company_id)
     order = svc.get_order(order_id)
     if not order or order.deleted_at is not None:
@@ -1128,6 +1160,7 @@ def cancel_order(
     reason: Optional[str] = Query(default=None, max_length=500),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesOrderResponse:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     svc = SalesService(db, company_id=company_id)
     # Reason arrives as ?reason= from the drawer or as a JSON body from API clients.
     note = reason or (payload.reason if payload else None)
@@ -1147,6 +1180,7 @@ def set_website_order_status(
 ) -> SalesOrderResponse:
     """Change a website order's status: the customer's order (what the storefront account shows) and this Sales
     order move together, and the Activity tab records it."""
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     require_sales_write(user)
     svc = SalesService(db, company_id=company_id)
     order = svc.get_order(order_id)
@@ -1173,6 +1207,7 @@ def issue_sales_invoice(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesOrderResponse:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     svc = SalesService(db, company_id=company_id)
     order = svc.issue_invoice(order_id, actor_id=user.id)
     db.commit()
@@ -1187,6 +1222,7 @@ def create_sales_invoice_public_link(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> dict:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     svc = SalesService(db, company_id=company_id)
     order = svc.ensure_public_invoice(order_id, actor_id=user.id)
     db.commit()
@@ -1209,6 +1245,7 @@ def link_invoice(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesOrderResponse:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     svc = SalesService(db, company_id=company_id)
     order = svc.link_invoice(
         order_id,
@@ -1257,9 +1294,10 @@ def create_delivery(
     order_id: str,
     payload: SalesDeliveryCreate,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("sales", "write")),
+    user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesDeliveryResponse:
+    assert_document_warehouse(db, user, SalesOrder, order_id, "warehouse_id")  # only the member's warehouses
     svc = SalesService(db, company_id=company_id)
     delivery = svc.create_delivery(
         order_id,
@@ -1280,6 +1318,7 @@ def post_delivery(
     user: AuthUser = Depends(require_permission("sales", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SalesDeliveryResponse:
+    _guard_delivery(db, user, delivery_id)
     svc = SalesService(db, company_id=company_id)
     delivery = svc.post_delivery(delivery_id, actor_id=user.id)
     db.commit()

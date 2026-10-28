@@ -825,24 +825,33 @@ def _rma_delivery(db: Session, p: dict[str, str], body: dict[str, Any]) -> Docum
     if d is None:
         return _missing("This RMA delivery")
     t = _get(db, RmaTicket, d.rma_id)
+    from app.services.rma.constants import DELIVERY_OUTCOMES
+
+    refund = d.outcome == "cash_back"
     return DocumentView(
         heading=f"RMA delivery {d.delivery_number}",
         facts=_facts(
             ("Delivery", d.delivery_number),
             ("RMA", t.rma_number if t else None),
             ("Customer", t.customer_name if t else None),
-            ("Product", t.product_name if t else None),
-            ("Unit handed over", "Yes" if d.deliver_product else "No"),
-            ("Serial delivered", d.serial_delivered or (t.serial_number if t else None)),
+            ("Type", DELIVERY_OUTCOMES.get(d.outcome, d.outcome)),
+            ("Product", (t.held_product_name or t.product_name) if t else None, "warn" if t is not None and t.held_sku else None),
+            ("Serial delivered", None if refund else (d.serial_delivered or (t.serial_number if t else None))),
+            ("Cash back to the customer", _money_s(d.refund_amount) if refund else None, "warn" if refund else None),
             ("Delivered to", d.delivered_to),
             ("Delivery date", _date_s(d.delivery_date)),
-            ("Charges", _money_s(d.amount_total)),
-            ("Received now", _money_s(d.amount_received)),
+            ("Charges (service charge, fine…)", _money_s(d.amount_total)),
+            ("Collected now", _money_s(d.amount_received)),
             ("Still due", _money_s(d.amount_due), "warn" if (d.amount_due or 0) else None),
             ("Payment reference", d.payment_reference),
             ("Notes", d.notes),
         ),
-        notes=["Approving hands the unit back: it leaves the RMA store and any charges are billed to the customer."],
+        notes=(
+            ["Approving pays the cash back to the customer. No unit goes back."]
+            if refund
+            else ["Approving hands the unit back: it leaves the RMA store and the RMA is completed."]
+        )
+        + (["The charges are billed to the customer; what is collected now is posted to Finance."] if (d.amount_total or 0) else []),
     )
 
 
@@ -882,25 +891,34 @@ def _rma_receipt(db: Session, p: dict[str, str], body: dict[str, Any]) -> Docume
     if r is None:
         return _missing("This replacement receipt")
     t = _get(db, RmaTicket, r.rma_id)
-    changed = bool(r.sent_serial and r.received_serial and r.sent_serial != r.received_serial)
+    changed = r.outcome in ("same_product", "different_product")
+    from app.services.rma.constants import RECEIPT_OUTCOMES
+
     return DocumentView(
         heading=f"Replacement receipt {r.receipt_number}",
         facts=_facts(
             ("Receipt", r.receipt_number),
             ("RMA", t.rma_number if t else None),
             ("Supplier", r.supplier_name),
-            ("Supplier delivery ref", r.supplier_delivery_ref),
+            ("Supplier reference", r.supplier_delivery_ref),
             ("Serial sent", r.sent_serial),
             ("Serial received", r.received_serial, "warn" if changed else None),
-            ("Outcome", (r.outcome or "").replace("_", " ").title() or None),
-            ("Outcome note", r.outcome_note),
+            ("Product received", r.received_sku, "warn" if r.outcome == "different_product" else None),
+            ("Cash back", str(r.refund_amount) if r.outcome == "cash_back" and r.refund_amount is not None else None, "warn"),
+            ("Outcome", RECEIPT_OUTCOMES.get(r.outcome, r.outcome)),
+            ("Reason", r.outcome_note),
             ("Received on", _date_s(r.received_date)),
             ("Received by", r.received_by),
             ("Condition", r.condition_notes),
             ("Accessories received", r.accessories_received),
         ),
-        notes=["Approving brings the unit back from the supplier into the RMA store."]
-        + (["The serial received differs from the serial sent."] if changed else []),
+        notes=(
+            ["Approving posts the money the supplier paid to Finance. No unit comes back."]
+            if r.outcome == "cash_back"
+            else ["Approving brings the unit back from the supplier into the RMA store."]
+        )
+        + (["The serial received differs from the serial sent."] if changed else [])
+        + (["A different product than the one sent comes back."] if r.outcome == "different_product" else []),
     )
 
 

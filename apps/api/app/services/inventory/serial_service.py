@@ -312,6 +312,7 @@ def _serial_query(
     status: Optional[str] = None,
     item_id: Optional[str] = None,
     warehouse_id: Optional[str] = None,
+    warehouse_ids: Optional[list[str]] = None,
     q: Optional[str] = None,
 ):
     query = db.query(InventorySerial).filter(InventorySerial.company_id == company_id)
@@ -321,6 +322,8 @@ def _serial_query(
         query = query.filter(InventorySerial.item_id == item_id)
     if warehouse_id:
         query = query.filter(InventorySerial.warehouse_id == warehouse_id)
+    if warehouse_ids is not None:  # a member limited to some warehouses; units no longer in any warehouse stay findable
+        query = query.filter(or_(InventorySerial.warehouse_id.in_(warehouse_ids), InventorySerial.warehouse_id.is_(None)))
     if q:
         term = f"%{q.strip().lower()}%"
         query = query.filter(
@@ -340,12 +343,14 @@ def list_serials(
     status: Optional[str] = None,
     item_id: Optional[str] = None,
     warehouse_id: Optional[str] = None,
+    warehouse_ids: Optional[list[str]] = None,
     q: Optional[str] = None,
     limit: int = 500,
     offset: int = 0,
 ) -> list[InventorySerial]:
     query = _serial_query(
-        db, company_id=company_id, status=status, item_id=item_id, warehouse_id=warehouse_id, q=q
+        db, company_id=company_id, status=status, item_id=item_id, warehouse_id=warehouse_id, q=q,
+        warehouse_ids=warehouse_ids,
     )
     return (
         query.order_by(InventorySerial.created_at.desc())
@@ -362,10 +367,12 @@ def count_serials(
     status: Optional[str] = None,
     item_id: Optional[str] = None,
     warehouse_id: Optional[str] = None,
+    warehouse_ids: Optional[list[str]] = None,
     q: Optional[str] = None,
 ) -> int:
     return _serial_query(
-        db, company_id=company_id, status=status, item_id=item_id, warehouse_id=warehouse_id, q=q
+        db, company_id=company_id, status=status, item_id=item_id, warehouse_id=warehouse_id, q=q,
+        warehouse_ids=warehouse_ids,
     ).count()
 
 
@@ -554,6 +561,63 @@ def assign_to_order(
     return results
 
 
+def is_serial_tracked(db: Session, item_id: Optional[str]) -> bool:
+    """Whether the product is serial-tracked: every unit that moves must then be a registered serial."""
+    if not item_id:
+        return False
+    from sqlalchemy.exc import OperationalError, ProgrammingError
+
+    from app.models.inventory_item import InventoryItem
+
+    try:
+        # a savepoint, so a database without the inventory tables (a lean test schema) is "not tracked", not a crash
+        with db.begin_nested():
+            flag = db.query(InventoryItem.track_serial).filter(InventoryItem.item_id == item_id).scalar()
+    except (OperationalError, ProgrammingError):
+        return False
+    return bool(flag)
+
+
+def require_serials_for_units(
+    db: Session,
+    *,
+    item_id: Optional[str],
+    sku: str,
+    units: int,
+    serial_count: int,
+    action: str,
+) -> None:
+    """A serial-tracked product never moves without its serials: stock and the serial registry would drift apart
+    (stock says 4, the registry knows 3 units - exactly what happened when a sale went out with no serial).
+    `units` is how many units are about to move, `serial_count` how many serials name them."""
+    if units > 0 and is_serial_tracked(db, item_id) and serial_count < units:
+        missing = units - serial_count
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{sku} is serial-tracked: select {missing} more serial number{'s' if missing != 1 else ''} "
+                f"before {action} ({serial_count} of {units} selected)."
+            ),
+        )
+
+
+def require_serial_in_warehouse(db: Session, row: InventorySerial, warehouse_id: Optional[str], *, action: str) -> None:
+    """The unit must physically be in the warehouse the stock comes out of. A serial in Chittagong sold from Dhaka HQ's
+    stock leaves Dhaka's count short and Chittagong's too high."""
+    if not warehouse_id or not row.warehouse_id or row.warehouse_id == warehouse_id:
+        return
+    where = db.get(InventoryWarehouse, row.warehouse_id)
+    here = db.get(InventoryWarehouse, warehouse_id)
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"Serial {row.serial_number} is in {where.name if where else 'another warehouse'}, "
+            f"not in {here.name if here else 'this warehouse'}. Transfer it first, or {action} from "
+            f"{where.name if where else 'its own warehouse'}."
+        ),
+    )
+
+
 def validate_for_sale(
     db: Session,
     serial_numbers: Iterable[str],
@@ -561,9 +625,11 @@ def validate_for_sale(
     item: Item,
     company_id: str = COMPANY_DEFAULT,
     order_id: Optional[str] = None,
+    warehouse_id: Optional[str] = None,
 ) -> list[str]:
     """Units named on a sales line: each must exist, be this item, and be in stock
-    (or already sold on this very order — re-saving a confirmed order)."""
+    (or already sold on this very order — re-saving a confirmed order). With a
+    `warehouse_id` the unit must be in that warehouse."""
     cleaned: list[str] = []
     for raw in serial_numbers:
         number = clean_serial(raw)
@@ -587,6 +653,8 @@ def validate_for_sale(
             if row.order_number and row.status == "sold":
                 detail += f" on {row.order_number}"
             raise HTTPException(status_code=400, detail=detail + ")")
+        if not on_this_order:
+            require_serial_in_warehouse(db, row, warehouse_id, action="sell it")
         cleaned.append(number)
     return cleaned
 
@@ -623,6 +691,10 @@ def assign_to_sales_order(
                 status_code=400,
                 detail=f"Serial {number} is {SERIAL_STATUS_LABELS.get(row.status, row.status).lower()}",
             )
+        if getattr(order, "warehouse_id", None):
+            if skip_unavailable and row.warehouse_id and row.warehouse_id != order.warehouse_id:
+                continue
+            require_serial_in_warehouse(db, row, order.warehouse_id, action="sell it")
         product = db.query(CatalogProduct).filter(CatalogProduct.sku == row.sku).first() if row.sku else None
         verdict = warranty_rules.evaluate(
             warranty_text=warranty_rules.product_warranty_text(product),

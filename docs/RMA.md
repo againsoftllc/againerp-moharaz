@@ -144,7 +144,7 @@ Only show sections that are relevant to the current RMA. Use lazy-loading for lo
 1. Open receipt from the supplier claim.
 2. Default actual received serial to the serial sent.
 3. If supplier sends a different serial, enter the actual serial and validate uniqueness.
-4. Record outcome: Replacement / Original Unit Repaired / Returned Unrepaired / Other.
+4. Record what came back — the receipt **type**: Same product & same serial / Same product & different serial / Different product & different serial / Cash back (see the receipt types below).
 5. Approve receipt and print **Replacement Receive Copy**.
 6. On approval, move the actual received unit into the selected RMA store.
 7. Preserve a link between original serial and actual received serial.
@@ -161,6 +161,8 @@ Only show sections that are relevant to the current RMA. Use lazy-loading for lo
 ## 5. Simplify payment handling
 
 > *As built:* the five presets were replaced by a separate, reusable **RMA Settlement** (money in / money out) — see B.8. A delivery now only hands the unit over.
+>
+> *Redesigned (B.11):* the delivery now mirrors the supplier receipt — four types (same product / same serial, same product / new serial, different product, cash back) plus the customer's charges (service charge, parts, labour, **fine**) with part collected now. The separate Settlement section was removed from the RMA screen.
 
 The requested business cases are:
 1. Without Payment
@@ -193,6 +195,8 @@ Use existing inventory stock movement and serial/IMEI logic. Do not create an RM
 | Approved supplier dispatch | Out of available RMA store | Supplier / In Transit location/state |
 | Approved replacement receipt | In to RMA store | Actual received serial and original serial link |
 | Approved customer handover | Out of RMA store | Customer, delivery record, actual serial |
+
+**RMA Stock Report** (`/inventory/rma/stock-report`, button next to Dashboard on the RMA list; `GET /api/v1/rma/stock-report`, `services/rma/stock_report_service.py`): one list of every unit in an RMA store (`is_rma_store`) and every unit out with a supplier (`is_supplier_transit`). Quantities are the stock levels of those warehouses, so the report always agrees with the Stock page; each line is tied to the RMA that explains it (RMA no, customer, supplier, claim, since when, expected return, late flag). Stock no open RMA accounts for is listed as "No linked RMA" so a gap between the books and the shelf is visible. Units with no booked cost in the RMA warehouse are valued at the product's average cost elsewhere and marked `~`. Summary tiles (In RMA Store, With Supplier, value, Late from supplier, Aged > 30 days, No linked RMA) double as filters; the list exports to CSV.
 
 Pending/unapproved actions must be visibly pending and must not be counted as finalized stock. Every posting must be idempotent: approving the same document twice must not duplicate stock or accounting entries.
 
@@ -392,7 +396,7 @@ New RBAC sub-modules (the supported route — they appear in the role editor aut
 
 - **List** (`rma-grid`): add Complaint Date, Supplier, Assigned To, RMA Store, Approx. Delivery, stage chip with custody state, Charge (only with finance permission).
 - **New RMA drawer** (already on `AgainDrawerPanel` + draft): add assigned staff (user picker), receiving RMA store, approx. delivery date, diagnosis-required + report, charge estimate, prior-RMA history list (warning, not blocking), supplier / purchase invoice auto-fill shown **read-only and marked "auto"**, with *Override* (needs `rma_override`, asks a reason). Primary **Save**, plus **Save & print receipt** and **Send for approval**.
-- **RMA detail drawer** (rebuild `rma-claim-drawer`): `AgainDrawerPanel` at 60 %, compact header (number, customer, product / serial, stage chip, custody state, one primary next action), stage timeline, tabs shown only when relevant: **Overview · Complaint & Diagnosis · Stock Movements · Attachments · Activity** (Supplier Claim, Replacement Receipt, Customer Delivery, Payment tabs arrive in their phases). The existing Warranty / Inspection / Charge drawers keep working and open from the tabs.
+- **RMA detail drawer** (rebuild `rma-claim-drawer`): `AgainDrawerPanel` at 60 %, compact header (number, customer, product / serial, stage chip, custody state, one primary next action), stage timeline, tabs shown only when relevant: **Overview · Complaint & Diagnosis · Stock Movements · Attachments · Activity** (Supplier Claim, Replacement Receipt, Customer Delivery, Payment tabs arrive in their phases). The Warranty drawer keeps working and opens from the tabs. (The Inspection / QC drawer, the Charges and Supplier job sections were removed to keep the RMA simple.)
 - **Approval drawer**: warranty, supplier trace, attachments, prior history, receiving store, then Approve / Reject / Return for correction with a required reason.
 - **Complaint Receipt print**: client-side print route, same pattern as sales print; layout follows the complaint-receive slip (complain no., customer, address, mobile, product, under-warranty, received serial, sales invoice no. + date, problem, narration, prior job ref + no. of times, engineer, delivery date, charges, customer / authorised signatures); no internal notes, no costs.
 - **Attachments**: `CollabFile` with `entity_type="rma"` via media upload.
@@ -457,9 +461,19 @@ Flow: **Create claim** (from an approved RMA whose unit is in the RMA store) →
 
 Flow: from a **dispatched** claim, **Receive from supplier** → fill in what came back → **Send for approval** → **Approve & receive** (or Return for correction / Reject, with a reason) → print the **Replacement Receive Copy**.
 
-- **Data** — table `rma_supplier_receipts` (`RRC-YYYY-nnnn`; status draft · pending_approval · correction_requested · approved · rejected · cancelled; sent serial, received serial, outcome *Replacement / Original unit repaired / Returned unrepaired / Other*, supplier delivery ref, received date / by, condition, accessories, RMA store, decision, print count). `rma_tickets.received_serial_number`; `inventory_serials.replaces_serial` and `replaced_by_serial`. One open receipt per claim.
+- **Data** — table `rma_supplier_receipts` (`RRC-YYYY-nnnn`; status draft · pending_approval · correction_requested · approved · rejected · cancelled; sent serial, received serial, **outcome = the receipt type** (`same_unit` · `same_product` · `different_product` · `cash_back`), the other product's item / SKU / name, the cash back amount / account / settlement, supplier reference, received date / by, condition, accessories, RMA store, decision, print count). `rma_tickets.received_serial_number`; `inventory_serials.replaces_serial` and `replaced_by_serial`. One open receipt per claim.
 - **Serial rules** — the received serial starts as the serial that was sent. A **different** serial needs the new `rma_serial_change` permission (checked when it is typed and again at approval), must not exist in the registry (409 otherwise, case-insensitive) and must not be on another open receipt. `rma_tickets.serial_number` is never overwritten.
-- **Approval posts, nothing else does** — one guarded `receipt` stock event: `transfer_out` from Supplier / In Transit and `transfer_in` into the chosen RMA store; stock state **Replacement Received**; the RMA goes through *at supplier* to **Back from supplier**; the supplier job becomes *returned* with the outcome. A rejected, sent-back, draft or pending receipt creates no stock. A second approval is refused.
+- **Receipt types** — the type drives the form, the validation and what approving posts:
+
+  | Type | Asks for | Approving posts |
+  |---|---|---|
+  | **Same product, same serial** (`same_unit`) | nothing extra (the serial is the one sent) | the unit `transfer_out` of Supplier / In Transit and `transfer_in` into the RMA store |
+  | **Same product, different serial** (`same_product`) | the new serial | as above; the new serial is registered under the same product and linked (`replaces_serial`), the original is marked *replaced* |
+  | **Different product, different serial** (`different_product`) | the product (catalogue search), its new serial | the original leaves the transit stock (`stock_adjustment_out`: the supplier kept it) and the other product is stocked into the RMA store (`stock_adjustment_in`); the new serial is registered under the OTHER product; `rma_tickets.held_item_id / held_sku / held_product_name` say the RMA now holds it, so the customer delivery hands THAT over and later stock events move it. The claimed product on the ticket is never rewritten |
+  | **Cash back** (`cash_back`) | amount, the cash / bank account | no unit comes back: the original leaves the transit stock (`stock_adjustment_out`) and the stock state becomes **Cash Back (unit kept by supplier)**; the money is posted to Finance by an RMA settlement made and approved in the same step (supplier, *money in*, purpose *Refund / Settlement*, settled against Accounts Payable 2100), linked on the receipt. The customer delivery is blocked (no unit to hand over); the customer is settled with a settlement and the RMA can then be completed from *Back from supplier* |
+
+  A different serial or product needs the `rma_serial_change` permission; a cash back also needs the settlement approval right and a finance approval limit that covers the amount, because it posts money. The receipt drawer shows what was sent next to what is received and lists *On approval* in plain words before anything is posted.
+- **Approval posts, nothing else does** — one guarded `receipt` stock event (legs by type, above); stock state **Replacement Received** (or **Cash Back**); the RMA goes through *at supplier* to **Back from supplier**; the supplier job becomes *returned* with the outcome. A rejected, sent-back, draft or pending receipt creates no stock. A second approval is refused.
 - **Serial history** — a different serial is registered (source `rma_replacement`, source id = the receipt, supplier) as an `in_service` unit in the RMA store that `replaces` the original; the original becomes `replaced` and keeps its row, `replaced_by_serial` and a dated note. The same serial coming back just moves to the RMA store with a note. An open claim also covers `received_serial_number`.
 - **Guards** — a plain "back from supplier" status move is refused while the unit is with the supplier (the receipt does it); an approved receipt cannot be cancelled; cancelling the RMA after receipt is refused for stock that moved on.
 - **Permissions** — new `rma_receive_approve` and `rma_serial_change` (plus `rma_reprint` for reprints). Off by default for everyone except System Manager.
@@ -475,7 +489,7 @@ Flow: **Delivery & Payment** tab → **New delivery / payment** → choose the c
 
 - **Two concepts, five presets** — the document holds a *physical action* (`deliver_product`: hand the product over now or not) and a *payment state* (`none` / `received` / `due`). The five familiar cases are shortcuts that set both: **Without Payment** (deliver + none), **Payment Received** (no handover + received), **Payment Payable** (no handover + due), **Product with Payment Received** (deliver + received), **Product with Payment Payable** (deliver + due). The drawer shows the two settings under the presets, so a payment-only document cannot hand the product over by accident.
 - **Data** — table `rma_deliveries` (`DLV-YYYY-nnnn`; status draft · pending_approval · correction_requested · approved · rejected · cancelled; preset, deliver_product, payment_state, amount total / received / due, payment account, reference, due date, delivery date, received by, serial delivered, decision, and the links approval created: payment number, receivable number, stock posted). One open delivery per RMA; several approved ones over time (a payment, then later the handover).
-- **Rules** — at least one effect; a charged RMA is never delivered "without payment" (it must be received or payable); no charge means no payment and no receivable; amount received > 0 and ≤ what is owed (a partial payment leaves the rest due); an amount due carries no payment; payment fields need the new `rma_payment` permission; the handover needs the unit in the RMA store (not with the supplier) and the RMA inspected / Ready for delivery. `summary` (`GET /rma/tickets/{id}/delivery-summary`) tells the UI what is possible and why not.
+- **Rules** — at least one effect; a charged RMA is never delivered "without payment" (it must be received or payable); no charge means no payment and no receivable; amount received > 0 and ≤ what is owed (a partial payment leaves the rest due); an amount due carries no payment; payment fields need the new `rma_payment` permission; the handover needs the unit in the RMA store (not with the supplier) and the RMA moved to Ready for delivery. `summary` (`GET /rma/tickets/{id}/delivery-summary`) tells the UI what is possible and why not.
 - **Approval posts, exactly once** — *money* through the existing finance services: the RMA's own receivable (`raise_bill`, billed once) and `FinanceService.settle_receivable` for a payment (reference = the delivery number); *product*: one guarded `delivery` stock event takes the unit out of the RMA store, stock state **Delivered to Customer**, the serial back with the customer (`sold`, warehouse cleared; a replacement unit inherits the customer and order of the original), and the RMA goes through delivered to **Completed**. A **payment-only** delivery never moves stock or the RMA's status. A second approval is refused; rejected, sent-back, draft and pending documents post nothing; an approved delivery cannot be cancelled.
 - **Guards** — a plain status move to *delivered* is refused while the unit is held in stock (the old "Move on" cannot bypass the stock-out).
 - **Permissions** — new `rma_delivery_approve` and `rma_payment`; `rma_reprint` for reprints. Off by default for everyone except System Manager.
@@ -638,3 +652,40 @@ Four limits recorded in B.8 / B.9 were closed.
 **Verified:** 195 tests pass (RMA + finance unit + cheque). Live: a damage-compensation settlement reversed → payments inbound 500 / outbound 500, journal net 0 on every account, original marked reversed, second reversal 409, locked fields 400, staff 403; a charged RMA — pay, cancel refused, reverse, cancel → invoice void with one void entry; an unpaid-invoice RMA cancelled → invoice void. Test data removed, sequences restored.
 
 **Still not included:** a printed receipt / voucher for a settlement; linking a settlement to an older invoice other than the RMA's own; RMA and supplier warehouses are flagged but not yet excluded from sellable-stock reports.
+
+### B.11 Customer delivery redesigned — the same types as the supplier receipt, with charges, fines and cash back
+
+What the customer gets now has the same four options as what came back from the supplier (B.6). One document, one Save: the **Delivery** tab (the old *Delivery & Settlement* tab with its Settlement section is gone) lists the RMA's deliveries and opens the delivery drawer.
+
+| Type (`rma_deliveries.outcome`) | What it is | Rule |
+|---|---|---|
+| **Same product, same serial** (`same_unit`) | the customer's own unit goes back | the unit the RMA holds has the serial and product the customer brought |
+| **Same product, different serial** (`same_product`) | a replacement of the same product goes back | the held unit's serial differs (the supplier replaced it, B.6) |
+| **Different product, different serial** (`different_product`) | another product goes back | the RMA holds a different product (`rma_tickets.held_item_id`, B.6) |
+| **Cash back** (`cash_back`) | no unit: money is paid back | amount + the account it is paid from; always allowed when the customer is linked |
+
+The three unit types are **validated against the unit the RMA actually holds** (`delivery_service.unit_outcome`): a type that does not match is refused with the reason, and the drawer shows the other cards switched off with that reason. A new delivery starts as the matching type (or cash back when there is no unit to hand over).
+
+**Money in the same document** — the customer can be charged on the delivery: `rma_charges` kinds are now *service charge, parts, labour, fine, other* (a fine is a charge like any other and is invoiced with them). Part of the charges can be **collected now** (amount + cash / bank account + reference); the rest stays owed on the RMA's invoice.
+
+**Approval posts, each effect once** (`delivery_service._post`, in one transaction):
+1. the charges are invoiced once (`raise_bill`); what is collected now is an RMA settlement made and approved in the same step (customer, *money in*, settles the invoice through Finance);
+2. cash back: an RMA settlement (customer, *money out*, purpose *Refund / Settlement*, Sales Returns 4200); `rma_tickets.refund_amount` / resolution *refund* are recorded;
+3. a unit type: the unit leaves the RMA store (`rma_replacement` event on the **held** item), its serial goes back to the customer, the RMA is completed. Cash back hands nothing over: the RMA is completed only when the supplier kept the unit (custody *Cash Back*); a unit still in the RMA store keeps its own decision (restock, supplier, scrap), so the RMA stays open until then.
+
+A delivery that collects or pays money needs the settlement approval right and a finance approval limit that covers the amount (checked at approval). Print: the Customer Delivery Copy shows the type, the charge lines, the cash back and the product handed over (the replacement when it differs). Data: `outcome`, `refund_amount`, `refund_account_id`, `collect_settlement_id`, `refund_settlement_id` on `rma_deliveries` (older deliveries are typed from their serials). Verified by `scripts/verify_delivery_cases.py` (rolled back) and the unit tests in `test_delivery_flow.py`.
+
+### B.12 OnerERP parity (docs/OnerERP-RnD-Spec.md §7.4, §8, §12, §18.8)
+
+The spec says *what* OnerERP has; this section is how AgainERP does it with its own pieces.
+
+| OnerERP | AgainERP |
+|---|---|
+| Customer `IsRMALocked` | `commerce_customers.rma_locked` + `rma_lock_reason`, set on the customer drawer (Financial › RMA: Open / Locked). A locked customer's complaint is refused when it is created, sent for approval or approved (`complaint_service.assert_customer_not_rma_locked`); a reject still works. The New RMA drawer shows the lock (`GET /rma/customer-lock`) and will not save. |
+| Complain Receive against System / Previous / Unknown Sales | `rma_tickets.sale_source` (`system` · `previous` · `unknown`) + `previous_invoice_no`. A sale this ERP knows always wins. *Previous sale* needs the old invoice no. and a past sale date; the warranty is measured from that date (`warranty_source = previous_sale`). *Unknown* stays Unverified. Chosen in the *Claim without an invoice* box of the New RMA drawer. |
+| `GenerateProductSerial(8)` + Bulk Qty | `POST /rma/serials/generate {count}` — 8 characters without look-alikes (0/O, 1/I/L), unused by any inventory serial or RMA. *Generate* next to the serial field; without an invoice, *Units* > 1 generates one per unit and opens one claim each. `rma_tickets.serial_generated`; the serial is never added to the inventory serial registry, and a serial-tracked product is refused (it needs its real, registered serial). |
+| Warranty / Service Warranty "left" | `warranty_days_left` on the ticket (derived from `warranty_expires_on`), shown on the RMA header, the Warranty section and the Complain register. Service warranty days are not modelled (no product field). |
+| Spare / Service charge with Discount | `rma_charges.discount`; `line_total` = qty × price − discount, so the bill and the totals use the net amount. Discount input on the delivery drawer's charge line. |
+| Reports › RMA: Complain, Delivery, Replacement Claim / Receive, each with Analysis | `services/rma/register_service.py`: `GET /rma/registers/{complain|claim|receive|delivery}` (date range, status, search) and `…/analysis?group_by=` (product, customer, supplier, problem, warranty, sale type, engineer, receive / delivery type, status — per register). UI: `/inventory/rma/reports` on `FinanceAgListGrid` with a Report picker, Register / Analysis, CSV export; a document no. opens the RMA drawer. The older count summary stays as the *Summary* report. |
+
+Not built on purpose: one supplier claim carrying several complaints (AgainERP keeps one claim per RMA), separate RMA ledger heads (the spec marks Oner's RMA auto vouchers as unverified), service-warranty days (needs a product field), and a serial history timeline (an inventory-wide feature).

@@ -16,7 +16,7 @@ RESOLUTION_PATTERN = (
     "supplier_return|resellable|scrap|reject)$"
 )
 WARRANTY_PATTERN = "^(in_warranty|out_of_warranty|unknown)$"
-CHARGE_KIND_PATTERN = "^(part|labour|misc)$"
+CHARGE_KIND_PATTERN = "^(part|labour|misc|service|fine)$"
 JOB_STATUS_PATTERN = "^(draft|dispatched|acknowledged|in_progress|completed|returned|rejected)$"
 
 
@@ -31,6 +31,7 @@ class RmaChargeRead(BaseModel):
     quantity: Decimal
     unit_price: Decimal
     tax_rate: Decimal
+    discount: Decimal = Decimal("0")
     line_total: Decimal
     notes: Optional[str] = None
     created_at: datetime
@@ -124,6 +125,10 @@ class RmaTicketRead(BaseModel):
     refund_id: Optional[str] = None
     refund_amount: Decimal = Decimal("0")
     replacement_sku: Optional[str] = None
+    # set when the unit in the RMA store is not the claimed product (the supplier sent a different one back)
+    held_item_id: Optional[str] = None
+    held_sku: Optional[str] = None
+    held_product_name: Optional[str] = None
 
     # Complaint intake & approval
     custody_state: Optional[str] = None
@@ -147,6 +152,10 @@ class RmaTicketRead(BaseModel):
     prior_rma_count: int = 0
     # derived work-queue read-outs
     days_open: int = 0
+    warranty_days_left: Optional[int] = None
+    sale_source: str = "system"
+    previous_invoice_no: Optional[str] = None
+    serial_generated: bool = False
     overdue_days: int = 0
     is_repeat: bool = False
     received_serial_number: Optional[str] = None
@@ -214,6 +223,30 @@ class RmaCreate(BaseModel):
     supplier_id: Optional[str] = Field(default=None, max_length=36)
     supplier_override_reason: Optional[str] = None
     unit_received: bool = True
+    # No sale in this ERP: previous (sold before it, with the old invoice and sale date) or unknown
+    sale_source: str = Field(default="system", pattern="^(system|previous|unknown)$")
+    previous_invoice_no: Optional[str] = Field(default=None, max_length=100)
+    previous_sale_date: Optional[date] = None
+    serial_generated: bool = False
+
+
+class RmaGenerateSerialsRequest(BaseModel):
+    count: int = Field(default=1, ge=1, le=100)
+
+
+class RmaGenerateSerialsResponse(BaseModel):
+    data: List[str]
+
+
+class RmaCustomerLockRead(BaseModel):
+    locked: bool
+    customer_id: Optional[str] = None
+    name: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class RmaCustomerLockResponse(BaseModel):
+    data: RmaCustomerLockRead
 
 
 class RmaUpdate(BaseModel):
@@ -359,6 +392,7 @@ class RmaChargeCreate(BaseModel):
     quantity: Decimal = Field(default=Decimal("1"), gt=0)
     unit_price: Decimal = Field(ge=0)
     tax_rate: Decimal = Field(default=Decimal("0"), ge=0, le=100)
+    discount: Decimal = Field(default=Decimal("0"), ge=0)
     item_id: Optional[str] = Field(default=None, max_length=36)
     sku: Optional[str] = Field(default=None, max_length=100)
     notes: Optional[str] = None
@@ -474,14 +508,6 @@ class RmaDashboardResponse(BaseModel):
     data: RmaDashboardRead
 
 
-class RmaInspectionRequest(BaseModel):
-    physical_condition: str = Field(pattern="^(new|like_new|used|damaged|heavily_damaged)$")
-    functional_result: str = Field(pattern="^(passed|failed|partial)$")
-    qc_result: str = Field(pattern="^(resellable|repairable|scrap|supplier_return)$")
-    notes: Optional[str] = None
-    accessories: Optional[str] = None
-
-
 class RmaResolveRequest(BaseModel):
     resolution_type: str = Field(pattern=RESOLUTION_PATTERN)
     note: Optional[str] = None
@@ -591,6 +617,74 @@ class RmaQueuesRead(BaseModel):
 
 class RmaQueuesResponse(BaseModel):
     data: RmaQueuesRead
+
+
+class RmaStockReportRow(BaseModel):
+    """One line of the RMA stock report: a unit (or a few of one product) in an RMA store or out with a supplier."""
+
+    id: str
+    location_id: str
+    location_code: str
+    location_name: str
+    location_kind: str  # rma_store | supplier
+    sku: str
+    product_name: str
+    thumbnail: Optional[str] = None
+    serial_number: str = ""
+    quantity: int
+    unit_cost: Decimal
+    cost_estimated: bool = False  # no booked cost here: valued at the product's average cost elsewhere
+    value: Decimal
+    rma_id: Optional[str] = None
+    rma_number: Optional[str] = None
+    rma_status: Optional[str] = None
+    custody_state: Optional[str] = None
+    custody_label: str = ""
+    customer_name: str = ""
+    supplier_name: str = ""
+    claim_id: Optional[str] = None
+    claim_number: Optional[str] = None
+    claim_status: Optional[str] = None
+    warranty_status: Optional[str] = None
+    since: Optional[datetime] = None
+    days_in_location: int = 0
+    expected_return_date: Optional[date] = None
+    is_late: bool = False
+    linked: bool = True
+
+
+class RmaStockReportLocation(BaseModel):
+    id: str
+    code: str
+    name: str
+    kind: str
+    units: int = 0
+    value: Decimal = Decimal("0")
+
+
+class RmaStockReportSummary(BaseModel):
+    total_units: int = 0
+    store_units: int = 0
+    supplier_units: int = 0
+    total_value: Decimal = Decimal("0")
+    store_value: Decimal = Decimal("0")
+    supplier_value: Decimal = Decimal("0")
+    sku_count: int = 0
+    late_returns: int = 0
+    aged_units: int = 0
+    unlinked_units: int = 0
+    oldest_days: int = 0
+    aged_after_days: int = 30
+
+
+class RmaStockReportRead(BaseModel):
+    summary: RmaStockReportSummary
+    locations: List[RmaStockReportLocation]
+    rows: List[RmaStockReportRow]
+
+
+class RmaStockReportResponse(BaseModel):
+    data: RmaStockReportRead
 
 
 class RmaServiceJobRead(BaseModel):

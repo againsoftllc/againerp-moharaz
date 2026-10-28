@@ -127,6 +127,9 @@ function RmaPageInner() {
       <Button variant="outline" size="sm" className="rounded-none" onClick={() => router.push("/inventory/rma/dashboard")}>
         Dashboard
       </Button>
+      <Button variant="outline" size="sm" className="rounded-none" onClick={() => router.push("/inventory/rma/stock-report")}>
+        RMA Stock Report
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button

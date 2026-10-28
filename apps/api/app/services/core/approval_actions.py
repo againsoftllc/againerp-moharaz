@@ -295,11 +295,16 @@ def _d_rma_delivery(db: Session, p: dict[str, str], body: dict[str, Any]) -> Des
     if delivery is None:
         return Described(entity_id=p.get("delivery_id"))
     ticket = _get(db, RmaTicket, delivery.rma_id)
+    refund = delivery.outcome == "cash_back"
     return Described(
         reference=delivery.delivery_number,
         party=ticket.customer_name if ticket else None,
-        amount=_money(delivery.amount_total),
-        summary="Approve the customer delivery: the unit leaves the RMA store and any charges are billed.",
+        amount=_money(delivery.refund_amount) if refund else _money(delivery.amount_total),
+        summary={
+            "cash_back": "Approve the customer delivery: no unit goes back, the cash back is paid to the customer.",
+            "different_product": "Approve the customer delivery: a different product goes back to the customer; any charges are billed.",
+            "same_product": "Approve the customer delivery: a replacement of the same product (new serial) goes back; any charges are billed.",
+        }.get(delivery.outcome, "Approve the customer delivery: the unit leaves the RMA store and any charges are billed."),
         entity_id=delivery.id,
     )
 
@@ -329,8 +334,29 @@ def _d_rma_receipt(db: Session, p: dict[str, str], body: dict[str, Any]) -> Desc
     return Described(
         reference=receipt.receipt_number,
         party=receipt.supplier_name,
-        summary="Approve the replacement receipt: the unit comes back from the supplier into the RMA store.",
+        amount=_money(receipt.refund_amount) if receipt.outcome == "cash_back" else None,
+        summary={
+            "cash_back": "Approve the cash back: no unit returns, and the money the supplier paid is posted to Finance.",
+            "different_product": f"Approve the replacement receipt: a different product ({receipt.received_sku or 'see the receipt'}) comes back from the supplier into the RMA store.",
+            "same_product": "Approve the replacement receipt: the same product comes back with a new serial into the RMA store.",
+        }.get(receipt.outcome, "Approve the replacement receipt: the unit comes back from the supplier into the RMA store."),
         entity_id=receipt.id,
+    )
+
+
+def _d_rma_settlement(db: Session, p: dict[str, str], body: dict[str, Any]) -> Described:
+    from app.models.rma import RmaSettlement
+
+    row = _get(db, RmaSettlement, p.get("settlement_id"))
+    if row is None:
+        return Described(entity_id=p.get("settlement_id"))
+    way = "received from" if row.direction == "in" else "paid to"
+    return Described(
+        reference=row.settlement_number,
+        party=row.party_name,
+        amount=_money(row.amount),
+        summary=f"Approve the settlement: money {way} {row.party_name or 'the party'} is posted to Finance.",
+        entity_id=row.id,
     )
 
 
@@ -477,6 +503,9 @@ ACTIONS: list[ApprovalAction] = [
     ApprovalAction("rma.replacement_receive", "rma", "Replacement Receive", "POST",
                    r"rma/receipts/(?P<receipt_id>[^/]+)/decision", when=_decision_is("approved"),
                    describe=_d_rma_receipt, alt_modules=("rma_receive_approve",)),
+    ApprovalAction("rma.settlement", "rma", "Settlement", "POST",
+                   r"rma/settlements/(?P<settlement_id>[^/]+)/decision", when=_decision_is("approved"),
+                   describe=_d_rma_settlement, alt_modules=("rma_settlement_approve",)),
     # ---- Accounts & Finance
     ApprovalAction("finance.collection", "finance", "Collection", "POST",
                    r"commerce/customers/(?P<customer_id>[^/]+)/ledger/payments",
@@ -522,6 +551,7 @@ _CLOSES_ON_DIRECT = frozenset(
         "rma.customer_delivery",
         "rma.replacement_claim",
         "rma.replacement_receive",
+        "rma.settlement",
     }
 )
 ACTIONS = [replace(a, closes_on_direct=True) if a.key in _CLOSES_ON_DIRECT else a for a in ACTIONS]
@@ -595,6 +625,11 @@ def resolve_target(
         from app.models.rma import RmaSupplierReceipt
 
         row = _get(db, RmaSupplierReceipt, params.get("receipt_id"))
+        return ("rma_ticket", row.rma_id) if row is not None else (None, None)
+    if key == "rma.settlement":
+        from app.models.rma import RmaSettlement
+
+        row = _get(db, RmaSettlement, params.get("settlement_id"))
         return ("rma_ticket", row.rma_id) if row is not None else (None, None)
     # sales.invoice_create, finance.collection_invoice, finance.payment_expense, finance.voucher: nothing to open
     return None, None

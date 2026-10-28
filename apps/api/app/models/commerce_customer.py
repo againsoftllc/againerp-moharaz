@@ -101,6 +101,9 @@ class CommerceCustomer(Base):
     wallet_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     credit_limit: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    # No new RMA complaint is taken for this customer while set (OnerERP IsRMALocked).
+    rma_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    rma_lock_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # Credit control at sale (services/customer/credit_control.py; OnerERP IsLocked, TransactionType, CreditAllowedDays,
     # ConditionalLimit + ValidTill, SecurityMoney, OpeningDate). Columns added by ensure_customer_credit_columns.
     sales_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

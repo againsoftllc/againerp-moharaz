@@ -20,7 +20,7 @@ import { formatDate } from "@/lib/utils";
  * which is what prevents back-dating into a month that has been reported.
  * A date with no period row counts as open, so this screen is opt-in.
  */
-export function WorkspacePeriodsPanel() {
+export function WorkspacePeriodsPanel({ embedded = false }: { embedded?: boolean }) {
   const canWrite = useAdminCanWrite();
   const [rows, setRows] = useState<ApiFinancePeriod[]>([]);
   const [years, setYears] = useState<number[]>([]);
@@ -77,11 +77,11 @@ export function WorkspacePeriodsPanel() {
   const closedCount = rows.filter((r) => r.status === "closed").length;
 
   return (
-    <div className="p-4">
+    <div className={embedded ? undefined : "p-4"}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="page-title">Accounting periods</h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          {embedded ? null : <h1 className="page-title">Accounting periods</h1>}
+          <p className={embedded ? "max-w-2xl text-[11px] text-muted-foreground" : "mt-1 max-w-2xl text-xs text-muted-foreground"}>
             Closing a period blocks new journal postings on its dates — invoices, payments and stock
             moves alike. Dates with no period row stay open, so nothing is locked until you close it.
           </p>

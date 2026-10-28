@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -23,7 +24,9 @@ from app.schemas.supplier.ledger import (
     SupplierPaymentCreate,
     SupplierPaymentListResponse,
     SupplierPaymentResponse,
+    SupplierStatementResponse,
 )
+from app.services.core.access_scope import pick_payment_account
 from app.services.supplier import supplier_ledger_service, supplier_service
 
 router = APIRouter(prefix="/suppliers", tags=["commerce-suppliers"])
@@ -122,6 +125,28 @@ def supplier_ledger(
     return SupplierLedgerResponse(data=entries, meta=summary)
 
 
+@router.get("/{supplier_id}/statement", response_model=SupplierStatementResponse)
+def supplier_statement(
+    supplier_id: str,
+    date_from: Optional[date] = Query(default=None),
+    date_to: Optional[date] = Query(default=None),
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("purchase", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> SupplierStatementResponse:
+    """Supplier statement for a period: opening, bills and payments, total and credit limit summary."""
+    today = date.today()
+    return SupplierStatementResponse(
+        data=supplier_ledger_service.statement(
+            db,
+            supplier_id,
+            company_id=company_id,
+            date_from=date_from or today.replace(month=1, day=1),
+            date_to=date_to or today,
+        )
+    )
+
+
 @router.get("/{supplier_id}/payments", response_model=SupplierPaymentListResponse)
 def list_supplier_payments(
     supplier_id: str,
@@ -140,10 +165,12 @@ def record_supplier_payment(
     supplier_id: str,
     payload: SupplierPaymentCreate,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("purchase", "write")),
+    user: AuthUser = Depends(require_permission("purchase", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> SupplierPaymentResponse:
     supplier_service.get_supplier(db, supplier_id, company_id=company_id)
+    if payload.amount > 0:
+        payload.payment_account_id = pick_payment_account(db, user, payload.payment_account_id)
     payment = supplier_ledger_service.record_payment(
         db, supplier_id, payload, company_id=company_id
     )

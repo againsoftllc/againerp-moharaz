@@ -90,3 +90,103 @@ class SupplierPaymentResponse(BaseModel):
 class SupplierPaymentListResponse(BaseModel):
     data: List[SupplierPaymentRead]
     errors: List[str] = []
+
+
+class SupplierStatementLine(BaseModel):
+    """One line of the supplier statement. Cr raises what we owe (bills), Dr lowers it (payments)."""
+
+    id: str
+    date: date
+    transaction_type: str
+    particular: str
+    transaction_no: Optional[str] = None
+    debit: Decimal = Decimal("0")
+    credit: Decimal = Decimal("0")
+    balance: Decimal = Field(default=Decimal("0"), description="Cr − Dr after this line: positive means we owe the supplier.")
+    source_type: Optional[str] = None
+    source_id: Optional[str] = None
+    journal_entry_id: Optional[str] = None
+    status: Optional[str] = None
+    due_date: Optional[date] = None
+
+
+class SupplierStatementParty(BaseModel):
+    id: str
+    code: str
+    name: str
+    phone: str = ""
+    email: str = ""
+    address: str = ""
+    country: Optional[str] = None
+    currency: Optional[str] = None
+    payment_terms: Optional[str] = None
+
+
+class SupplierStatementOpenOrder(BaseModel):
+    id: str
+    po_number: str
+    order_date: date
+    status: str
+    total: Decimal
+    unreceived: Decimal
+
+
+class SupplierStatementCheque(BaseModel):
+    """An issued cheque that is not honoured yet on the statement's last day."""
+
+    id: str
+    cheque_number: str
+    cheque_date: date
+    bank_name: str
+    amount: Decimal
+    status: str  # issued (not treated) | presented | bounced (dishonoured)
+    status_date: date
+    document_number: Optional[str] = None
+
+
+class SupplierCreditSummary(BaseModel):
+    """OnerERP's Credit Limit Summary. Amounts are Cr-positive like the statement: positive = we owe."""
+
+    ledger_balance: Decimal = Field(description="The statement's closing balance.")
+    adv_cheque_issued: Decimal = Field(
+        default=Decimal("0"), description="Issued cheques already on the ledger as paid but not honoured: not treated + presented."
+    )
+    not_treated: Decimal = Decimal("0")
+    presented: Decimal = Decimal("0")
+    dishonoured: Decimal = Field(
+        default=Decimal("0"),
+        description="Dishonoured cheques still open. A bounce already puts the amount back on the ledger, so it is not deducted again.",
+    )
+    net_outstanding: Decimal = Field(description="Ledger balance as if the cheques not honoured yet were not paid.")
+    unsettled_order_balance: Decimal = Field(description="Confirmed purchase orders not received yet.")
+    net_outstanding_with_orders: Decimal
+    credit_limit: Decimal
+    available_credit: Optional[Decimal] = None
+    credit_allowed_days: Optional[int] = None
+    open_orders: List[SupplierStatementOpenOrder] = []
+
+
+class SupplierTransactionSummary(BaseModel):
+    transaction_type: str
+    count: int
+    debit: Decimal
+    credit: Decimal
+
+
+class SupplierStatementRead(BaseModel):
+    supplier: SupplierStatementParty
+    date_from: date
+    date_to: date
+    opening_balance: Decimal
+    lines: List[SupplierStatementLine]
+    total_debit: Decimal
+    total_credit: Decimal
+    closing_balance: Decimal
+    transaction_summary: List[SupplierTransactionSummary]
+    credit_summary: SupplierCreditSummary
+    pending_cheques: List[SupplierStatementCheque] = []
+
+
+class SupplierStatementResponse(BaseModel):
+    data: SupplierStatementRead
+    errors: List[str] = []

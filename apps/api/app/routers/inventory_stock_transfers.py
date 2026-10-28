@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_permission, get_current_company_id
 from app.models.auth_user import AuthUser
+from app.models.inventory_stock_transfer import InventoryStockTransfer
+from app.services.core.access_scope import assert_document_warehouse, assert_warehouse_access, warehouse_scope
 from app.schemas.inventory.stock_transfer import (
     StockTransferCreate,
     StockTransferListMeta,
@@ -38,7 +40,7 @@ def _commit_transfer(db: Session, row):
 @router.get("", response_model=StockTransferListResponse)
 def list_transfers(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("inventory", "read")),
+    user: AuthUser = Depends(require_permission("inventory", "read")),
     company_id: str = Depends(get_current_company_id),
     status: Optional[str] = Query(default=None),
     from_warehouse_id: Optional[str] = Query(default=None),
@@ -46,8 +48,12 @@ def list_transfers(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=500),
 ) -> StockTransferListResponse:
+    assert_warehouse_access(db, user, from_warehouse_id)
+    assert_warehouse_access(db, user, to_warehouse_id)
+    scope = warehouse_scope(db, user)
     svc = StockTransferService(db)
     rows, total = svc.list_transfers(
+        warehouse_ids=scope,
         company_id=company_id,
         status=status,
         from_warehouse_id=from_warehouse_id,
@@ -81,9 +87,47 @@ def create_transfer(
     user: AuthUser = Depends(require_permission("inventory", "create")),
     company_id: str = Depends(get_current_company_id),
 ) -> StockTransferResponse:
+    assert_warehouse_access(db, user, payload.from_warehouse_id)
     try:
         row = StockTransferService(db, company_id=company_id).create_transfer(
             company_id=company_id,
+            from_warehouse_id=payload.from_warehouse_id,
+            to_warehouse_id=payload.to_warehouse_id,
+            lines=[
+                TransferLineInput(
+                    item_id=line.item_id,
+                    quantity=line.quantity,
+                    serial_ids=tuple(line.serial_ids),
+                    notes=line.notes,
+                )
+                for line in payload.lines
+            ],
+            transfer_date=payload.transfer_date,
+            reference_number=payload.reference_number,
+            notes=payload.notes,
+            actor_id=user.id,
+        )
+        row = _commit_transfer(db, row)
+        return StockTransferResponse(data=transfer_to_read(db, row))
+    except HTTPException:
+        db.rollback()
+        raise
+
+
+@router.put("/{transfer_id}", response_model=StockTransferResponse)
+def update_transfer(
+    transfer_id: str,
+    payload: StockTransferCreate,
+    db: Session = Depends(get_db),
+    user: AuthUser = Depends(require_permission("inventory", "write")),
+    company_id: str = Depends(get_current_company_id),
+) -> StockTransferResponse:
+    """Edit a draft transfer (header and lines). Shipped transfers can only be received."""
+    assert_document_warehouse(db, user, InventoryStockTransfer, transfer_id, "from_warehouse_id")
+    assert_warehouse_access(db, user, payload.from_warehouse_id)
+    try:
+        row = StockTransferService(db, company_id=company_id).update_transfer(
+            transfer_id,
             from_warehouse_id=payload.from_warehouse_id,
             to_warehouse_id=payload.to_warehouse_id,
             lines=[
@@ -114,6 +158,7 @@ def ship_transfer(
     user: AuthUser = Depends(require_permission("inventory", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> StockTransferResponse:
+    assert_document_warehouse(db, user, InventoryStockTransfer, transfer_id, "from_warehouse_id")
     try:
         row = StockTransferService(db, company_id=company_id).ship_transfer(transfer_id, actor_id=user.id)
         row = _commit_transfer(db, row)
@@ -131,6 +176,7 @@ def receive_transfer(
     user: AuthUser = Depends(require_permission("inventory", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> StockTransferResponse:
+    assert_document_warehouse(db, user, InventoryStockTransfer, transfer_id, "to_warehouse_id")
     try:
         row = StockTransferService(db, company_id=company_id).receive_transfer(
             transfer_id,
@@ -158,6 +204,7 @@ def cancel_transfer(
     user: AuthUser = Depends(require_permission("inventory", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> StockTransferResponse:
+    assert_document_warehouse(db, user, InventoryStockTransfer, transfer_id, "from_warehouse_id")
     try:
         row = StockTransferService(db, company_id=company_id).cancel_transfer(transfer_id, actor_id=user.id)
         row = _commit_transfer(db, row)

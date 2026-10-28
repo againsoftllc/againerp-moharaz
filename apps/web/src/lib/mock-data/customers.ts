@@ -173,6 +173,9 @@ export type Customer = {
   openingBalance: number;
   /** Maximum receivable credit allowed (BDT). 0 = no credit. */
   creditLimit: number;
+  /** No new RMA complaint is taken while set (OnerERP IsRMALocked). */
+  rmaLocked?: boolean;
+  rmaLockReason?: string;
   /** Credit control at sale (OnerERP IsLocked, TransactionType, CreditAllowedDays, ConditionalLimit, SecurityMoney). */
   salesLocked?: boolean;
   salesLockReason?: string;

@@ -218,10 +218,15 @@ class ClaimFlowTests(TestCase):
 
     # ----------------------------------------------------------- approval
 
+    def test_an_approver_approves_a_draft_in_one_step(self):
+        c = claim_service.create_claim(self.db, self.ticket(), actor="u")
+        claim_service.decide_claim(self.db, c, decision="approved", reason=None, user=_user("Boss"))
+        self.assertEqual((c.status, c.decided_by_name), ("approved", "Boss"))
+
     def test_approval_rules(self):
         c = claim_service.create_claim(self.db, self.ticket(), actor="u")
-        with self.assertRaises(HTTPException):  # not submitted yet
-            claim_service.decide_claim(self.db, c, decision="approved", reason=None, user=_user())
+        with self.assertRaises(HTTPException):  # only an approval can skip the sending: a draft cannot be rejected
+            claim_service.decide_claim(self.db, c, decision="rejected", reason="No", user=_user())
         claim_service.submit_claim(self.db, c, actor="u")
         with self.assertRaises(HTTPException):  # a reason is required to reject
             claim_service.decide_claim(self.db, c, decision="rejected", reason=" ", user=_user())

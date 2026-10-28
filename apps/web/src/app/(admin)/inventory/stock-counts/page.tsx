@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Filter, Plus, RefreshCw, Settings2, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import type { StockCountGridHandle } from "@/components/inventory/stock-count-gr
 import { useApiHealth } from "@/lib/api/use-api-health";
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { useInventoryWarehouses } from "@/lib/api/use-inventory";
+import { useWarehouseAccess } from "@/lib/auth/warehouse-access";
 import { createStockCount, fetchStockCounts, type ApiStockCount } from "@/lib/api/inventory";
 import { cn } from "@/lib/utils";
 
@@ -32,7 +33,10 @@ const StockCountGrid = dynamic(
 export default function StockCountsPage() {
   const canWrite = useAdminCanWrite();
   const apiHealth = useApiHealth();
-  const { warehouses } = useInventoryWarehouses();
+  const { warehouses: allWarehouses } = useInventoryWarehouses();
+  const warehouseAccess = useWarehouseAccess();
+  // a member limited to some warehouses (locations) picks and filters only among theirs
+  const warehouses = useMemo(() => warehouseAccess.pickable(allWarehouses), [warehouseAccess, allWarehouses]);
   const gridRef = useRef<StockCountGridHandle>(null);
   const [counts, setCounts] = useState<ApiStockCount[]>([]);
   const [loading, setLoading] = useState(true);

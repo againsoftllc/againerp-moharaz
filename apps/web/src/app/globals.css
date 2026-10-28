@@ -374,6 +374,13 @@ body.storefront-site {
   padding-right: 2px !important;
 }
 
+/* the row-menu cog sits in the middle of the row, top to bottom (it rode ~3 px high on the text baseline) */
+.ag-theme-quartz .ag-cell.product-grid-actions-col,
+.ag-theme-quartz-dark .ag-cell.product-grid-actions-col {
+  display: flex;
+  align-items: center;
+}
+
 .ag-theme-quartz .ag-cell.product-grid-actions-col .ag-cell-wrapper,
 .ag-theme-quartz-dark .ag-cell.product-grid-actions-col .ag-cell-wrapper,
 .ag-theme-quartz .ag-cell.product-grid-actions-col .ag-cell-value,

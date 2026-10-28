@@ -14,7 +14,7 @@ from app.services.rma.constants import (
     RESOLUTION_TYPES,
     SERVICE_JOB_TYPES,
 )
-from app.services.rma.rma_service import inspect_ticket, process_refund, set_resolution
+from app.services.rma.rma_service import process_refund, set_resolution
 from app.services.rma.warranty import evaluate
 from app.services.service.constants import JOB_STATUS_TRANSITIONS, JOB_STATUSES
 from app.services.service.service_job_service import ServiceJobIntake, create_job
@@ -48,18 +48,6 @@ class StatusLifecycleTests(TestCase):
         self.assertIn("approved", RMA_STATUS_TRANSITIONS["pending_approval"])
         self.assertIn("received", RMA_STATUS_TRANSITIONS["awaiting_return"])
         self.assertNotIn("diagnosing", RMA_STATUS_TRANSITIONS["awaiting_return"])
-
-    def test_inspect_before_receive_is_blocked(self):
-        ticket = SimpleNamespace(status="awaiting_return")
-        with self.assertRaises(HTTPException) as ctx:
-            inspect_ticket(
-                None,
-                ticket,
-                physical_condition="used",
-                functional_result="failed",
-                qc_result="repairable",
-            )
-        self.assertEqual(ctx.exception.status_code, 400)
 
     def test_resolution_is_separate_from_status(self):
         self.assertIn("paid_repair", RESOLUTION_TYPES)

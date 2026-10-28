@@ -77,6 +77,8 @@ export type ApiCustomer = {
   wallet_balance: string;
   opening_balance?: string | number;
   credit_limit?: string | number;
+  rma_locked?: boolean;
+  rma_lock_reason?: string | null;
   sales_locked?: boolean;
   sales_lock_reason?: string | null;
   trade_mode?: "both" | "credit" | "cash";
@@ -214,6 +216,8 @@ export function apiCustomerToCustomer(row: ApiCustomer): CustomerListRow {
     walletBalance: Number(row.wallet_balance),
     openingBalance: Number(row.opening_balance ?? 0),
     creditLimit: Number(row.credit_limit ?? 0),
+    rmaLocked: Boolean(row.rma_locked),
+    rmaLockReason: row.rma_lock_reason ?? undefined,
     salesLocked: Boolean(row.sales_locked),
     salesLockReason: row.sales_lock_reason ?? undefined,
     tradeMode: row.trade_mode ?? "both",
@@ -311,6 +315,8 @@ export type UpdateCustomerInput = {
   timeline?: Customer["timeline"];
   openingBalance?: number;
   creditLimit?: number;
+  rmaLocked?: boolean;
+  rmaLockReason?: string | null;
   salesLocked?: boolean;
   salesLockReason?: string | null;
   tradeMode?: "both" | "credit" | "cash";
@@ -362,6 +368,8 @@ export function customerUpdateToApiPayload(input: UpdateCustomerInput) {
     timeline: input.timeline,
     opening_balance: input.openingBalance,
     credit_limit: input.creditLimit,
+    rma_locked: input.rmaLocked,
+    rma_lock_reason: input.rmaLockReason,
     sales_locked: input.salesLocked,
     sales_lock_reason: input.salesLockReason,
     trade_mode: input.tradeMode,

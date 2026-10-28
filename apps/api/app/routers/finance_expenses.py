@@ -29,6 +29,7 @@ from app.schemas.finance import (
 )
 from app.services.core.module_settings import require_payment_account_if_set
 from app.services.finance.finance_service import FinanceService
+from app.services.core.access_scope import assert_payment_account, pick_payment_account
 from app.services.core.approval_service import assert_can_approve
 
 router = APIRouter(prefix="/finance", tags=["finance"])
@@ -268,11 +269,15 @@ def pay_expense(
     expense_id: str,
     payload: FinanceExpensePayRequest,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("finance", "write")),
+    user: AuthUser = Depends(require_permission("finance", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> FinanceExpenseResponse:
     service = FinanceService(db)
     expense = service.get_expense(expense_id, company_id=company_id)
+    if payload.payment_account_id or not expense.payment_account_id:
+        payload.payment_account_id = pick_payment_account(db, user, payload.payment_account_id)
+    else:
+        assert_payment_account(db, user, expense.payment_account_id)
     require_payment_account_if_set(db, company_id, payload.payment_account_id or expense.payment_account_id)
     service.pay_expense(
         expense,

@@ -79,6 +79,8 @@ from app.routers import (
     finance_cheque_books,
     finance_allocation,
     finance_periods,
+    finance_vouchers,
+    finance_settlements,
     finance_masters,
     sales_pricing,
     product_masters,
@@ -331,9 +333,12 @@ def _bootstrap() -> None:
         from app.models.sms_gateway_plugin import SmsGatewayPlugin  # noqa: F401 — SMS gateway plugin table
 
         Base.metadata.create_all(bind=engine)
+        from app.services.core.auth_security import ensure_auth_security_columns
+
+        ensure_auth_security_columns()  # before anything below reads auth_users through the ORM
         from app.services.customer.credit_control import ensure_customer_credit_columns
 
-        ensure_customer_credit_columns()  # before anything below reads commerce_customers through the ORM
+        ensure_customer_credit_columns()  # likewise for commerce_customers
         from app.services.finance.master_service import ensure_finance_master_columns
 
         ensure_finance_master_columns()  # likewise for finance_accounts / finance_payment_accounts
@@ -523,6 +528,9 @@ def _bootstrap() -> None:
         ensure_finance_expense_allocation_columns()
         ensure_finance_project_link_columns()
         ensure_finance_expense_party_link_column()
+        from app.services.finance.finance_service import backfill_ledger_payment_journals
+
+        backfill_ledger_payment_journals()
         try:
             from app.services.finance.finance_service import FinanceService
 
@@ -876,6 +884,8 @@ app.include_router(approvals.router, prefix="/api/v1")
 app.include_router(ai_gateway.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(ai_billing.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_expenses.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(finance_vouchers.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(finance_settlements.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_masters.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(crm.router, prefix="/api/v1", dependencies=require_admin)
 # Supplier portal carries its own session auth — must NOT take the admin dependency.

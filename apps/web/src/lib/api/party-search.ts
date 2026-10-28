@@ -38,3 +38,20 @@ export async function searchLinkableParties(query: string): Promise<PartySearchR
   });
   return results;
 }
+
+export type TradingParty = { id: string; name: string; code: string; phone: string };
+
+/** Customers or suppliers by name, code or phone - the Finance Collection / Payment picker. An empty query lists the first ones. */
+export async function searchTradingParties(role: "customer" | "supplier", query: string, limit = 20): Promise<TradingParty[]> {
+  const path = role === "customer" ? "/api/v1/commerce/customers" : "/api/v1/commerce/suppliers";
+  const q = query.trim();
+  const res = await apiFetch<{ data: Record<string, unknown>[] }>(
+    `${path}?limit=${limit}${q ? `&search=${encodeURIComponent(q)}` : ""}`,
+  );
+  return (res.data ?? []).map((row) => ({
+    id: String(row.id),
+    name: String(row.name ?? row.company_name ?? ""),
+    code: String(row.customer_code ?? row.vendor_code ?? ""),
+    phone: String(row.phone ?? ""),
+  }));
+}

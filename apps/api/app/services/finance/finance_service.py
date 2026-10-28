@@ -2282,8 +2282,9 @@ class FinanceService:
             notes=notes,
         )
         self._db.add(payment)
-        self._apply_payment_to_receivable(receivable, amount)
         self._db.flush()
+        self._apply_payment_to_receivable(receivable, amount)
+        self._log_settle(payment, "customer", receivable.customer_id, receivable.id, amount)
         return receivable, payment
 
     def settle_payable(
@@ -2340,9 +2341,28 @@ class FinanceService:
             notes=notes,
         )
         self._db.add(payment)
-        self._apply_payment_to_payable(payable, amount)
         self._db.flush()
+        self._apply_payment_to_payable(payable, amount)
+        self._log_settle(payment, "supplier", payable.supplier_id, payable.id, amount)
         return payable, payment
+
+    def _log_settle(self, payment: FinancePayment, party_type: str, party_id: str, doc_id: str, amount: Decimal) -> None:
+        """A per-invoice / per-bill settle names its document: record it for "Settled by"."""
+        from app.models.finance_settlement import FinanceAllocation
+
+        self._db.add(
+            FinanceAllocation(
+                company_id=payment.company_id,
+                party_type=party_type,
+                party_id=party_id,
+                doc_type="receivable" if party_type == "customer" else "payable",
+                doc_id=doc_id,
+                amount=money(amount),
+                source="payment",
+                payment_id=payment.id,
+            )
+        )
+        self._db.flush()
 
     def post_party_payment(
         self,
@@ -2421,6 +2441,88 @@ class FinanceService:
         self._db.add(payment)
         self._db.flush()
         return payment, entry
+
+    def post_ledger_payment_journal(
+        self,
+        payment: FinancePayment,
+        *,
+        counter_code: str,
+        description: str,
+    ) -> FinanceJournalEntry:
+        """Journal for a payment already booked on a party ledger (customer receipt, supplier payment).
+
+        Inbound: Dr cash / bank, Cr the counter account (AR 1100). Outbound: Dr the counter account (AP 2100), Cr cash / bank.
+        Keyed on the payment id, so posting twice (or the startup backfill) returns the same entry.
+        """
+        if payment.journal_entry_id:
+            return self.get_journal_entry(payment.journal_entry_id, company_id=payment.company_id)
+        account = self._resolve_payment_account(
+            payment.company_id, payment.payment_account_id, method_hint=payment.payment_method
+        )
+        payment.payment_account_id = account.id
+        if payment.direction == "outbound" and getattr(account, "check_balance", False):
+            from app.services.finance.master_service import assert_can_pay_out
+
+            self._db.flush()  # the balance below already counts this payment, so compare with nothing more to pay
+            assert_can_pay_out(self, account, Decimal("0"))
+        gl_code = self._payment_account_gl_code(account)
+        amount = money(payment.amount)
+        zero = Decimal("0")
+        inbound = payment.direction == "inbound"
+        party = (payment.party_type, payment.party_id)
+        entry = self._post_journal(
+            company_id=payment.company_id,
+            entry_date=payment.payment_date,
+            description=description,
+            source_type=payment.source_type,
+            source_id=payment.id,
+            lines=[
+                (gl_code, amount if inbound else zero, zero if inbound else amount, description, *party, zero),
+                (counter_code, zero if inbound else amount, amount if inbound else zero, description, *party, zero),
+            ],
+        )
+        payment.journal_entry_id = entry.id
+        self._db.flush()
+        return entry
+
+    def reverse_journal_entry(
+        self,
+        entry_id: str,
+        *,
+        company_id: str,
+        source_type: str,
+        source_id: str,
+        entry_date: Optional[date] = None,
+        description: Optional[str] = None,
+    ) -> FinanceJournalEntry:
+        """Post the mirror of a journal entry (every debit and credit swapped). The original stays as it is.
+
+        Idempotent on (source_type, source_id) through `_post_journal`.
+        """
+        original = self.get_journal_entry(entry_id, company_id=company_id)
+        lines = []
+        for row in self.get_journal_lines(original.id):
+            account = self._db.get(FinanceAccount, row.account_id)
+            lines.append(
+                (
+                    account.code,
+                    row.credit,
+                    row.debit,
+                    f"Reversal of {original.entry_number}",
+                    row.party_type,
+                    row.party_id,
+                    row.tax_amount or Decimal("0"),
+                    row.cost_center_id,
+                )
+            )
+        return self._post_journal(
+            company_id=company_id,
+            entry_date=entry_date or date.today(),
+            description=description or f"Reversal of {original.entry_number}",
+            source_type=source_type,
+            source_id=source_id,
+            lines=lines,
+        )
 
     # ── Lists ────────────────────────────────────────────────────────────────
 
@@ -2935,3 +3037,61 @@ class FinanceService:
             )
             + 1,
         )
+
+
+LEDGER_PAYMENT_COUNTER_CODES = {"customer_payment": "1100", "supplier_payment": "2100"}
+
+
+def ledger_payment_description(payment: FinancePayment) -> str:
+    noun = "Payment received" if payment.direction == "inbound" else "Payment made"
+    return f"{noun} {payment.payment_number}" + (f" ({payment.reference})" if payment.reference else "")
+
+
+def backfill_ledger_payment_journals() -> int:
+    """Post the journal for customer / supplier ledger payments booked before those were posted (Cash and AR / AP were off).
+
+    Write-offs already had their journal (keyed on the payment id); this only links it. Safe to run on every start.
+    """
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    posted = 0
+    try:
+        rows = (
+            db.query(FinancePayment)
+            .filter(
+                FinancePayment.source_type.in_(tuple(LEDGER_PAYMENT_COUNTER_CODES)),
+                FinancePayment.journal_entry_id.is_(None),
+            )
+            .order_by(FinancePayment.created_at)
+            .all()
+        )
+        service = FinanceService(db)
+        for payment in rows:
+            try:
+                if payment.payment_method == "write_off":
+                    entry = (
+                        db.query(FinanceJournalEntry)
+                        .filter(
+                            FinanceJournalEntry.company_id == payment.company_id,
+                            FinanceJournalEntry.source_type == f"{payment.source_type}_writeoff",
+                            FinanceJournalEntry.source_id == payment.id,
+                        )
+                        .first()
+                    )
+                    if entry:
+                        payment.journal_entry_id = entry.id
+                else:
+                    service.post_ledger_payment_journal(
+                        payment,
+                        counter_code=LEDGER_PAYMENT_COUNTER_CODES[payment.source_type],
+                        description=ledger_payment_description(payment),
+                    )
+                    posted += 1
+                db.commit()
+            except Exception as exc:  # a closed period or a missing account must not stop the API from starting
+                db.rollback()
+                logger.warning("Ledger payment %s not posted: %s", payment.payment_number, exc)
+        return posted
+    finally:
+        db.close()

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Download, Plus, RefreshCw, Settings2 } from "lucide-react";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import { ListGridOpenFallback } from "@/components/shared/list-grid-open-fallbac
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { useApiHealth } from "@/lib/api/use-api-health";
 import { useInventoryWarehouses } from "@/lib/api/use-inventory";
+import { useWarehouseAccess } from "@/lib/auth/warehouse-access";
 import {
   applyStockAdjustment,
   cancelStockAdjustment,
@@ -36,7 +37,10 @@ const StockAdjustmentGrid = dynamic(
 function StockAdjustmentsContent() {
   const canWrite = useAdminCanWrite();
   const apiHealth = useApiHealth();
-  const { warehouses } = useInventoryWarehouses();
+  const { warehouses: allWarehouses } = useInventoryWarehouses();
+  const warehouseAccess = useWarehouseAccess();
+  // a member limited to some warehouses (locations) picks and filters only among theirs
+  const warehouses = useMemo(() => warehouseAccess.pickable(allWarehouses), [warehouseAccess, allWarehouses]);
   const gridRef = useRef<StockAdjustmentGridHandle>(null);
   const [filterCount, setFilterCount] = useState(0);
   const [rows, setRows] = useState<ApiStockAdjustment[]>([]);

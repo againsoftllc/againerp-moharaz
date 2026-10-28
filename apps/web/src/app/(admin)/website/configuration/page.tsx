@@ -9,7 +9,7 @@ import { ContentDataSkeleton } from "@/components/layout/content-data-skeleton";
 
 /**
  * Website → Configuration is the primary storefront site settings
- * (same form as /workspace/sites/{id}) — no duplicate config UI.
+ * (same form as /website/configuration/sites/{id}) — no duplicate config UI.
  */
 export default function WebsiteConfigurationPage() {
   const [siteId, setSiteId] = useState<string | null>(null);
@@ -51,10 +51,10 @@ export default function WebsiteConfigurationPage() {
       <div className="rounded-none border border-dashed border-border p-10 text-center">
         <p className="text-sm font-medium">{error || "No primary site configured"}</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Create or set a primary site under Workspace → Sites.
+          Create or set a primary site under Configuration → Sites.
         </p>
         <Button variant="outline" size="sm" asChild className="mt-3 rounded-none">
-          <Link href="/workspace/sites">Open Sites</Link>
+          <Link href="/website/configuration/sites">Open Sites</Link>
         </Button>
       </div>
     );
@@ -64,8 +64,8 @@ export default function WebsiteConfigurationPage() {
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <p className="text-xs text-muted-foreground">
         Storefront brand, domain, and deploy URLs for the primary site. Same settings as{" "}
-        <Link href={`/workspace/sites/${siteId}`} className="underline">
-          Workspace → Sites
+        <Link href={`/website/configuration/sites/${siteId}`} className="underline">
+          Configuration → Sites
         </Link>
         .
       </p>

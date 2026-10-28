@@ -257,7 +257,7 @@ export function BusinessSettingsCategory({ categoryId, embedded = false }: Props
       <div className="rounded-none border border-dashed border-border p-8 text-center">
         <p className="text-sm font-medium">Settings category not found</p>
         <Button variant="ghost" size="sm" asChild className="mt-2 rounded-none">
-          <Link href="/workspace/business">Back to Settings</Link>
+          <Link href="/website/settings/checkout">Back to Settings</Link>
         </Button>
       </div>
     );
@@ -373,7 +373,7 @@ export function BusinessSettingsCategory({ categoryId, embedded = false }: Props
           <div>
             {!embedded ? (
               <Link
-                href="/workspace/business"
+                href="/website/settings/checkout"
                 className="mb-1 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
               >
                 <ArrowLeft className="h-3.5 w-3.5" /> Settings

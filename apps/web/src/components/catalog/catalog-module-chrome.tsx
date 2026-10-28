@@ -82,6 +82,8 @@ const NAV_GROUPS_BASE: NavGroup[] = [
     label: "Configuration",
     children: [
       { id: "settings", label: "Settings", href: "/website/settings" },
+      { id: "checkout", label: "Customers, Payments & Shipping", href: "/website/settings/checkout" },
+      { id: "sites", label: "Sites", href: "/website/configuration/sites" },
       { id: "builder", label: "Builders", href: "/website/product-configurator/profiles" },
     ],
   },

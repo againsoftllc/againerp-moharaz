@@ -245,6 +245,9 @@ def decide_claim(
     """Approve, reject or send a claim back. The caller has checked `rma_claim_approve`."""
     if decision not in {"approved", "rejected", "correction_requested"}:
         raise HTTPException(status_code=400, detail=f"Unknown decision: {decision}")
+    # an approver finalizes a draft in one step: it is sent and decided in this same call (docs/approval.md)
+    if decision == "approved" and claim.status in {"draft", "correction_requested"}:
+        submit_claim(db, claim, actor=user.id)
     if claim.status != "pending_approval":
         raise HTTPException(
             status_code=400,

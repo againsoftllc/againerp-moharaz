@@ -73,7 +73,12 @@ def resolve_item_id(db: Session, ticket: RmaTicket) -> Optional[str]:
     return None
 
 
-def ensure_catalog_link(db: Session, ticket: RmaTicket, *, actor: Optional[str]) -> None:
+def held_item_id(ticket: RmaTicket) -> Optional[str]:
+    """The inventory item that is physically held for this RMA: the claimed one, unless the supplier sent a different product."""
+    return ticket.held_item_id or ticket.item_id
+
+
+def ensure_catalog_link(db: Session, ticket: RmaTicket, *, actor: Optional[str], item_id: Optional[str] = None) -> None:
     """Make sure the claim's item can be stocked.
 
     The stock engine keeps its levels per catalog product, so an item with no catalog product (an archived or legacy
@@ -87,9 +92,10 @@ def ensure_catalog_link(db: Session, ticket: RmaTicket, *, actor: Optional[str])
     from app.models.catalog_product import CatalogProduct
     from app.models.item import Item
 
-    if not ticket.item_id:
+    target = item_id or ticket.item_id
+    if not target:
         return
-    item = db.get(Item, ticket.item_id)
+    item = db.get(Item, target)
     if item is None:
         return
     exists = (
@@ -196,9 +202,15 @@ def rma_stores(db: Session, company_id: str, *, ensure: bool = True) -> list[Inv
     return [store]
 
 
+def default_rma_store_id(db: Session, company_id: str) -> Optional[str]:
+    """The receiving store when nobody chose one: the company's only RMA store. With several, the choice is the user's."""
+    stores = rma_stores(db, company_id)
+    return stores[0].id if len(stores) == 1 else None
+
+
 def require_rma_store(db: Session, company_id: str, warehouse_id: Optional[str]) -> InventoryWarehouse:
     if not warehouse_id:
-        raise HTTPException(status_code=400, detail="Choose the receiving RMA store first.")
+        raise HTTPException(status_code=400, detail="Choose the receiving RMA store first (there is more than one).")
     row = db.get(InventoryWarehouse, warehouse_id)
     if row is None or row.company_id != company_id or not row.is_active:
         raise HTTPException(status_code=400, detail="The receiving store was not found.")
@@ -355,6 +367,8 @@ class StockLeg:
     movement_type: str
     quantity: int
     notes: str = ""
+    # the item this leg moves; empty = the item held for the RMA (the claimed one, or the different product that came back)
+    item_id: Optional[str] = None
 
 
 def lock_ticket(db: Session, ticket: RmaTicket) -> RmaTicket:
@@ -397,7 +411,9 @@ def post_stock_event(
         ticket.item_id = resolve_item_id(db, ticket)
     if not ticket.item_id:
         raise HTTPException(status_code=400, detail="This claim has no inventory item, so no stock can be posted.")
-    ensure_catalog_link(db, ticket, actor=actor)
+    default_item = held_item_id(ticket)
+    for leg_item in {leg.item_id or default_item for leg in legs}:
+        ensure_catalog_link(db, ticket, actor=actor, item_id=leg_item)
 
     first_movement_id: Optional[str] = None
     first_type: Optional[str] = None
@@ -408,7 +424,7 @@ def post_stock_event(
     for leg in legs:
         movement = service.apply_movement(
             MovementInput(
-                item_id=ticket.item_id,
+                item_id=leg.item_id or default_item,
                 warehouse_id=leg.warehouse_id,
                 movement_type=leg.movement_type,
                 quantity=leg.quantity,
@@ -460,7 +476,25 @@ def post_intake_stock(db: Session, ticket: RmaTicket, *, actor: Optional[str]) -
     from app.services.inventory import serial_service
     from app.services.inventory.constants import MOVEMENT_CUSTOMER_RETURN
 
+    if not ticket.warehouse_id:
+        ticket.warehouse_id = default_rma_store_id(db, ticket.company_id)
     store = require_rma_store(db, ticket.company_id, ticket.warehouse_id)
+    if stock_event(db, ticket.id, "intake") is None:
+        # a serial-tracked unit enters the RMA store as a registered serial, never as a bare quantity: otherwise the
+        # store's stock counts a unit the serial registry has never heard of
+        item_id = resolve_item_id(db, ticket)
+        if serial_service.is_serial_tracked(db, item_id):
+            number = (ticket.received_serial_number or ticket.serial_number or "").strip()
+            registered = serial_service.find_by_number(db, number, company_id=ticket.company_id) if number else None
+            if registered is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"{ticket.sku} is serial-tracked: the RMA needs the unit's registered serial number "
+                        f"({'“' + number + '” is not in the serial registry' if number else 'none entered'}). "
+                        "Correct the serial on the RMA before approving it."
+                    ),
+                )
     event, posted = post_stock_event(
         db,
         ticket,
@@ -523,9 +557,97 @@ def reverse_intake_stock(db: Session, ticket: RmaTicket, *, actor: Optional[str]
 # --------------------------------------------------------- submit & decision
 
 
+def customer_rma_lock(db: Session, customer_id: Optional[str], company_id: str) -> Optional[dict[str, Any]]:
+    """The customer's RMA lock (OnerERP IsRMALocked) as {customer_id, name, reason}, or None when not locked."""
+    from app.models.commerce_customer import CommerceCustomer
+
+    from sqlalchemy.exc import OperationalError, ProgrammingError
+
+    if not customer_id:
+        return None
+    try:
+        # a savepoint, so a database without the customer table (a lean test schema) reads as "not locked", not a crash
+        with db.begin_nested():
+            customer = db.get(CommerceCustomer, customer_id)
+    except (OperationalError, ProgrammingError):
+        return None
+    if customer is None or (customer.company_id or "default") != company_id or not getattr(customer, "rma_locked", False):
+        return None
+    return {"customer_id": customer.id, "name": customer.name, "reason": customer.rma_lock_reason or ""}
+
+
+def assert_customer_not_rma_locked(db: Session, customer_id: Optional[str], company_id: str) -> None:
+    lock = customer_rma_lock(db, customer_id, company_id)
+    if lock is not None:
+        reason = f" Reason: {lock['reason']}." if lock["reason"] else ""
+        raise HTTPException(
+            status_code=400,
+            detail=f"RMA is locked for {lock['name']}: no complaint can be taken or approved.{reason} Unlock it on the customer first.",
+        )
+
+
+# 8 characters, no look-alikes (0/O, 1/I/L), so a generated serial can be read off a label and typed back
+_SERIAL_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+SERIAL_LENGTH = 8
+
+
+def _serial_taken(db: Session, number: str, company_id: str, *, exclude_ticket_id: Optional[str] = None) -> bool:
+    key = number.lower()
+    if (
+        db.query(InventorySerial.id)
+        .filter(InventorySerial.company_id == company_id, func.lower(InventorySerial.serial_number) == key)
+        .first()
+    ):
+        return True
+    query = db.query(RmaTicket.id).filter(
+        RmaTicket.company_id == company_id,
+        (func.lower(RmaTicket.serial_number) == key) | (func.lower(RmaTicket.received_serial_number) == key),
+    )
+    if exclude_ticket_id:
+        query = query.filter(RmaTicket.id != exclude_ticket_id)
+    return query.first() is not None
+
+
+def generate_serials(db: Session, company_id: str, count: int) -> list[str]:
+    """`count` new serials no unit, RMA or registry entry uses yet (OnerERP GenerateProductSerial(8), with Bulk Qty)."""
+    import secrets
+
+    if count < 1 or count > 100:
+        raise HTTPException(status_code=400, detail="Generate between 1 and 100 serials at a time.")
+    out: list[str] = []
+    for _ in range(count * 20):
+        if len(out) == count:
+            break
+        number = "".join(secrets.choice(_SERIAL_ALPHABET) for _ in range(SERIAL_LENGTH))
+        if number not in out and not _serial_taken(db, number, company_id):
+            out.append(number)
+    if len(out) < count:
+        raise HTTPException(status_code=500, detail="Could not generate unique serials; try again.")
+    return out
+
+
+def check_generated_serial(
+    db: Session, *, serial_number: Optional[str], item_id: Optional[str], sku: str, company_id: str, ticket_id: Optional[str] = None
+) -> None:
+    """A generated serial is only for a unit that has none: never for a serial-tracked product, never one already in use."""
+    from app.services.inventory import serial_service
+
+    number = (serial_number or "").strip()
+    if not number:
+        raise HTTPException(status_code=400, detail="Generate the serial before saving the complaint.")
+    if serial_service.is_serial_tracked(db, item_id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{sku or 'This product'} is serial-tracked: use the serial printed on the unit, not a generated one.",
+        )
+    if _serial_taken(db, number, company_id, exclude_ticket_id=ticket_id):
+        raise HTTPException(status_code=409, detail=f"Serial {number} is already in use; generate a new one.")
+
+
 def submit_for_approval(db: Session, ticket: RmaTicket, *, actor: Optional[str]) -> RmaTicket:
     from app.services.rma import rma_service
 
+    assert_customer_not_rma_locked(db, ticket.customer_id, ticket.company_id)
     if ticket.status not in {"draft", "correction_requested"}:
         raise HTTPException(
             status_code=400,
@@ -557,6 +679,11 @@ def decide(
 
     if decision not in {"approved", "rejected", "correction_requested"}:
         raise HTTPException(status_code=400, detail=f"Unknown decision: {decision}")
+    # an approver finalizes a draft in one step: it is sent and decided in this same call (docs/approval.md)
+    if decision == "approved" and ticket.status in {"draft", "correction_requested"}:
+        submit_for_approval(db, ticket, actor=user.id)
+    if decision == "approved":
+        assert_customer_not_rma_locked(db, ticket.customer_id, ticket.company_id)
     if ticket.status != "pending_approval":
         raise HTTPException(
             status_code=400,
@@ -567,6 +694,8 @@ def decide(
         raise HTTPException(status_code=400, detail="A reason is required to reject a complaint or send it back.")
     if decision == "approved" and ticket.unit_received:
         # Fail before anything changes: an approved, physically held unit is stocked into the RMA store.
+        if not ticket.warehouse_id:
+            ticket.warehouse_id = default_rma_store_id(db, ticket.company_id)  # the only RMA store, when nobody picked one
         require_rma_store(db, ticket.company_id, ticket.warehouse_id)
 
     ticket.complaint_decision = decision

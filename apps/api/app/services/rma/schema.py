@@ -73,6 +73,41 @@ def ensure_rma_columns() -> None:
         "ALTER TABLE rma_tickets ALTER COLUMN status TYPE VARCHAR(30)",
         "ALTER TABLE IF EXISTS rma_settlements ADD COLUMN IF NOT EXISTS reverses_id VARCHAR(36)",
         "ALTER TABLE IF EXISTS rma_settlements ADD COLUMN IF NOT EXISTS reversed_by_id VARCHAR(36)",
+        "ALTER TABLE rma_tickets ADD COLUMN IF NOT EXISTS held_item_id VARCHAR(36)",
+        "ALTER TABLE rma_tickets ADD COLUMN IF NOT EXISTS held_sku VARCHAR(100)",
+        "ALTER TABLE rma_tickets ADD COLUMN IF NOT EXISTS held_product_name VARCHAR(255)",
+        "ALTER TABLE IF EXISTS rma_supplier_receipts ADD COLUMN IF NOT EXISTS received_item_id VARCHAR(36)",
+        "ALTER TABLE IF EXISTS rma_supplier_receipts ADD COLUMN IF NOT EXISTS received_sku VARCHAR(100)",
+        "ALTER TABLE IF EXISTS rma_supplier_receipts ADD COLUMN IF NOT EXISTS received_product_name VARCHAR(255)",
+        "ALTER TABLE IF EXISTS rma_supplier_receipts ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(14,2)",
+        "ALTER TABLE IF EXISTS rma_supplier_receipts ADD COLUMN IF NOT EXISTS refund_account_id VARCHAR(36)",
+        "ALTER TABLE IF EXISTS rma_deliveries ADD COLUMN IF NOT EXISTS outcome VARCHAR(24) NOT NULL DEFAULT 'same_unit'",
+        "ALTER TABLE IF EXISTS rma_deliveries ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(14,2)",
+        "ALTER TABLE IF EXISTS rma_deliveries ADD COLUMN IF NOT EXISTS refund_account_id VARCHAR(36)",
+        "ALTER TABLE IF EXISTS rma_deliveries ADD COLUMN IF NOT EXISTS collect_settlement_id VARCHAR(36)",
+        "ALTER TABLE IF EXISTS rma_deliveries ADD COLUMN IF NOT EXISTS refund_settlement_id VARCHAR(36)",
+        # deliveries made before the type existed: the serial that was handed over says which kind it was
+        """UPDATE rma_deliveries d SET outcome = 'same_product'
+           WHERE d.outcome = 'same_unit' AND COALESCE(d.serial_delivered, '') <> ''
+             AND lower(d.serial_delivered) <> lower(COALESCE((SELECT t.serial_number FROM rma_tickets t WHERE t.id = d.rma_id), ''))""",
+        "ALTER TABLE IF EXISTS rma_supplier_receipts ADD COLUMN IF NOT EXISTS settlement_id VARCHAR(36)",
+        "CREATE INDEX IF NOT EXISTS ix_rma_supplier_receipts_settlement_id ON rma_supplier_receipts (settlement_id)",
+        # the receipt used to say "replacement / repaired / returned unrepaired / other" next to a separate serial; the type now
+        # says what came back, so old receipts are read from their serials (a different serial = same product, new serial)
+        """UPDATE rma_supplier_receipts SET outcome = CASE
+               WHEN COALESCE(received_serial, '') <> '' AND lower(COALESCE(received_serial, '')) <> lower(COALESCE(sent_serial, ''))
+               THEN 'same_product' ELSE 'same_unit' END
+           WHERE outcome IN ('replacement', 'repaired', 'returned_unrepaired', 'other')""",
+        # OnerERP parity: sale source + generated serial on the complaint, discount on a charge, customer RMA lock
+        "ALTER TABLE rma_tickets ADD COLUMN IF NOT EXISTS sale_source VARCHAR(10) NOT NULL DEFAULT 'system'",
+        "ALTER TABLE rma_tickets ADD COLUMN IF NOT EXISTS previous_invoice_no VARCHAR(100)",
+        "ALTER TABLE rma_tickets ADD COLUMN IF NOT EXISTS serial_generated BOOLEAN NOT NULL DEFAULT false",
+        # complaints made before the sale source existed and with no sale behind them were never "system" sales
+        """UPDATE rma_tickets SET sale_source = 'unknown'
+           WHERE sale_source = 'system' AND order_id IS NULL AND COALESCE(order_number, '') = ''""",
+        "ALTER TABLE rma_charges ADD COLUMN IF NOT EXISTS discount NUMERIC(14,2) NOT NULL DEFAULT 0",
+        "ALTER TABLE commerce_customers ADD COLUMN IF NOT EXISTS rma_locked BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE commerce_customers ADD COLUMN IF NOT EXISTS rma_lock_reason TEXT",
     ]
     with engine.begin() as conn:
         for stmt in statements:

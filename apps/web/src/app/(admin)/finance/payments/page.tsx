@@ -17,7 +17,8 @@ import { ListGridOpenFallback } from "@/components/shared/list-grid-open-fallbac
 import { useApiHealth } from "@/lib/api/use-api-health";
 import { fetchFinanceCheques, fetchFinancePayments, type ApiFinanceCheque, type ApiFinancePayment } from "@/lib/api/finance";
 import { ChequeDetailDrawer } from "@/components/finance/cheque-detail-drawer";
-import { ChequeFormDrawer } from "@/components/finance/cheque-form-drawer";
+import { ChequeFormDrawer, type ChequeFormInitial } from "@/components/finance/cheque-form-drawer";
+import { PartyPaymentLauncher, type PartyPaymentKind } from "@/components/finance/party-payment-launcher";
 import type { PaymentGridHandle } from "@/components/finance/payment-grid";
 import { cn, formatMoney } from "@/lib/utils";
 
@@ -77,6 +78,8 @@ export default function FinancePaymentsPage() {
   const [chequesLoading, setChequesLoading] = useState(false);
   const [chequeFormOpen, setChequeFormOpen] = useState(false);
   const [chequeId, setChequeId] = useState<string | null>(null);
+  const [chequeInitial, setChequeInitial] = useState<ChequeFormInitial | null>(null);
+  const [partyPayment, setPartyPayment] = useState<PartyPaymentKind | null>(null);
 
   const loadCheques = useCallback(async () => {
     setChequesLoading(true);
@@ -130,6 +133,12 @@ export default function FinancePaymentsPage() {
   const headerLeftActions = (
     <ListGridHeaderStart title="Payments">
       <TabSwitch value={tab} onChange={setTab} />
+      <Button size="sm" className="rounded-none" onClick={() => setPartyPayment("collection")}>
+        Collection
+      </Button>
+      <Button size="sm" variant="outline" className="rounded-none" onClick={() => setPartyPayment("payment")}>
+        Payment
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -194,7 +203,14 @@ export default function FinancePaymentsPage() {
     const chequeHeader = (
       <ListGridHeaderStart title="Payments">
         <TabSwitch value={tab} onChange={setTab} />
-        <Button size="sm" className="rounded-none" onClick={() => setChequeFormOpen(true)}>
+        <Button
+          size="sm"
+          className="rounded-none"
+          onClick={() => {
+            setChequeInitial(null);
+            setChequeFormOpen(true);
+          }}
+        >
           New cheque
         </Button>
         <Button
@@ -217,6 +233,7 @@ export default function FinancePaymentsPage() {
           loading={chequesLoading && cheques.length === 0}
           headerLeftActions={chequeHeader}
           onOpen={(row) => setChequeId(row.id)}
+          onTreated={() => void loadCheques()}
           footerLeftActions={(visible) => (
             <span className="px-2 text-[10px] text-muted-foreground">{visible.length} shown</span>
           )}
@@ -224,6 +241,7 @@ export default function FinancePaymentsPage() {
         />
         <ChequeFormDrawer
           open={chequeFormOpen}
+          initial={chequeInitial}
           onOpenChange={setChequeFormOpen}
           onCreated={(created) => {
             void loadCheques();
@@ -238,6 +256,17 @@ export default function FinancePaymentsPage() {
           onChanged={() => {
             void loadCheques();
             void load();
+          }}
+          onReplace={(old) => {
+            setChequeId(null);
+            setChequeInitial({
+              direction: "issued",
+              partyId: old.party_id,
+              documentId: old.payable_id ?? undefined,
+              amount: old.amount,
+              notes: `Replaces dishonoured cheque ${old.cheque_number} (${old.bank_name})`,
+            });
+            setChequeFormOpen(true);
           }}
         />
       </div>
@@ -261,6 +290,7 @@ export default function FinancePaymentsPage() {
         }
         className="min-h-0 flex-1"
       />
+      <PartyPaymentLauncher kind={partyPayment} onClose={() => setPartyPayment(null)} onRecorded={() => void load()} />
     </div>
   );
 }

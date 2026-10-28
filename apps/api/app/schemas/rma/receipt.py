@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-OUTCOME_PATTERN = "^(replacement|repaired|returned_unrepaired|other)$"
+OUTCOME_PATTERN = "^(same_unit|same_product|different_product|cash_back)$"
 
 
 class RmaReceiptRead(BaseModel):
@@ -22,6 +23,12 @@ class RmaReceiptRead(BaseModel):
     received_serial: Optional[str] = None
     outcome: str
     outcome_note: Optional[str] = None
+    received_item_id: Optional[str] = None
+    received_sku: Optional[str] = None
+    received_product_name: Optional[str] = None
+    refund_amount: Optional[Decimal] = None
+    refund_account_id: Optional[str] = None
+    settlement_id: Optional[str] = None
     supplier_delivery_ref: Optional[str] = None
     received_date: Optional[date] = None
     received_by: Optional[str] = None
@@ -58,6 +65,11 @@ class RmaReceiptUpdate(BaseModel):
     warehouse_id: Optional[str] = Field(default=None, max_length=36)
     # Different from the serial that was sent: needs the serial-change permission and must be new to the registry.
     received_serial: Optional[str] = Field(default=None, max_length=128)
+    # different_product: the inventory item that actually came back
+    received_item_id: Optional[str] = Field(default=None, max_length=36)
+    # cash_back: what the supplier paid and the cash / bank account it went into
+    refund_amount: Optional[Decimal] = Field(default=None, ge=0)
+    refund_account_id: Optional[str] = Field(default=None, max_length=36)
 
 
 class RmaReceiptDecision(BaseModel):
@@ -90,6 +102,10 @@ class RmaReceiptCopyRead(BaseModel):
     outcome: str
     outcome_label: str
     outcome_note: Optional[str] = None
+    received_sku: Optional[str] = None
+    received_product_name: Optional[str] = None
+    refund_amount: Optional[Decimal] = None
+    settlement_number: Optional[str] = None
     received_date: Optional[str] = None
     received_by: Optional[str] = None
     condition_notes: Optional[str] = None

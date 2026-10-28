@@ -85,7 +85,7 @@ export function useInventoryStock(initialParams?: StockListParams): UseInventory
       const query = buildStockQuery(params ?? initialParams);
       const res = await apiFetch<ApiStockListResponse>(`/api/v1/inventory/stock${query}`);
       setItems(res.data.map(apiStockToStockItem));
-      setTotal(res.meta.count);
+      setTotal(res.meta.total ?? res.meta.count);
       setTotalUnits(res.meta.total_units);
       setTotalValue(Number(res.meta.total_value));
     } catch (err) {

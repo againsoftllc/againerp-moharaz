@@ -15,6 +15,8 @@ import app.models.auth_user  # noqa: F401 — FK targets must exist in metadata 
 import app.models.catalog_attribute_profile  # noqa: F401
 import app.models.catalog_brand  # noqa: F401
 import app.models.catalog_category  # noqa: F401
+import app.models.hrm.org  # noqa: F401
+import app.models.inventory_location  # noqa: F401
 from app.database import Base
 from app.models.catalog_product import CatalogProduct
 from app.models.inventory_item import InventoryItem

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Callable, Optional
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -44,6 +44,7 @@ def _check_company_active(db: Session, company_id: str) -> None:
 
 
 def get_current_user(
+    request: Request,
     authorization: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ) -> AuthUser:
@@ -61,8 +62,20 @@ def get_current_user(
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User inactive")
     _check_company_active(db, user.company_id)
+    _check_password_change(db, user, request.url.path)
     db.info["actor"] = (user.id, user.name)  # the "updated by" stamp of this request's saves (services/audit_actor.py)
     return user
+
+
+def _check_password_change(db: Session, user: AuthUser, path: str) -> None:
+    """An account whose password change is due (an admin asked for it, or it expired) may only read itself, change the
+    password and sign out. The admin app shows the change-password screen; this keeps the API in step with it."""
+    from app.services.core.auth_security import PASSWORD_CHANGE_PATHS, PASSWORD_CHANGE_REQUIRED, password_change_due
+
+    if any(path.endswith(allowed.removeprefix("/api/v1")) for allowed in PASSWORD_CHANGE_PATHS):
+        return
+    if password_change_due(db, user):
+        raise HTTPException(status_code=403, detail=PASSWORD_CHANGE_REQUIRED)
 
 
 def get_current_company_id(user: AuthUser = Depends(get_current_user)) -> str:

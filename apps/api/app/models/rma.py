@@ -119,6 +119,11 @@ class RmaTicket(Base):
     replacement_item_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     replacement_sku: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     replacement_warehouse_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # What is physically in the RMA store for this RMA when it is NOT the product that was claimed (a supplier that sent a
+    # different product back). Empty = the claimed item itself. Later stock events (delivery, restock, scrap) move this item.
+    held_item_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    held_sku: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    held_product_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # ── Complaint intake & approval (docs/RMA.md Stage A–B) ──
     # Plain-language stock state: in_rma_store | with_supplier | replacement_received | delivered | null (not stocked yet)
@@ -151,6 +156,14 @@ class RmaTicket(Base):
     receipt_no: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     receipt_print_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     receipt_last_printed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # Where the sale behind the claim is known from (OnerERP "Against System / Previous / Unknown Sales"):
+    # system = a sale in this ERP; previous = sold before the ERP (old invoice no. + sale date measure the warranty);
+    # unknown = no sale to go by (warranty stays unverified).
+    sale_source: Mapped[str] = mapped_column(String(10), nullable=False, default="system")
+    previous_invoice_no: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # The serial was made up by the RMA (the unit had none): it tracks the unit through the RMA only,
+    # it is never added to the inventory serial registry.
+    serial_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     charges: Mapped[List["RmaCharge"]] = relationship(
         "RmaCharge", back_populates="ticket", cascade="all, delete-orphan"
@@ -175,6 +188,13 @@ class RmaTicket(Base):
     @property
     def is_repeat(self) -> bool:
         return (self.prior_rma_count or 0) > 0
+
+    @property
+    def warranty_days_left(self) -> Optional[int]:
+        """Days of warranty left today (negative = expired that many days ago); None when there is no end date."""
+        if not self.warranty_expires_on:
+            return None
+        return (self.warranty_expires_on - date.today()).days
 
 
 class RmaStockEvent(Base):
@@ -289,7 +309,16 @@ class RmaSupplierReceipt(Base):
     supplier_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     sent_serial: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     received_serial: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
-    outcome: Mapped[str] = mapped_column(String(24), nullable=False, default="replacement")
+    # same_unit | same_product | different_product | cash_back (RECEIPT_OUTCOMES)
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False, default="same_unit")
+    # different_product: the product that actually came back
+    received_item_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    received_sku: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    received_product_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # cash_back: the money the supplier paid, where it went, and the RMA settlement that posted it
+    refund_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), nullable=True)
+    refund_account_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    settlement_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     outcome_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     supplier_delivery_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     received_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
@@ -343,6 +372,15 @@ class RmaDelivery(Base):
     payment_account_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     payment_reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+
+    # What the customer gets: same_unit | same_product | different_product | cash_back (DELIVERY_OUTCOMES). For cash back,
+    # the refund (money out) and the account it is paid from; `amount_received` is what is collected NOW against the charges.
+    outcome: Mapped[str] = mapped_column(String(24), nullable=False, default="same_unit")
+    refund_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), nullable=True)
+    refund_account_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    # the RMA settlements approval posted: the money collected against the charges, and the refund paid out
+    collect_settlement_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    refund_settlement_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
 
     delivery_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     delivered_to: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -452,6 +490,8 @@ class RmaCharge(Base):
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=1)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=0)
+    # Taken off quantity x price; line_total is after the discount.
+    discount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     line_total: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())

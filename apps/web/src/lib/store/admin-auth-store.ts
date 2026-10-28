@@ -25,6 +25,19 @@ export type AdminUser = {
   company_id?: string | null;
   company_name?: string | null;
   company_slug?: string | null;
+  /** Sign-in security (services/core/auth_security.py). */
+  must_change_password?: boolean;
+  /** Asked by an admin or the password expired: the app shows only the change-password screen. */
+  password_change_due?: boolean;
+  password_changed_at?: string | null;
+  password_expires_at?: string | null;
+  last_login_at?: string | null;
+  /** Set while too many wrong passwords keep the account locked. */
+  locked_until?: string | null;
+  /** Permissions given to (allow) or taken from (deny) this user on top of their roles. */
+  permission_overrides?: { module: string; action: string; allow: boolean }[];
+  /** Cash / bank accounts the user may use; empty/absent = every account. */
+  payment_account_ids?: string[];
 };
 
 type AdminAuthState = {

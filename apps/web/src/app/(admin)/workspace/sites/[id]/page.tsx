@@ -1,13 +1,11 @@
-"use client";
-
-import { use } from "react";
-import { SiteSettingsForm } from "@/components/settings/site-settings-form";
+import { redirect } from "next/navigation";
 
 type Props = {
   params: Promise<{ id: string }>;
 };
 
-export default function SiteSettingsPage({ params }: Props) {
-  const { id } = use(params);
-  return <SiteSettingsForm siteId={id} />;
+/** Sites moved under Website › Configuration. */
+export default async function WorkspaceSiteIdRedirect({ params }: Props) {
+  const { id } = await params;
+  redirect(`/website/configuration/sites/${id}`);
 }

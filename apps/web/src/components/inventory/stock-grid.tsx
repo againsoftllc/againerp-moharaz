@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import type { ColDef, GridApi, ICellRendererParams } from "ag-grid-community";
 import {
   ClipboardList,
+  ImageOff,
   Package,
   SquarePen,
   Truck,
@@ -24,6 +25,7 @@ import { toast } from "sonner";
 import { updateInventoryStock } from "@/lib/api/use-inventory";
 import type { StockItem, StockStatus, Warehouse } from "@/lib/mock-data/inventory";
 import { formatCurrency } from "@/lib/utils";
+import { applyImageFallback } from "@/lib/media/image-fallback";
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { useUserScopedState } from "@/lib/hooks/use-user-scoped-state";
 import { Button } from "@/components/ui/button";
@@ -32,7 +34,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { FilterSelect } from "@/components/shared/filter-select";
 import { RowActionsTrigger } from "@/components/shared/row-actions-icon";
 import { GridFullscreenHeader } from "@/components/shared/grid-fullscreen";
-import { AgainListGrid, NUMERIC_CELL } from "@/components/shared/again-list-grid";
+import { AgainListGrid, NUMERIC_CELL, type AgainListServerPaging } from "@/components/shared/again-list-grid";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,32 +66,24 @@ type FilterState = {
 
 const DEFAULT_FILTERS: FilterState = { search: "", warehouse: "all", status: "all" };
 
+/** The stock report: what is in stock, what is on the way, what it cost and is worth, where it is and when it last changed. */
 const DEFAULT_VISIBLE = {
   thumbnail: true,
   name: true,
   sku: true,
   warehouse: true,
   onHand: true,
-  reserved: true,
-  available: true,
   incoming: true,
-  projected: true,
-  minQty: true,
-  maxQty: false,
-  reorderLevel: true,
   unitCost: true,
   stockValue: true,
   status: true,
-  updatedAt: false,
+  updatedAt: true,
 };
 
 const DEFAULT_VISIBLE_FILTERS = { search: true, warehouse: true, status: true };
 
-/** Quantity on hand is not live-editable — use Stock Adjustments / Transfers / Counts. */
+/** Quantity is not live-editable — use Stock Adjustments / Transfers / Counts. */
 const DEFAULT_LIVE_EDIT = {
-  minQty: true,
-  maxQty: true,
-  reorderLevel: true,
   unitCost: true,
 };
 
@@ -98,14 +92,8 @@ const COLUMN_LABELS: Record<keyof typeof DEFAULT_VISIBLE, string> = {
   name: "Product",
   sku: "SKU",
   warehouse: "Warehouse",
-  onHand: "On hand",
-  reserved: "Reserved",
-  available: "Available",
-  incoming: "Incoming",
-  projected: "Projected",
-  minQty: "Min",
-  maxQty: "Max",
-  reorderLevel: "Reorder level",
+  onHand: "In Stock",
+  incoming: "In Transit",
   unitCost: "Unit cost",
   stockValue: "Stock value",
   status: "Status",
@@ -113,9 +101,6 @@ const COLUMN_LABELS: Record<keyof typeof DEFAULT_VISIBLE, string> = {
 };
 
 const LIVE_EDIT_LABELS: Record<keyof typeof DEFAULT_LIVE_EDIT, string> = {
-  minQty: "Min",
-  maxQty: "Max",
-  reorderLevel: "Reorder level",
   unitCost: "Unit cost",
 };
 
@@ -126,10 +111,16 @@ export type StockGridHandle = {
   openLiveEdit: () => void;
 };
 
+export type StockGridFilters = { search: string; warehouseId: string; status: string };
+
 type StockGridProps = {
   items: StockItem[];
   warehouses: Warehouse[];
   loading?: boolean;
+  /** The stock list is too long to load whole (thousands of lines): the page fetches one page at a time. */
+  serverPaging?: AgainListServerPaging;
+  /** Search, warehouse and status are applied by the server, so the page needs to know when they change. */
+  onFiltersChange?: (filters: StockGridFilters) => void;
   onStockChanged?: () => void;
   onFilterCountChange?: (count: number) => void;
   headerLeftActions?: ReactNode;
@@ -137,7 +128,7 @@ type StockGridProps = {
 };
 
 export const StockGrid = forwardRef<StockGridHandle, StockGridProps>(function StockGrid(
-  { items, warehouses, loading = false, onStockChanged, onFilterCountChange, headerLeftActions, className },
+  { items, warehouses, loading = false, serverPaging, onFiltersChange, onStockChanged, onFilterCountChange, headerLeftActions, className },
   ref,
 ) {
   const router = useRouter();
@@ -166,20 +157,17 @@ export const StockGrid = forwardRef<StockGridHandle, StockGridProps>(function St
   const warehouseOptions = useMemo(
     () => [
       { value: "all", label: "All warehouses" },
-      ...warehouses.map((w) => ({ value: w.name, label: `${w.code} — ${w.name}` })),
+      ...warehouses.map((w) => ({ value: w.id, label: `${w.code} — ${w.name}` })),
     ],
     [warehouses],
   );
 
-  const filtered = useMemo(() => {
-    const q = filters.search.trim().toLowerCase();
-    return items.filter((row) => {
-      if (q && !`${row.sku} ${row.name}`.toLowerCase().includes(q)) return false;
-      if (filters.warehouse !== "all" && row.warehouse !== filters.warehouse) return false;
-      if (filters.status !== "all" && row.status !== filters.status) return false;
-      return true;
-    });
-  }, [items, filters]);
+  // search, warehouse and status are applied by the server (the page refetches), so what arrives is already filtered
+  const filtered = items;
+
+  useEffect(() => {
+    onFiltersChange?.({ search: filters.search.trim(), warehouseId: filters.warehouse, status: filters.status });
+  }, [filters, onFiltersChange]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -262,9 +250,10 @@ export const StockGrid = forwardRef<StockGridHandle, StockGridProps>(function St
         headerName: "",
         headerCheckboxSelection: canWrite,
         checkboxSelection: canWrite,
-        width: canWrite ? 40 : 24,
-        maxWidth: canWrite ? 40 : 24,
-        minWidth: canWrite ? 40 : 24,
+        // just the tick box (14 px + 4 px either side): a wider cell left a gap before the picture
+        width: canWrite ? 24 : 16,
+        maxWidth: canWrite ? 24 : 16,
+        minWidth: canWrite ? 24 : 16,
         pinned: "left",
         resizable: false,
         suppressMovable: true,
@@ -275,7 +264,9 @@ export const StockGrid = forwardRef<StockGridHandle, StockGridProps>(function St
         cellClass: "product-grid-controls-col",
       },
       {
+        // the catalog product's picture, the same small square as the catalog list
         colId: "thumbnail",
+        field: "thumbnail",
         headerName: "",
         hide: !resolvedCols.thumbnail,
         width: 28,
@@ -288,19 +279,25 @@ export const StockGrid = forwardRef<StockGridHandle, StockGridProps>(function St
         suppressHeaderMenuButton: true,
         cellClass: "product-grid-icon-col",
         cellRenderer: (p: ICellRendererParams<StockItem>) =>
-          p.data?.thumbnail ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={p.data.thumbnail}
-              alt=""
-              className="h-5 w-5 rounded-none object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex h-5 w-5 items-center justify-center bg-muted">
-              <Package className="h-3 w-3 text-muted-foreground" aria-hidden />
-            </div>
-          ),
+          p.data ? (
+            p.data.thumbnail ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={p.data.thumbnail}
+                alt=""
+                className="h-5 w-5 rounded-none object-cover"
+                onError={applyImageFallback}
+              />
+            ) : (
+              <span
+                className="flex h-5 w-5 items-center justify-center bg-muted text-muted-foreground"
+                title="No image"
+                aria-label="No image"
+              >
+                <ImageOff className="h-3 w-3" />
+              </span>
+            )
+          ) : null,
       },
       {
         colId: "name",
@@ -339,26 +336,6 @@ export const StockGrid = forwardRef<StockGridHandle, StockGridProps>(function St
         cellClass: `${NUMERIC_CELL} font-medium`,
       },
       {
-        colId: "reserved",
-        field: "reserved",
-        headerName: COLUMN_LABELS.reserved,
-        hide: !resolvedCols.reserved,
-        width: 96,
-        minWidth: 72,
-        type: "numericColumn",
-        cellClass: NUMERIC_CELL,
-      },
-      {
-        colId: "available",
-        field: "available",
-        headerName: COLUMN_LABELS.available,
-        hide: !resolvedCols.available,
-        width: 96,
-        minWidth: 72,
-        type: "numericColumn",
-        cellClass: NUMERIC_CELL,
-      },
-      {
         colId: "incoming",
         field: "incoming",
         headerName: COLUMN_LABELS.incoming,
@@ -366,50 +343,6 @@ export const StockGrid = forwardRef<StockGridHandle, StockGridProps>(function St
         width: 96,
         minWidth: 72,
         type: "numericColumn",
-        cellClass: NUMERIC_CELL,
-      },
-      {
-        colId: "projected",
-        field: "projected",
-        headerName: COLUMN_LABELS.projected,
-        hide: !resolvedCols.projected,
-        width: 96,
-        minWidth: 72,
-        type: "numericColumn",
-        cellClass: NUMERIC_CELL,
-        valueGetter: (p) => (p.data ? (p.data.projected ?? p.data.available + p.data.incoming) : 0),
-      },
-      {
-        colId: "minQty",
-        field: "minQty",
-        headerName: COLUMN_LABELS.minQty,
-        hide: !resolvedCols.minQty,
-        width: 84,
-        minWidth: 64,
-        type: "numericColumn",
-        editable: canWrite && resolvedLiveEdit.minQty,
-        cellClass: NUMERIC_CELL,
-      },
-      {
-        colId: "maxQty",
-        field: "maxQty",
-        headerName: COLUMN_LABELS.maxQty,
-        hide: !resolvedCols.maxQty,
-        width: 84,
-        minWidth: 64,
-        type: "numericColumn",
-        editable: canWrite && resolvedLiveEdit.maxQty,
-        cellClass: NUMERIC_CELL,
-      },
-      {
-        colId: "reorderLevel",
-        field: "reorderLevel",
-        headerName: COLUMN_LABELS.reorderLevel,
-        hide: !resolvedCols.reorderLevel,
-        width: 120,
-        minWidth: 90,
-        type: "numericColumn",
-        editable: canWrite && resolvedLiveEdit.reorderLevel,
         cellClass: NUMERIC_CELL,
       },
       {
@@ -496,9 +429,9 @@ export const StockGrid = forwardRef<StockGridHandle, StockGridProps>(function St
 
   const exportSelected = useCallback(() => {
     const rows = selected.length ? selected : filtered;
-    const header = ["SKU", "Product", "Warehouse", "On hand", "Reserved", "Available", "Unit cost", "Status"];
+    const header = ["SKU", "Product", "Warehouse", "In Stock", "In Transit", "Unit cost", "Stock value", "Status"];
     const body = rows.map((r) =>
-      [r.sku, r.name, r.warehouse, r.onHand, r.reserved, r.available, r.unitCost, r.status]
+      [r.sku, r.name, r.warehouse, r.onHand, r.incoming, r.unitCost, r.unitCost * r.onHand, r.status]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(","),
     );
@@ -519,6 +452,7 @@ export const StockGrid = forwardRef<StockGridHandle, StockGridProps>(function St
       rowData={filtered}
       columnDefs={columnDefs}
       loading={loading}
+      serverPaging={serverPaging}
       headerLeftActions={headerLeftActions}
       filterBar={
         <>

@@ -190,7 +190,7 @@ export function RmaApprovalDrawer({
             <Section title="Supplier trace">
               <Fact label="Supplier" value={ticket.supplier_name} />
               <Fact label="Purchase receipt" value={ticket.purchase_receipt_no} />
-              <Fact label="Vendor invoice" value={ticket.vendor_invoice_no} />
+              {ticket.vendor_invoice_no ? <Fact label="Vendor invoice" value={ticket.vendor_invoice_no} /> : null}
               <Fact
                 label="Source"
                 value={

@@ -33,6 +33,8 @@ class CustomerRead(BaseModel):
     wallet_balance: Decimal
     opening_balance: Decimal = Decimal("0")
     credit_limit: Decimal = Decimal("0")
+    rma_locked: bool = False
+    rma_lock_reason: Optional[str] = None
     sales_locked: bool = False
     sales_lock_reason: Optional[str] = None
     trade_mode: str = "both"
@@ -117,6 +119,8 @@ class CustomerUpdate(BaseModel):
     payment_terms: Optional[str] = None
     payment_schedule: Optional[str] = None
     whatsapp_verified: Optional[bool] = None
+    rma_locked: Optional[bool] = None
+    rma_lock_reason: Optional[str] = Field(default=None, max_length=500)
     sales_locked: Optional[bool] = None
     sales_lock_reason: Optional[str] = Field(default=None, max_length=500)
     trade_mode: Optional[str] = Field(default=None, pattern="^(both|credit|cash)$")

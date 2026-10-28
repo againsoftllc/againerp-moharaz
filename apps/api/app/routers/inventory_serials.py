@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_permission, get_current_company_id
 from app.models.auth_user import AuthUser
+from app.services.core.access_scope import assert_warehouse_access, warehouse_scope
 from app.schemas.inventory.serial import (
     ScanProductHit,
     ScanProductResponse,
@@ -47,7 +48,7 @@ def _batch_response(results: list[serial_service.SerialResult]) -> SerialBatchRe
 @router.get("", response_model=SerialListResponse)
 def list_serials(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("inventory", "read")),
+    user: AuthUser = Depends(require_permission("inventory", "read")),
     company_id: str = Depends(get_current_company_id),
     status_filter: Optional[str] = Query(default=None, alias="status"),
     item_id: Optional[str] = Query(default=None),
@@ -56,8 +57,11 @@ def list_serials(
     limit: int = Query(default=500, ge=1, le=2000),
     offset: int = Query(default=0, ge=0),
 ) -> SerialListResponse:
+    assert_warehouse_access(db, user, warehouse_id)
+    scope = warehouse_scope(db, user)
     rows = serial_service.list_serials(
         db,
+        warehouse_ids=scope,
         company_id=company_id,
         status=status_filter,
         item_id=item_id,
@@ -69,6 +73,7 @@ def list_serials(
     totals = serial_service.dashboard(db, company_id=company_id)
     matching = serial_service.count_serials(
         db,
+        warehouse_ids=scope,
         company_id=company_id,
         status=status_filter,
         item_id=item_id,

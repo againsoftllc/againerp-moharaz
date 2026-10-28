@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -8,13 +10,24 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_permission, get_current_company_id
 from app.models.auth_user import AuthUser
+from app.schemas.rma.register import (
+    RmaAnalysisResponse,
+    RmaAnalysisRow,
+    RmaRegisterResponse,
+    RmaRegisterRow,
+    RmaRegisterTotals,
+)
 from app.schemas.rma.ticket import (
     RmaBillRead,
     RmaBillRequest,
     RmaBillResponse,
     RmaChargeCreate,
     RmaCreate,
+    RmaCustomerLockRead,
+    RmaCustomerLockResponse,
     RmaDashboardRead,
+    RmaGenerateSerialsRequest,
+    RmaGenerateSerialsResponse,
     RmaDecisionRequest,
     RmaPriorRead,
     RmaPriorResponse,
@@ -22,6 +35,8 @@ from app.schemas.rma.ticket import (
     RmaReceiptResponse,
     RmaStockEventRead,
     RmaStockEventResponse,
+    RmaStockReportRead,
+    RmaStockReportResponse,
     RmaStoreListResponse,
     RmaStoreRead,
     RmaTraceRead,
@@ -29,7 +44,6 @@ from app.schemas.rma.ticket import (
     RmaDashboardResponse,
     RmaHistoryListResponse,
     RmaHistoryRead,
-    RmaInspectionRequest,
     RmaListMeta,
     RmaListResponse,
     RmaQueuesRead,
@@ -57,7 +71,8 @@ from app.schemas.rma.ticket import (
     OrderSearchResponse,
 )
 from app.services import rbac
-from app.services.rma import complaint_service, queue_service, rma_service
+from app.services.rma import decision_rights
+from app.services.rma import complaint_service, queue_service, rma_service, stock_report_service
 from app.services.rma.rma_service import TicketIntake
 
 from app.services.rma.warranty import product_warranty_text as warranty_text_of
@@ -98,6 +113,16 @@ def rma_queues(
 ) -> RmaQueuesResponse:
     """The work queues: overdue RMAs, units waiting on a supplier (with how long and whether they are late), repeat RMAs."""
     return RmaQueuesResponse(data=RmaQueuesRead(**queue_service.queues(db, company_id)))
+
+
+@router.get("/stock-report", response_model=RmaStockReportResponse)
+def rma_stock_report(
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("rma", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaStockReportResponse:
+    """Every unit in an RMA store or out with a supplier right now, tied to its RMA (docs/RMA.md)."""
+    return RmaStockReportResponse(data=RmaStockReportRead(**stock_report_service.stock_report(db, company_id)))
 
 
 @router.get("/tickets/{ticket_id}/service-job", response_model=RmaServiceJobResponse)
@@ -272,6 +297,10 @@ def create_ticket(
             supplier_override_reason=payload.supplier_override_reason,
             can_override=_can(db, user, "rma_override"),
             unit_received=payload.unit_received,
+            sale_source=payload.sale_source,
+            previous_invoice_no=payload.previous_invoice_no,
+            previous_sale_date=payload.previous_sale_date,
+            serial_generated=payload.serial_generated,
         ),
     )
     db.commit()
@@ -411,7 +440,7 @@ def decide_complaint(
     company_id: str = Depends(get_current_company_id),
 ) -> RmaResponse:
     """Approve, reject or return a complaint for correction. Approving stocks the unit into the RMA store once."""
-    _need(db, user, "rma_approve", "approve or reject complaints")
+    decision_rights.need_to_decide(db, user, "rma_approve", "approve or reject complaints")
     ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
     complaint_service.decide(db, ticket, decision=payload.decision, reason=payload.reason, user=user)
     db.commit()
@@ -525,6 +554,7 @@ def add_charge(
         item_id=payload.item_id,
         sku=payload.sku,
         notes=payload.notes,
+        discount=payload.discount,
     )
     db.commit()
     db.refresh(ticket)
@@ -612,6 +642,32 @@ def cancel_ticket(
     return Response(status_code=204)
 
 
+@router.post("/serials/generate", response_model=RmaGenerateSerialsResponse)
+def generate_serials(
+    payload: RmaGenerateSerialsRequest,
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("rma", "create")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaGenerateSerialsResponse:
+    """Unique 8-character serials for units that have none (a non-serial product, or a previous / unknown sale)."""
+    from app.services.rma import complaint_service
+
+    return RmaGenerateSerialsResponse(data=complaint_service.generate_serials(db, company_id, payload.count))
+
+
+@router.get("/customer-lock", response_model=RmaCustomerLockResponse)
+def customer_lock(
+    customer_id: str = Query(..., max_length=36),
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("rma", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaCustomerLockResponse:
+    from app.services.rma import complaint_service
+
+    lock = complaint_service.customer_rma_lock(db, customer_id, company_id)
+    return RmaCustomerLockResponse(data=RmaCustomerLockRead(locked=lock is not None, **(lock or {})))
+
+
 @router.get("/reasons", response_model=RmaReasonListResponse)
 def list_reasons(
     db: Session = Depends(get_db),
@@ -626,6 +682,64 @@ def list_reasons(
     return RmaReasonListResponse(data=[RmaReasonRead.model_validate(row) for row in rows])
 
 
+def _register_totals(rows) -> RmaRegisterTotals:
+    zero = Decimal("0")
+    return RmaRegisterTotals(
+        count=sum(row.get("count", 1) for row in rows),
+        amount=sum((row.get("amount") or zero for row in rows), zero),
+        collected=sum((row.get("collected") or zero for row in rows), zero),
+        refund=sum((row.get("refund") or zero for row in rows), zero),
+    )
+
+
+@router.get("/registers/{kind}", response_model=RmaRegisterResponse)
+def rma_register(
+    kind: str,
+    date_from: Optional[date] = Query(default=None),
+    date_to: Optional[date] = Query(default=None),
+    status: Optional[str] = Query(default=None, max_length=30),
+    search: Optional[str] = Query(default=None, max_length=100),
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("rma", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaRegisterResponse:
+    """Complain / Replacement Claim / Replacement Receive / Customer Delivery register for a date range."""
+    from app.services.rma import register_service
+
+    rows = register_service.register(db, company_id, kind, date_from=date_from, date_to=date_to, status=status, search=search)
+    return RmaRegisterResponse(
+        data=[RmaRegisterRow(**row) for row in rows],
+        totals=_register_totals(rows),
+        group_options=register_service.ANALYSIS_GROUPS[kind],
+    )
+
+
+@router.get("/registers/{kind}/analysis", response_model=RmaAnalysisResponse)
+def rma_register_analysis(
+    kind: str,
+    group_by: str = Query(..., max_length=30),
+    date_from: Optional[date] = Query(default=None),
+    date_to: Optional[date] = Query(default=None),
+    status: Optional[str] = Query(default=None, max_length=30),
+    search: Optional[str] = Query(default=None, max_length=100),
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("rma", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> RmaAnalysisResponse:
+    """The same register grouped by one field (product, customer, supplier, problem, type, status ...)."""
+    from app.services.rma import register_service
+
+    rows = register_service.analysis(
+        db, company_id, kind, group_by=group_by, date_from=date_from, date_to=date_to, status=status, search=search
+    )
+    return RmaAnalysisResponse(
+        data=[RmaAnalysisRow(**row) for row in rows],
+        totals=_register_totals(rows),
+        group_by=group_by,
+        group_options=register_service.ANALYSIS_GROUPS[kind],
+    )
+
+
 @router.get("/reports", response_model=RmaReportsResponse)
 def rma_reports(
     db: Session = Depends(get_db),
@@ -633,30 +747,6 @@ def rma_reports(
     company_id: str = Depends(get_current_company_id),
 ) -> RmaReportsResponse:
     return RmaReportsResponse(data=rma_service.reports(db, company_id))
-
-
-@router.post("/tickets/{ticket_id}/inspect", response_model=RmaResponse)
-def inspect_ticket(
-    ticket_id: str,
-    payload: RmaInspectionRequest,
-    db: Session = Depends(get_db),
-    user: AuthUser = Depends(require_permission("rma", "write")),
-    company_id: str = Depends(get_current_company_id),
-) -> RmaResponse:
-    ticket = rma_service.get_ticket(db, ticket_id, company_id=company_id)
-    rma_service.inspect_ticket(
-        db,
-        ticket,
-        physical_condition=payload.physical_condition,
-        functional_result=payload.functional_result,
-        qc_result=payload.qc_result,
-        notes=payload.notes,
-        accessories=payload.accessories,
-        actor=user.id,
-    )
-    db.commit()
-    db.refresh(ticket)
-    return RmaResponse(data=_read(ticket))
 
 
 @router.post("/tickets/{ticket_id}/resolve", response_model=RmaResponse)

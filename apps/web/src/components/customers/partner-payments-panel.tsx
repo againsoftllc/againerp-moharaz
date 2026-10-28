@@ -8,6 +8,7 @@ import { FilterSelect } from "@/components/shared/filter-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AgainFormField } from "@/components/again/again-form-sheet";
+import { ChequeFormDrawer } from "@/components/finance/cheque-form-drawer";
 import {
   fetchCustomerLedger,
   recordCustomerLedgerPayment,
@@ -187,8 +188,11 @@ function ReceivePaymentCard({
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [chequeOpen, setChequeOpen] = useState(false);
   const submittingRef = useRef(false);
   const allRef = useRef<HTMLInputElement>(null);
+  // A cheque is not money in yet: it goes on the cheque register and the bank still has to honour it.
+  const byCheque = method === "cheque";
 
   useEffect(() => {
     fetchPaymentAccounts()
@@ -246,6 +250,10 @@ function ReceivePaymentCard({
 
   const submit = async () => {
     if (submittingRef.current || amount <= 0) return;
+    if (byCheque) {
+      setChequeOpen(true);
+      return;
+    }
     submittingRef.current = true;
     setSaving(true);
     try {
@@ -491,9 +499,18 @@ function ReceivePaymentCard({
           disabled={amount <= 0 || saving}
           onClick={() => void submit()}
         >
-          {saving ? "Receiving…" : `Receive ${formatCurrency(amount)}`}
+          {saving ? "Receiving…" : byCheque ? "Receive cheque…" : `Receive ${formatCurrency(amount)}`}
         </Button>
       </div>
+      <ChequeFormDrawer
+        open={chequeOpen}
+        onOpenChange={setChequeOpen}
+        initial={{ direction: "received", partyId: customerId, amount: amount > 0 ? String(amount) : undefined }}
+        onCreated={(cheque) => {
+          toast.success(`Cheque ${cheque.cheque_number} received — it follows the cheque until the bank honours it`);
+          void onRecorded();
+        }}
+      />
     </section>
   );
 }

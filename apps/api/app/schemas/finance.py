@@ -717,8 +717,32 @@ class FinanceChequeRead(BaseModel):
     bank_charge: Decimal = Decimal("0")
     notes: Optional[str] = None
     available_actions: list[str] = []
+    last_action_date: Optional[date] = None
+    bounce_count: int = 0
     created_at: datetime
     updated_at: datetime
+
+
+class FinanceChequeBulkActionRequest(BaseModel):
+    cheque_ids: list[str] = Field(min_length=1, max_length=200)
+    action: str
+    action_date: Optional[date] = None
+    payment_account_id: Optional[str] = None
+    note: Optional[str] = None
+
+
+class FinanceChequeBulkResult(BaseModel):
+    id: str
+    cheque_number: Optional[str] = None
+    ok: bool
+    status: Optional[str] = None
+    error: Optional[str] = None
+
+
+class FinanceChequeBulkResponse(BaseModel):
+    data: list[FinanceChequeBulkResult]
+    succeeded: int
+    failed: int
 
 
 class FinanceChequeDetailRead(FinanceChequeRead):

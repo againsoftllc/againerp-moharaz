@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-PRESET_PATTERN = "^(without_payment|payment_received|payment_payable|product_payment_received|product_payment_payable|custom)$"
+OUTCOME_PATTERN = "^(same_unit|same_product|different_product|cash_back)$"
 
 
 class RmaDeliveryRead(BaseModel):
@@ -16,9 +16,15 @@ class RmaDeliveryRead(BaseModel):
     rma_id: str
     delivery_number: str
     status: str
+    # what the customer gets: same_unit | same_product | different_product | cash_back
+    outcome: str = "same_unit"
     preset: str
     deliver_product: bool
     payment_state: str
+    refund_amount: Optional[Decimal] = None
+    refund_account_id: Optional[str] = None
+    collect_settlement_id: Optional[str] = None
+    refund_settlement_id: Optional[str] = None
     amount_total: Decimal
     amount_received: Decimal
     amount_due: Decimal
@@ -52,11 +58,19 @@ class RmaDeliveryListResponse(BaseModel):
 
 
 class RmaDeliveryUpdate(BaseModel):
-    """A delivery is the hand-over only; money is a settlement."""
+    """What the customer gets, and the money that goes with it (charges collected now, cash back paid out)."""
 
     delivery_date: Optional[date] = None
     delivered_to: Optional[str] = Field(default=None, max_length=255)
     notes: Optional[str] = None
+    outcome: Optional[str] = Field(default=None, pattern=OUTCOME_PATTERN)
+    # cash back: what is paid back and the account it is paid from
+    refund_amount: Optional[Decimal] = Field(default=None, ge=0)
+    refund_account_id: Optional[str] = Field(default=None, max_length=36)
+    # charges collected NOW (the rest stays owed) and the account it goes into
+    amount_received: Optional[Decimal] = Field(default=None, ge=0)
+    payment_account_id: Optional[str] = Field(default=None, max_length=36)
+    payment_reference: Optional[str] = Field(default=None, max_length=100)
 
 
 class RmaDeliveryDecision(BaseModel):
@@ -76,12 +90,27 @@ class RmaDeliverySummary(BaseModel):
     receivable_number: Optional[str] = None
     can_deliver_product: bool
     deliver_blocker: Optional[str] = None
+    can_cash_back: bool = True
+    cash_back_blocker: Optional[str] = None
+    # which unit type the RMA's held unit is (the three unit types must match it), and what the unit is
+    unit_outcome: str = "same_unit"
     held_serial: Optional[str] = None
+    held_sku: Optional[str] = None
+    held_product_name: Optional[str] = None
+    original_serial: Optional[str] = None
+    original_product_name: Optional[str] = None
+    refunded: Decimal = Decimal("0")
     charge_estimate: Decimal = Decimal("0")
 
 
 class RmaDeliverySummaryResponse(BaseModel):
     data: RmaDeliverySummary
+
+
+class RmaDeliveryChargeLine(BaseModel):
+    kind: str
+    description: str = ""
+    amount: str = "0.00"
 
 
 class RmaDeliveryCopyRead(BaseModel):
@@ -97,8 +126,11 @@ class RmaDeliveryCopyRead(BaseModel):
     customer_name: str = ""
     customer_phone: str = ""
     delivered_to: Optional[str] = None
+    outcome: str = "same_unit"
+    outcome_label: str = ""
     product_name: str = ""
     sku: str = ""
+    original_product_name: str = ""
     serial_delivered: Optional[str] = None
     serial_original: Optional[str] = None
     serial_changed: bool = False
@@ -107,6 +139,8 @@ class RmaDeliveryCopyRead(BaseModel):
     deliver_product: bool = False
     payment_state: str = "none"
     preset: str = "custom"
+    charges: List[RmaDeliveryChargeLine] = []
+    refund_amount: Optional[str] = None
     amount_total: str = "0.00"
     amount_received: str = "0.00"
     amount_due: str = "0.00"

@@ -124,6 +124,7 @@ class StockMovementService:
         company_id: Optional[str] = None,
         item_id: Optional[str] = None,
         warehouse_id: Optional[str] = None,
+        warehouse_ids: Optional[list[str]] = None,
         movement_type: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
@@ -135,6 +136,8 @@ class StockMovementService:
             query = query.filter(InventoryStockMovement.item_id == item_id)
         if warehouse_id:
             query = query.filter(InventoryStockMovement.warehouse_id == warehouse_id)
+        if warehouse_ids is not None:  # a member limited to some warehouses
+            query = query.filter(InventoryStockMovement.warehouse_id.in_(warehouse_ids))
         if movement_type:
             query = query.filter(InventoryStockMovement.movement_type == movement_type)
         return (
@@ -150,6 +153,7 @@ class StockMovementService:
         company_id: Optional[str] = None,
         item_id: Optional[str] = None,
         warehouse_id: Optional[str] = None,
+        warehouse_ids: Optional[list[str]] = None,
         movement_type: Optional[str] = None,
     ) -> int:
         query = self._db.query(InventoryStockMovement)
@@ -159,6 +163,8 @@ class StockMovementService:
             query = query.filter(InventoryStockMovement.item_id == item_id)
         if warehouse_id:
             query = query.filter(InventoryStockMovement.warehouse_id == warehouse_id)
+        if warehouse_ids is not None:  # a member limited to some warehouses
+            query = query.filter(InventoryStockMovement.warehouse_id.in_(warehouse_ids))
         if movement_type:
             query = query.filter(InventoryStockMovement.movement_type == movement_type)
         return query.count()

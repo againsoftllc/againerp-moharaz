@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_permission, get_current_company_id
 from app.models.auth_user import AuthUser
+from app.services.auth_user_warehouses import resolve_user_warehouse
+from app.services.core.access_scope import assert_warehouse_access, warehouse_scope
 from app.schemas.inventory.stock_level import (
     InventoryDashboardResponse,
     ReorderSuggestionListResponse,
@@ -48,12 +50,12 @@ def inventory_dashboard_period(
 @router.get("/reports/reorder-suggestions", response_model=ReorderSuggestionListResponse)
 def reorder_suggestions(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("inventory", "read")),
+    user: AuthUser = Depends(require_permission("inventory", "read")),
     company_id: str = Depends(get_current_company_id),
     warehouse_id: Optional[str] = Query(default=None),
 ) -> ReorderSuggestionListResponse:
     data = stock_level_service.reorder_suggestions(
-        db, company_id=company_id, warehouse_id=warehouse_id
+        db, company_id=company_id, warehouse_id=resolve_user_warehouse(db, user, warehouse_id)
     )
     return ReorderSuggestionListResponse(
         data=data, meta=StockLevelListMeta(count=len(data), total=len(data), limit=len(data), offset=0)
@@ -63,7 +65,7 @@ def reorder_suggestions(
 @router.get("/stock", response_model=StockLevelListResponse)
 def list_stock(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("inventory", "read")),
+    user: AuthUser = Depends(require_permission("inventory", "read")),
     company_id: str = Depends(get_current_company_id),
     warehouse_id: Optional[str] = Query(default=None),
     warehouse: Optional[str] = Query(default=None, description="Warehouse name or code"),
@@ -76,8 +78,11 @@ def list_stock(
     limit: int = Query(default=500, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> StockLevelListResponse:
+    assert_warehouse_access(db, user, warehouse_id)
+    scope = warehouse_scope(db, user)
     rows, total = stock_level_service.list_stock_levels(
         db,
+        warehouse_ids=scope,
         company_id=company_id,
         warehouse_id=warehouse_id,
         warehouse=warehouse,

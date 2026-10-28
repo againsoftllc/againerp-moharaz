@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { SearchDropdown } from "@/components/again/again-search-dropdown";
+import { useUserScopedState } from "@/lib/hooks/use-user-scoped-state";
 import type { ApiStockLevel } from "@/lib/api/inventory";
 import { findItemByScan, scanProductCode } from "@/lib/api/product-scan";
 
@@ -20,6 +21,8 @@ export function StockProductSearchAdd({
   portalHost,
   itemSecondary,
   onPick,
+  onQueryChange,
+  loading = false,
 }: {
   items: ApiStockLevel[];
   disabled?: boolean;
@@ -27,7 +30,14 @@ export function StockProductSearchAdd({
   portalHost: HTMLElement | null;
   itemSecondary?: (row: ApiStockLevel) => string;
   onPick: (item: ApiStockLevel) => void;
+  /** For a warehouse too big to load whole: the caller searches on the server and hands back the matches as `items`. */
+  onQueryChange?: (query: string) => void;
+  /** The matches for what is typed are still on their way: nothing is added by itself until they are all in. */
+  loading?: boolean;
 }) {
+  // Off by default: typing "test" must not add the first product whose name happens to contain it. Scanning a barcode or typing
+  // an exact SKU / full product name still adds at once; this switch is only for "add when exactly one product matches".
+  const [autoAdd, setAutoAdd] = useUserScopedState<boolean>("stock-line-search:auto-add-single-match", false);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -46,6 +56,7 @@ export function StockProductSearchAdd({
   const pick = (row: ApiStockLevel) => {
     onPick(row);
     setQuery("");
+    onQueryChange?.("");
     setOpen(false);
     requestAnimationFrame(() => inputRef.current?.focus());
   };
@@ -87,9 +98,10 @@ export function StockProductSearchAdd({
       pick(exact);
       return;
     }
+    if (loading) return; // wait for the full result set before deciding anything
     const timer = window.setTimeout(() => {
       if (matches.length === 1) {
-        pick(matches[0]);
+        if (autoAdd) pick(matches[0]);
         return;
       }
       if (matches.length > 0 || q.includes(" ")) return;
@@ -101,7 +113,7 @@ export function StockProductSearchAdd({
     }, 280);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, items, disabled]);
+  }, [query, items, disabled, loading, autoAdd]);
 
   return (
     <div
@@ -123,6 +135,7 @@ export function StockProductSearchAdd({
           onChange={(event) => {
             setQuery(event.target.value);
             setOpen(true);
+            onQueryChange?.(event.target.value);
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={(event) => {
@@ -138,6 +151,18 @@ export function StockProductSearchAdd({
           aria-label="Search product"
           autoComplete="off"
         />
+        <label
+          className="mr-2 flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap text-[11px] text-muted-foreground"
+          title="Add the product by itself when exactly one product matches what you typed. Barcode scans and exact SKU / full name always add."
+        >
+          <input
+            type="checkbox"
+            checked={autoAdd}
+            onChange={(e) => setAutoAdd(e.target.checked)}
+            className="h-3.5 w-3.5 shrink-0 cursor-pointer appearance-none rounded-none border border-border bg-background checked:border-[#00a09d] checked:bg-[#00a09d]"
+          />
+          Auto-add single match
+        </label>
       </div>
       <SearchDropdown
         open={Boolean(!disabled && open && query.trim().length >= 1)}

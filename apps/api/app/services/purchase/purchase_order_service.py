@@ -63,8 +63,11 @@ class PurchaseOrderService:
         supplier_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        warehouse_ids: Optional[list[str]] = None,
     ) -> tuple[list[PurchaseOrder], int]:
         query = self._db.query(PurchaseOrder).filter(PurchaseOrder.company_id == company_id)
+        if warehouse_ids is not None:  # a member limited to some warehouses sees only their purchase orders
+            query = query.filter(PurchaseOrder.warehouse_id.in_(warehouse_ids))
         if status:
             query = query.filter(PurchaseOrder.status == status)
         if supplier_id:
@@ -770,8 +773,11 @@ class PurchaseOrderService:
         status: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        warehouse_ids: Optional[list[str]] = None,
     ) -> tuple[list[PurchaseReceipt], int]:
         query = self._db.query(PurchaseReceipt).filter(PurchaseReceipt.company_id == company_id)
+        if warehouse_ids is not None:  # a member limited to some warehouses sees only their goods receipts
+            query = query.filter(PurchaseReceipt.warehouse_id.in_(warehouse_ids))
         if purchase_order_id:
             query = query.filter(PurchaseReceipt.purchase_order_id == purchase_order_id)
         if status:

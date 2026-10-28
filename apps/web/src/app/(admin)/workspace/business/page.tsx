@@ -1,15 +1,22 @@
 "use client";
 
-import { Suspense } from "react";
-import { BusinessSettingsHome } from "@/components/settings/business-settings-home";
-import { ContentDataSkeleton } from "@/components/layout/content-data-skeleton";
+import { Suspense, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+
+/** Customers, Payments & Shipping moved under Website › Configuration (payments and shipping only drive the storefront checkout). */
+function Redirect() {
+  const router = useRouter();
+  const tab = useSearchParams().get("tab");
+  useEffect(() => {
+    router.replace(tab ? `/website/settings/checkout?tab=${encodeURIComponent(tab)}` : "/website/settings/checkout");
+  }, [router, tab]);
+  return null;
+}
 
 export default function BusinessSettingsPage() {
   return (
-    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-y-auto">
-      <Suspense fallback={<ContentDataSkeleton />}>
-        <BusinessSettingsHome />
-      </Suspense>
-    </div>
+    <Suspense fallback={null}>
+      <Redirect />
+    </Suspense>
   );
 }

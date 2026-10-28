@@ -19,6 +19,8 @@ from app.schemas.rma.receipt import (
     RmaReceiptUpdate,
 )
 from app.services import rbac
+from app.services.core.approval_service import assert_can_approve
+from app.services.rma import decision_rights
 from app.services.rma import claim_service, receipt_service
 
 router = APIRouter(prefix="/rma", tags=["rma-receipts"])
@@ -117,8 +119,12 @@ def decide_receipt(
     company_id: str = Depends(get_current_company_id),
 ) -> RmaReceiptResponse:
     """Approve (stocks the unit back into the RMA store, once), reject, or send back."""
-    _need(db, user, "rma_receive_approve", "approve or reject supplier receipts")
+    decision_rights.need_to_decide(db, user, "rma_receive_approve", "approve or reject supplier receipts")
     receipt = _receipt(db, receipt_id, company_id)
+    if payload.decision == "approved" and receipt.outcome == "cash_back":
+        # Cash back posts the supplier's money to Finance, so it needs what a settlement needs.
+        decision_rights.need_to_decide(db, user, "rma_settlement_approve", "approve a cash back (it posts money to Finance)")
+        assert_can_approve(db, company_id, user, "finance.payment", receipt.refund_amount, what="RMA cash back")
     receipt_service.decide_receipt(
         db,
         receipt,

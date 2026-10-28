@@ -1,8 +1,9 @@
 import { apiFetch } from "@/lib/api/client";
 
 /**
- * Customer delivery (docs/RMA.md Stage E): the hand-over of the unit. The payment fields and presets are kept only so deliveries
- * made before settlements existed still read correctly; new deliveries never carry a payment.
+ * Customer delivery (docs/RMA.md Stage E): what the customer gets back and what they pay or are paid. The type mirrors what came
+ * back from the supplier; the three unit types must match the unit the RMA holds, cash back pays money out. The customer can be
+ * charged (service charge, parts, labour, fine): part collected now, the rest left owed.
  */
 export type RmaDeliveryStatus = "draft" | "pending_approval" | "correction_requested" | "approved" | "rejected" | "cancelled";
 
@@ -26,36 +27,37 @@ export const DELIVERY_STATUS_TONE: Record<RmaDeliveryStatus, string> = {
 
 export type PaymentState = "none" | "received" | "due";
 
-export type DeliveryPreset =
-  | "without_payment"
-  | "payment_received"
-  | "payment_payable"
-  | "product_payment_received"
-  | "product_payment_payable"
-  | "custom";
+/** What the customer gets. The first three hand a unit over (and must match the unit the RMA holds); cash back pays money out. */
+export type RmaDeliveryOutcome = "same_unit" | "same_product" | "different_product" | "cash_back";
 
-/** The five familiar cases: each is a physical action + a payment state (the labels the staff already use). */
-export const DELIVERY_PRESETS: { id: Exclude<DeliveryPreset, "custom">; label: string; deliver: boolean; payment: PaymentState; hint: string }[] = [
-  { id: "without_payment", label: "Without Payment", deliver: true, payment: "none", hint: "Hand the product over, nothing to pay (warranty)." },
-  { id: "payment_received", label: "Payment Received", deliver: false, payment: "received", hint: "Take the money now. The product stays here." },
-  { id: "payment_payable", label: "Payment Payable", deliver: false, payment: "due", hint: "Record the amount owed. The product stays here." },
-  { id: "product_payment_received", label: "Product with Payment Received", deliver: true, payment: "received", hint: "Hand the product over and take the money." },
-  { id: "product_payment_payable", label: "Product with Payment Payable", deliver: true, payment: "due", hint: "Hand the product over, the amount stays owed." },
-];
+export const DELIVERY_OUTCOMES: RmaDeliveryOutcome[] = ["same_unit", "same_product", "different_product", "cash_back"];
 
-export const DELIVERY_PRESET_LABEL: Record<DeliveryPreset, string> = {
-  ...Object.fromEntries(DELIVERY_PRESETS.map((p) => [p.id, p.label])),
-  custom: "Custom",
-} as Record<DeliveryPreset, string>;
+export const DELIVERY_OUTCOME_LABEL: Record<RmaDeliveryOutcome, string> = {
+  same_unit: "Same product, same serial",
+  same_product: "Same product, different serial",
+  different_product: "Different product, different serial",
+  cash_back: "Cash back",
+};
+
+export const DELIVERY_OUTCOME_HINT: Record<RmaDeliveryOutcome, string> = {
+  same_unit: "The customer's own unit goes back (repaired, or as it was).",
+  same_product: "A replacement of the same product goes back, with a new serial.",
+  different_product: "Another product goes back to the customer, with its own serial.",
+  cash_back: "No unit goes back: money is paid back to the customer.",
+};
 
 export type RmaDelivery = {
   id: string;
   rma_id: string;
   delivery_number: string;
   status: RmaDeliveryStatus;
-  preset: DeliveryPreset;
+  outcome: RmaDeliveryOutcome;
   deliver_product: boolean;
   payment_state: PaymentState;
+  refund_amount: string | number | null;
+  refund_account_id: string | null;
+  collect_settlement_id: string | null;
+  refund_settlement_id: string | null;
   amount_total: string;
   amount_received: string;
   amount_due: string;
@@ -80,11 +82,18 @@ export type RmaDelivery = {
   updated_at: string;
 };
 
-/** A delivery is the hand-over only; money is an RMA settlement (see rma-settlements.ts). */
 export type RmaDeliveryEditable = {
   delivery_date?: string;
   delivered_to?: string;
   notes?: string;
+  outcome?: RmaDeliveryOutcome;
+  /** cash back: what is paid back and the account it is paid from */
+  refund_amount?: number;
+  refund_account_id?: string;
+  /** charges collected NOW (the rest stays owed) and the account / reference it goes in with */
+  amount_received?: number;
+  payment_account_id?: string;
+  payment_reference?: string;
 };
 
 export type RmaDeliverySummary = {
@@ -95,7 +104,16 @@ export type RmaDeliverySummary = {
   receivable_number: string | null;
   can_deliver_product: boolean;
   deliver_blocker: string | null;
+  can_cash_back: boolean;
+  cash_back_blocker: string | null;
+  /** which unit type the RMA's held unit is: the three unit types must match it */
+  unit_outcome: RmaDeliveryOutcome;
   held_serial: string | null;
+  held_sku: string | null;
+  held_product_name: string | null;
+  original_serial: string | null;
+  original_product_name: string | null;
+  refunded: string;
   charge_estimate: string;
 };
 
@@ -161,8 +179,11 @@ export type RmaDeliveryCopy = {
   customer_name: string;
   customer_phone: string;
   delivered_to: string | null;
+  outcome: RmaDeliveryOutcome;
+  outcome_label: string;
   product_name: string;
   sku: string;
+  original_product_name: string;
   serial_delivered: string | null;
   serial_original: string | null;
   serial_changed: boolean;
@@ -170,7 +191,8 @@ export type RmaDeliveryCopy = {
   diagnosis: string | null;
   deliver_product: boolean;
   payment_state: PaymentState;
-  preset: DeliveryPreset;
+  charges: { kind: string; description: string; amount: string }[];
+  refund_amount: string | null;
   amount_total: string;
   amount_received: string;
   amount_due: string;

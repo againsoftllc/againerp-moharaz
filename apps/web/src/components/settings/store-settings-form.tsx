@@ -263,7 +263,7 @@ export function StoreSettingsForm({ store }: Props) {
               className="h-6 w-6 shrink-0 rounded-none"
               asChild
             >
-              <Link href="/workspace/sites">
+              <Link href="/website/configuration/sites">
                 <ArrowLeft className="h-3.5 w-3.5" />
               </Link>
             </Button>
@@ -277,7 +277,7 @@ export function StoreSettingsForm({ store }: Props) {
           </div>
           <div className="hidden shrink-0 gap-1.5 sm:flex">
             <Button variant="outline" size="sm" className="rounded-none" asChild>
-              <Link href="/workspace/sites">Back to list</Link>
+              <Link href="/website/configuration/sites">Back to list</Link>
             </Button>
             <Button size="sm" className="rounded-none" onClick={handleSave}>
               Save settings
@@ -772,7 +772,7 @@ export function StoreSettingsForm({ store }: Props) {
 
       <div className="fixed bottom-0 left-0 right-0 z-40 flex gap-2 border-t border-input bg-background/95 p-3 backdrop-blur sm:hidden">
         <Button variant="outline" size="sm" className="flex-1 rounded-none" asChild>
-          <Link href="/workspace/sites">Back</Link>
+          <Link href="/website/configuration/sites">Back</Link>
         </Button>
         <Button size="sm" className="flex-1 rounded-none" onClick={handleSave}>
           Save

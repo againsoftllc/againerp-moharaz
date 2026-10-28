@@ -108,7 +108,12 @@ export type ApiInventoryDashboard = {
 export type ApiStockListResponse = {
   data: ApiStockLevel[];
   meta: {
+    /** Rows on this page. */
     count: number;
+    /** Rows that match the filters, over all pages. */
+    total?: number;
+    limit?: number;
+    offset?: number;
     total_units: number;
     total_value: string;
   };
@@ -126,6 +131,7 @@ export type StockListParams = {
   item_id?: string;
   status?: string;
   limit?: number;
+  offset?: number;
 };
 
 export function apiWarehouseToWarehouse(row: ApiWarehouse): Warehouse {
@@ -191,6 +197,7 @@ export function buildStockQuery(params?: StockListParams): string {
   if (params.item_id) q.set("item_id", params.item_id);
   if (params.status) q.set("status", params.status);
   if (params.limit) q.set("limit", String(params.limit));
+  if (params.offset) q.set("offset", String(params.offset));
   const s = q.toString();
   return s ? `?${s}` : "";
 }
@@ -665,6 +672,7 @@ export type ApiMovementSummaryLine = {
   effect: string;
   sku: string | null;
   name: string | null;
+  thumbnail?: string | null;
   warehouse_name: string | null;
   quantity: number;
   qty_before: number;
@@ -703,16 +711,21 @@ function reportQuery(params: Record<string, string | undefined>) {
   return query ? `?${query}` : "";
 }
 
+/** One page of on-hand lines (the totals in `meta` cover every matching line); leave `perPage` out for all of them. */
 export async function fetchOnHandReport(params: {
   warehouseId?: string;
   status?: string;
   search?: string;
+  page?: number;
+  perPage?: number;
 }): Promise<ApiOnHandReport> {
   return apiFetch<ApiOnHandReport>(
     `/api/v1/inventory/reports/on-hand${reportQuery({
       warehouse_id: params.warehouseId,
       status: params.status,
       search: params.search,
+      page: params.page != null ? String(params.page) : undefined,
+      per_page: params.perPage != null ? String(params.perPage) : undefined,
     })}`,
   );
 }
@@ -822,7 +835,13 @@ export type ApiProductReportRow = {
   on_hand: number;
   reserved: number;
   available: number;
+  incoming: number;
+  unit_cost: string | number;
   stock_value: string | number;
+  status: string;
+  warehouse_name: string | null;
+  thumbnail: string | null;
+  updated_at: string | null;
   purchased_qty: number;
   purchased_value: string | number;
   sold_qty: number;
@@ -854,6 +873,7 @@ export async function fetchProductReportList(params: {
   search?: string;
   categoryId?: string;
   warehouseId?: string;
+  status?: string;
   sortBy?: "name" | "sku";
   sortDir?: "asc" | "desc";
   page?: number;
@@ -864,6 +884,7 @@ export async function fetchProductReportList(params: {
       search: params.search,
       category_id: params.categoryId,
       warehouse_id: params.warehouseId,
+      status: params.status,
       sort_by: params.sortBy,
       sort_dir: params.sortDir,
       page: params.page != null ? String(params.page) : undefined,
@@ -895,16 +916,25 @@ export async function searchProductsForReport(query: string): Promise<ApiProduct
     .map((p) => ({ itemId: p.item_id as string, name: p.name, sku: p.sku, stock: p.stock }));
 }
 
+/** One page of movements (newest first); the in/out totals and per-type buckets cover every matching movement. */
 export async function fetchMovementSummaryReport(params: {
   warehouseId?: string;
   dateFrom?: string;
   dateTo?: string;
+  movementType?: string;
+  search?: string;
+  page?: number;
+  perPage?: number;
 }): Promise<ApiMovementSummaryReport> {
   return apiFetch<ApiMovementSummaryReport>(
     `/api/v1/inventory/reports/movements${reportQuery({
       warehouse_id: params.warehouseId,
       date_from: params.dateFrom,
       date_to: params.dateTo,
+      movement_type: params.movementType,
+      search: params.search,
+      page: params.page != null ? String(params.page) : undefined,
+      per_page: params.perPage != null ? String(params.perPage) : undefined,
     })}`,
   );
 }

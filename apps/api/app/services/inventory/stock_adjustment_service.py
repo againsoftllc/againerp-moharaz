@@ -59,6 +59,7 @@ class StockAdjustmentService:
         company_id: str = "default",
         status: Optional[str] = None,
         warehouse_id: Optional[str] = None,
+        warehouse_ids: Optional[list[str]] = None,
         reason: Optional[str] = None,
         adjustment_type: Optional[str] = None,
         limit: int = 100,
@@ -71,6 +72,8 @@ class StockAdjustmentService:
             query = query.filter(InventoryStockAdjustment.status == status)
         if warehouse_id:
             query = query.filter(InventoryStockAdjustment.warehouse_id == warehouse_id)
+        if warehouse_ids is not None:  # a member limited to some warehouses
+            query = query.filter(InventoryStockAdjustment.warehouse_id.in_(warehouse_ids))
         if reason:
             query = query.filter(InventoryStockAdjustment.reason == reason)
         if adjustment_type:

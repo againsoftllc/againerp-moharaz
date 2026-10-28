@@ -1,23 +1,32 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { AppProviders } from "@/components/providers/app-providers";
 import { THEME_INIT_SCRIPT } from "@/lib/theme/apply-theme";
 import "./globals.css";
 
-const geistSans = Geist({
+// The fonts ship with the app (latin subset, variable weight, from Google Fonts) instead of being downloaded from Google when the
+// dev server compiles: Turbopack failed to resolve its Google-font loader in Docker ("Can't resolve
+// @vercel/turbopack-next/internal/font/google/font"), which showed a Build Error on every page.
+const geistSans = localFont({
+  src: "./fonts/geist-latin.woff2",
   variable: "--font-geist-sans",
-  subsets: ["latin"],
+  weight: "100 900",
+  display: "swap",
 });
 
 /** Odoo backend font — used by every Again List Datatable (see globals.css `--font-list`). */
-const inter = Inter({
+const inter = localFont({
+  src: "./fonts/inter-latin.woff2",
   variable: "--font-inter",
-  subsets: ["latin"],
+  weight: "100 900",
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
+const geistMono = localFont({
+  src: "./fonts/geist-mono-latin.woff2",
   variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: "100 900",
+  display: "swap",
 });
 
 import { BRAND_PAGE_TITLE } from "@/lib/brand";

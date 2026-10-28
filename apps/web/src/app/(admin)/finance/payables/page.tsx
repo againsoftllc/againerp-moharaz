@@ -25,6 +25,7 @@ import {
   type ApiFinancePaymentAccount,
 } from "@/lib/api/finance";
 import type { PayableGridHandle } from "@/components/finance/payable-grid";
+import { fetchSettledBy, type SettledByMap } from "@/lib/api/finance-settlements";
 import { cn, formatMoney } from "@/lib/utils";
 
 const PayableGrid = dynamic(
@@ -44,6 +45,7 @@ export default function FinancePayablesPage() {
   const apiHealth = useApiHealth();
   const gridRef = useRef<PayableGridHandle>(null);
   const [rows, setRows] = useState<ApiFinancePayable[]>([]);
+  const [settledBy, setSettledBy] = useState<SettledByMap>({});
   const [paymentAccounts, setPaymentAccounts] = useState<ApiFinancePaymentAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +61,9 @@ export default function FinancePayablesPage() {
         fetchPaymentAccounts(),
       ]);
       setRows(res.data);
+      void fetchSettledBy("payable", res.data.map((r) => r.id))
+        .then((sb) => setSettledBy(sb.data))
+        .catch(() => setSettledBy({}));
       setPaymentAccounts(accountsRes.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load payables");
@@ -152,6 +157,7 @@ export default function FinancePayablesPage() {
   return (
     <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
       <PayableGrid
+        settledBy={settledBy}
         ref={gridRef}
         rows={rows}
         loading={loading && rows.length === 0}

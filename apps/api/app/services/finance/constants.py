@@ -32,6 +32,9 @@ SOURCE_TYPES = (
     "cheque_clearance",
     "cheque_reversal",
     "cheque_bank_charge",
+    "cheque_represent",
+    "voucher",
+    "voucher_reversal",
     "opening_balance",
 )
 
@@ -64,7 +67,13 @@ SOURCE_TYPE_LABELS = {
     "cheque_clearance": "Cheque cleared",
     "cheque_reversal": "Cheque reversal",
     "cheque_bank_charge": "Cheque bank charge",
+    "cheque_represent": "Cheque re-presented",
+    "voucher": "Voucher",
+    "voucher_reversal": "Voucher cancelled",
     "opening_balance": "Opening balances",
+    "customer_payment": "Customer payment",
+    "supplier_payment": "Supplier payment",
+    "supplier_payment_reversal": "Supplier payment deleted",
 }
 
 OUTPUT_TAX_CODE = "2210"

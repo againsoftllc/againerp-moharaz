@@ -15,6 +15,9 @@ from app.schemas.purchase.return_ import (
     PurchaseReturnRejectRequest,
     PurchaseReturnResponse,
 )
+from app.models.purchase_order import PurchaseOrder
+from app.models.purchase_return import PurchaseReturn
+from app.services.core.access_scope import assert_document_warehouse, assert_warehouse_access, warehouse_scope
 from app.services.purchase import purchase_read_service as reads
 from app.services.purchase.purchase_return_service import PurchaseReturnService, ReturnLineInput
 
@@ -24,7 +27,7 @@ router = APIRouter(prefix="/purchase/returns", tags=["purchase-returns"])
 @router.get("", response_model=PurchaseReturnListResponse)
 def list_returns(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("purchase", "read")),
+    user: AuthUser = Depends(require_permission("purchase", "read")),
     company_id: str = Depends(get_current_company_id),
     purchase_order_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(
@@ -34,6 +37,7 @@ def list_returns(
     per_page: int = Query(default=50, ge=1, le=500),
 ) -> PurchaseReturnListResponse:
     rows, total = PurchaseReturnService(db).list_returns(
+        warehouse_ids=warehouse_scope(db, user),
         company_id=company_id,
         purchase_order_id=purchase_order_id,
         status=status,
@@ -66,6 +70,8 @@ def create_return(
     user: AuthUser = Depends(require_permission("purchase", "create")),
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseReturnResponse:
+    assert_document_warehouse(db, user, PurchaseOrder, payload.purchase_order_id, "warehouse_id")
+    assert_warehouse_access(db, user, payload.warehouse_id)  # where the units leave from
     ret = PurchaseReturnService(db, company_id=company_id).create_return(
         payload.purchase_order_id,
         [
@@ -98,6 +104,7 @@ def approve_return(
     user: AuthUser = Depends(require_permission("purchase", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseReturnResponse:
+    assert_document_warehouse(db, user, PurchaseReturn, return_id, "warehouse_id")  # only the member's warehouses
     ret = PurchaseReturnService(db, company_id=company_id).approve_return(return_id, actor_id=user.id)
     db.commit()
     db.refresh(ret)
@@ -112,6 +119,7 @@ def reject_return(
     user: AuthUser = Depends(require_permission("purchase", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseReturnResponse:
+    assert_document_warehouse(db, user, PurchaseReturn, return_id, "warehouse_id")  # only the member's warehouses
     ret = PurchaseReturnService(db, company_id=company_id).reject_return(
         return_id, actor_id=user.id, notes=payload.notes
     )
@@ -127,6 +135,7 @@ def cancel_return(
     user: AuthUser = Depends(require_permission("purchase", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseReturnResponse:
+    assert_document_warehouse(db, user, PurchaseReturn, return_id, "warehouse_id")  # only the member's warehouses
     ret = PurchaseReturnService(db, company_id=company_id).cancel_return(return_id, actor_id=user.id)
     db.commit()
     db.refresh(ret)
@@ -141,6 +150,7 @@ def credit_return(
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseReturnResponse:
     """Posts the AP credit and removes the returned units from stock."""
+    assert_document_warehouse(db, user, PurchaseReturn, return_id, "warehouse_id")  # only the member's warehouses
     ret = PurchaseReturnService(db, company_id=company_id).credit_return(return_id, actor_id=user.id)
     db.commit()
     db.refresh(ret)

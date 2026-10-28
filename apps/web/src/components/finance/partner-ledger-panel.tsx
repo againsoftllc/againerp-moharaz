@@ -4,7 +4,8 @@ import "@/components/providers/ag-grid-provider";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { Banknote, FilePlus, RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { Banknote, FilePlus, FileText, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +18,8 @@ import { AgainListGrid } from "@/components/shared/again-list-grid";
 import { ListGridHeaderStart } from "@/components/shared/list-grid-header-start";
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { fetchCustomerLedger } from "@/lib/api/customer-ledger";
-import { fetchSupplierLedger } from "@/lib/api/supplier-ledger";
+import { fetchSupplierLedger, fetchSupplierStatement } from "@/lib/api/supplier-ledger";
+import { todayIso } from "@/components/finance/finance-report-shell";
 import { fetchPartyCommerceLinks } from "@/lib/api/party-commerce";
 import { fetchPartnerTrading } from "@/lib/api/partner-trading";
 import { apiSalesOrderToOrder, fetchSalesOrder, persistSalesOrder } from "@/lib/api/sales";
@@ -34,6 +36,8 @@ import {
 import { RecordPaymentDrawer } from "@/components/suppliers/record-payment-drawer";
 import { LedgerExportMenu } from "@/components/finance/ledger-export-menu";
 import {
+  formatStatementSide,
+  ledgerStatementFromSupplier,
   statementPeriodLabel,
   type LedgerStatement,
 } from "@/lib/finance/ledger-statement";
@@ -192,6 +196,8 @@ export function PartnerLedgerPanel({
   const [salesReturnRecord, setSalesReturnRecord] = useState<SalesReturn | null>(null);
   const [purchaseReturnRecord, setPurchaseReturnRecord] = useState<PurchaseReturn | null>(null);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  // OnerERP's Credit Limit Summary for the supplier side, as of today (the statement's opening carries everything)
+  const [supplierCredit, setSupplierCredit] = useState<LedgerStatement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -211,7 +217,8 @@ export function PartnerLedgerPanel({
       setResolvedCustomerId(nextCustomerId);
       setResolvedSupplierId(nextSupplierId);
 
-      const [customer, supplier, tradingRes] = await Promise.all([
+      const today = todayIso();
+      const [customer, supplier, tradingRes, supplierStatement] = await Promise.all([
         nextCustomerId
           ? fetchCustomerLedger(nextCustomerId).catch(() => null)
           : Promise.resolve(null),
@@ -224,7 +231,11 @@ export function PartnerLedgerPanel({
               supplierId: nextSupplierId || undefined,
             }).catch(() => null)
           : Promise.resolve(null),
+        nextSupplierId
+          ? fetchSupplierStatement(nextSupplierId, { date_from: today, date_to: today }).catch(() => null)
+          : Promise.resolve(null),
       ]);
+      setSupplierCredit(supplierStatement ? ledgerStatementFromSupplier(supplierStatement) : null);
       const built = buildPartnerLedger({ customer, supplier });
       setRows(built.rows);
       setTotals(built.totals);
@@ -238,6 +249,7 @@ export function PartnerLedgerPanel({
       setRows([]);
       setTotals(emptyPartnerTotals());
       setTrading({ purchaseTotal: 0, salesTotal: 0, purchaseProfit: 0, salesProfit: 0 });
+      setSupplierCredit(null);
     } finally {
       setLoading(false);
     }
@@ -514,6 +526,14 @@ export function PartnerLedgerPanel({
         status: row.matching === "—" ? row.status : row.matching,
       })),
       rowCountTotal: rows.length,
+      // the supplier's credit limit summary and its cheques not honoured yet go on the printed statement too
+      ...(supplierCredit
+        ? {
+            positiveSide: "Cr" as const,
+            creditSummary: supplierCredit.creditSummary,
+            pendingCheques: supplierCredit.pendingCheques,
+          }
+        : {}),
     }),
     [
       partyName,
@@ -528,6 +548,7 @@ export function PartnerLedgerPanel({
       resolvedCustomerId,
       resolvedSupplierId,
       totals,
+      supplierCredit,
     ],
   );
 
@@ -570,6 +591,16 @@ export function PartnerLedgerPanel({
           >
             <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
           </Button>
+          {resolvedSupplierId ? (
+            <Button size="sm" variant="ghost" className="h-6 rounded-none px-2 text-xs" asChild>
+              <Link
+                href={`/finance/reports/supplier-statement?supplier_id=${encodeURIComponent(resolvedSupplierId)}`}
+                title="Supplier statement for a period — print, PDF or Excel"
+              >
+                <FileText className="mr-1 h-3 w-3" /> Statement
+              </Link>
+            </Button>
+          ) : null}
           {canWrite ? (
             <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
               {resolvedCustomerId ? (
@@ -644,6 +675,7 @@ export function PartnerLedgerPanel({
             tone={trading.salesProfit < -0.004 ? "danger" : trading.salesProfit > 0.004 ? "credit" : "muted"}
           />
         </div>
+        {supplierCredit?.creditSummary ? <SupplierCreditStrip statement={supplierCredit} /> : null}
       </section>
 
       <section
@@ -892,6 +924,47 @@ export function PartnerLedgerPanel({
           ) : null}
         </SheetContent>
       </Sheet>
+    </div>
+  );
+}
+
+/** OnerERP's Credit Limit Summary for the supplier, as of today: cheques written but not honoured are still owed. */
+function SupplierCreditStrip({ statement }: { statement: LedgerStatement }) {
+  const cs = statement.creditSummary!;
+  const side = (value: number) => formatStatementSide(value, "Cr");
+  const pendingCount = statement.pendingCheques?.filter((c) => c.status !== "bounced").length ?? 0;
+  const dishonouredCount = statement.pendingCheques?.filter((c) => c.status === "bounced").length ?? 0;
+  return (
+    <div className="border-t border-border">
+      <p className="bg-muted/40 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Supplier credit limit summary
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-6">
+        <Stat label="Ledger balance" value={side(cs.ledgerBalance ?? 0)} hint="Cr = we owe" />
+        <Stat
+          label="Adv. cheque issued"
+          value={formatCurrency(cs.advChequeIssued ?? 0)}
+          hint={`${pendingCount} not honoured · not treated ${formatCurrency(cs.notTreated ?? 0)}`}
+        />
+        <Stat
+          label="Dishonoured"
+          value={formatCurrency(cs.dishonoured ?? 0)}
+          hint={dishonouredCount ? `${dishonouredCount} open · already back on the ledger` : "None open"}
+          tone={(cs.dishonoured ?? 0) > 0.004 ? "danger" : "muted"}
+        />
+        <Stat label="Net outstanding" value={side(cs.netOutstanding)} hint="Ledger + cheques not honoured" />
+        <Stat label="Unsettled orders" value={formatCurrency(cs.unsettledOrders)} hint="Open POs not received" />
+        <Stat
+          label="Net with orders"
+          value={side(cs.netWithOrders)}
+          hint={
+            cs.creditLimit > 0
+              ? `Limit ${formatCurrency(cs.creditLimit)} · ${formatCurrency(cs.availableCredit ?? 0)} left`
+              : `Credit days ${cs.creditDays ?? "—"}`
+          }
+          tone={cs.availableCredit != null && cs.availableCredit < 0 ? "danger" : undefined}
+        />
+      </div>
     </div>
   );
 }

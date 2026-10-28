@@ -28,6 +28,7 @@ import {
   type SerialStatus,
 } from "@/lib/api/inventory-serials";
 import { useInventoryWarehouses } from "@/lib/api/use-inventory";
+import { useWarehouseAccess } from "@/lib/auth/warehouse-access";
 import { cn } from "@/lib/utils";
 
 const InventoryReportGrid = dynamic(
@@ -292,7 +293,10 @@ const SERIAL_COLUMNS: InventoryReportGridColumn<ApiSerialReportLine>[] = [
 ];
 
 export default function SerialRegisterReportPage() {
-  const { warehouses } = useInventoryWarehouses();
+  const { warehouses: allWarehouses } = useInventoryWarehouses();
+  const warehouseAccess = useWarehouseAccess();
+  // a member limited to some warehouses (locations) picks and filters only among theirs
+  const warehouses = useMemo(() => warehouseAccess.pickable(allWarehouses), [warehouseAccess, allWarehouses]);
   const [warehouseId, setWarehouseId] = useState("all");
   const [status, setStatus] = useState("all");
   const [insight, setInsight] = useState("all");
@@ -302,10 +306,10 @@ export default function SerialRegisterReportPage() {
 
   const warehouseOptions = useMemo(
     () => [
-      { value: "all", label: "All warehouses" },
+      { value: "all", label: warehouseAccess.restricted ? "My default warehouse" : "All warehouses" },
       ...warehouses.map((w) => ({ value: w.id, label: w.name })),
     ],
-    [warehouses],
+    [warehouses, warehouseAccess.restricted],
   );
 
   const load = useCallback(async () => {

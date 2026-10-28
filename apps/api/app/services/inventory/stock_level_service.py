@@ -50,6 +50,7 @@ def list_stock_levels(
     *,
     company_id: str,
     warehouse_id: Optional[str] = None,
+    warehouse_ids: Optional[list[str]] = None,
     warehouse: Optional[str] = None,
     product_id: Optional[str] = None,
     item_id: Optional[str] = None,
@@ -63,6 +64,8 @@ def list_stock_levels(
     )
     if warehouse_id:
         query = query.filter(InventoryStockLevel.warehouse_id == warehouse_id)
+    if warehouse_ids is not None:  # a member limited to some warehouses sees only their stock
+        query = query.filter(InventoryStockLevel.warehouse_id.in_(warehouse_ids))
     if warehouse:
         # Callers may pass a warehouse name or code instead of an id.
         query = query.filter(
@@ -117,6 +120,7 @@ def to_read(
     row: InventoryStockLevel,
     warehouses: dict[str, InventoryWarehouse],
     tracking_type: str = "none",
+    thumbnail: Optional[str] = None,
 ) -> StockLevelRead:
     warehouse = warehouses.get(row.warehouse_id)
     unit_cost = row.unit_cost or Decimal("0")
@@ -143,7 +147,8 @@ def to_read(
         unit_cost=unit_cost,
         stock_value=unit_cost * row.on_hand,
         status=row.status,
-        thumbnail=row.thumbnail,
+        # the stock line rarely carries its own picture: the catalog product is where the image lives
+        thumbnail=row.thumbnail or thumbnail,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -159,13 +164,28 @@ def _tracking_map(db: Session, item_ids: set[str]) -> dict[str, str]:
     }
 
 
+def _product_thumbnails(db: Session, product_ids: set[str]) -> dict[str, str]:
+    """Catalog picture per product, for the stock lines that have none of their own."""
+    if not product_ids:
+        return {}
+    from app.models.catalog_product import CatalogProduct
+
+    rows = (
+        db.query(CatalogProduct.id, CatalogProduct.thumbnail)
+        .filter(CatalogProduct.id.in_(product_ids), CatalogProduct.thumbnail.isnot(None))
+        .all()
+    )
+    return {pid: thumb for pid, thumb in rows if thumb}
+
+
 def to_read_many(
     db: Session, rows: Sequence[InventoryStockLevel]
 ) -> list[StockLevelRead]:
     warehouses = _warehouse_map(db, {row.warehouse_id for row in rows})
     tracking = _tracking_map(db, {row.item_id for row in rows if row.item_id})
+    thumbs = _product_thumbnails(db, {row.product_id for row in rows if row.product_id and not row.thumbnail})
     return [
-        to_read(row, warehouses, tracking.get(row.item_id or "", "none"))
+        to_read(row, warehouses, tracking.get(row.item_id or "", "none"), thumbs.get(row.product_id))
         for row in rows
     ]
 

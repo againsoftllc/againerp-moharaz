@@ -39,13 +39,24 @@ async function loadParties(direction: ChequeDirection): Promise<PartyOption[]> {
   return res.data.map((row) => ({ id: row.id, name: row.name }));
 }
 
+/** Start the form for a known party (and bill) — used by "Issue cheque" on a supplier payment and by "Issue replacement cheque". */
+export type ChequeFormInitial = {
+  direction: ChequeDirection;
+  partyId?: string;
+  /** the bill (issued) or invoice (received) to settle */
+  documentId?: string;
+  amount?: string;
+  notes?: string;
+};
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: (cheque: ApiFinanceCheque) => void;
+  initial?: ChequeFormInitial | null;
 };
 
-export function ChequeFormDrawer({ open, onOpenChange, onCreated }: Props) {
+export function ChequeFormDrawer({ open, onOpenChange, onCreated, initial }: Props) {
   const [direction, setDirection] = React.useState<ChequeDirection>("received");
   const [parties, setParties] = React.useState<PartyOption[]>([]);
   const [partyId, setPartyId] = React.useState("");
@@ -62,18 +73,22 @@ export function ChequeFormDrawer({ open, onOpenChange, onCreated }: Props) {
   const [supplierDrawerId, setSupplierDrawerId] = React.useState<string | null>(null);
   const [leaves, setLeaves] = React.useState<ApiAvailableChequeLeaf[]>([]);
   const [leafId, setLeafId] = React.useState("");
+  // the party and bill can only be picked once their lists have loaded, so the start values wait here until then
+  const pendingInitial = React.useRef<ChequeFormInitial | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
-    setDirection("received");
+    pendingInitial.current = initial ?? null;
+    setDirection(initial?.direction ?? "received");
     setLeafId("");
     setPartyId("");
     setDocId("");
     setBankName("");
     setChequeNumber("");
     setChequeDate(todayIso());
-    setAmount("");
-    setNotes("");
+    setAmount(initial?.amount ?? "");
+    setNotes(initial?.notes ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   React.useEffect(() => {
@@ -82,7 +97,12 @@ export function ChequeFormDrawer({ open, onOpenChange, onCreated }: Props) {
     setPartyId("");
     setParties([]);
     loadParties(direction)
-      .then((rows) => !cancelled && setParties(rows))
+      .then((rows) => {
+        if (cancelled) return;
+        setParties(rows);
+        const start = pendingInitial.current;
+        if (start?.partyId && start.direction === direction && rows.some((p) => p.id === start.partyId)) setPartyId(start.partyId);
+      })
       .catch((err) => toast.error(err instanceof Error ? err.message : "Could not load parties"));
     return () => {
       cancelled = true;
@@ -123,7 +143,15 @@ export function ChequeFormDrawer({ open, onOpenChange, onCreated }: Props) {
         .map((r) => ({ id: r.id, label: r.reference_number, balance: Number(r.balance) }));
     };
     run()
-      .then((rows) => !cancelled && setDocs(rows))
+      .then((rows) => {
+        if (cancelled) return;
+        setDocs(rows);
+        const start = pendingInitial.current;
+        if (start?.documentId && start.partyId === partyId && rows.some((d) => d.id === start.documentId)) {
+          setDocId(start.documentId);
+          pendingInitial.current = null;
+        }
+      })
       .catch(() => !cancelled && setDocs([]));
     return () => {
       cancelled = true;

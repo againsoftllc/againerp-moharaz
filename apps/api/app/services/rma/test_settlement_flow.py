@@ -40,6 +40,7 @@ from app.models.finance import (
     FinanceReceivable,
 )
 from app.models.finance_period import FinancePeriod
+from app.models.finance_settlement import FinanceAllocation
 from app.models.inventory_serial import InventorySerial
 from app.models.inventory_warehouse import InventoryWarehouse
 from app.models.item import Item
@@ -88,6 +89,7 @@ TABLES = [
     FinancePayable.__table__,
     CoreSequence.__table__,
     FinancePeriod.__table__,
+    FinanceAllocation.__table__,
 ]
 
 

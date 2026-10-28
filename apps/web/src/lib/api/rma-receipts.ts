@@ -21,13 +21,23 @@ export const RECEIPT_STATUS_TONE: Record<RmaReceiptStatus, string> = {
   cancelled: "border-muted-foreground/30 bg-muted text-muted-foreground",
 };
 
-export type RmaReceiptOutcome = "replacement" | "repaired" | "returned_unrepaired" | "other";
+/** What the supplier sent back. The type decides the fields the receipt asks for and what approving it posts. */
+export type RmaReceiptOutcome = "same_unit" | "same_product" | "different_product" | "cash_back";
+
+export const RECEIPT_OUTCOMES: RmaReceiptOutcome[] = ["same_unit", "same_product", "different_product", "cash_back"];
 
 export const RECEIPT_OUTCOME_LABEL: Record<RmaReceiptOutcome, string> = {
-  replacement: "Replacement",
-  repaired: "Original unit repaired",
-  returned_unrepaired: "Returned unrepaired",
-  other: "Other",
+  same_unit: "Same product, same serial",
+  same_product: "Same product, different serial",
+  different_product: "Different product, different serial",
+  cash_back: "Cash back",
+};
+
+export const RECEIPT_OUTCOME_HINT: Record<RmaReceiptOutcome, string> = {
+  same_unit: "The unit came back (repaired, or as it was) with the serial that was sent.",
+  same_product: "A replacement of the same product, with a new serial.",
+  different_product: "Another product came back instead, with its own serial.",
+  cash_back: "No unit comes back: the supplier paid money instead.",
 };
 
 export type RmaReceipt = {
@@ -42,6 +52,12 @@ export type RmaReceipt = {
   received_serial: string | null;
   outcome: RmaReceiptOutcome;
   outcome_note: string | null;
+  received_item_id: string | null;
+  received_sku: string | null;
+  received_product_name: string | null;
+  refund_amount: string | number | null;
+  refund_account_id: string | null;
+  settlement_id: string | null;
   supplier_delivery_ref: string | null;
   received_date: string | null;
   received_by: string | null;
@@ -71,8 +87,10 @@ export type RmaReceiptEditable = Partial<
     | "accessories_received"
     | "warehouse_id"
     | "received_serial"
+    | "received_item_id"
+    | "refund_account_id"
   >
->;
+> & { refund_amount?: number };
 
 const base = (id: string) => `/api/v1/rma/receipts/${id}`;
 
@@ -140,6 +158,10 @@ export type RmaReceiptCopy = {
   outcome: string;
   outcome_label: string;
   outcome_note: string | null;
+  received_sku: string | null;
+  received_product_name: string | null;
+  refund_amount: string | number | null;
+  settlement_number: string | null;
   received_date: string | null;
   received_by: string | null;
   condition_notes: string | null;

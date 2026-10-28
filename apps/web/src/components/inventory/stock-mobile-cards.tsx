@@ -60,18 +60,22 @@ export function StockMobileCards({
               </Badge>
             </div>
 
-            <dl className="mt-1.5 grid grid-cols-3 gap-x-2 gap-y-0.5 text-[11px]">
+            <dl className="mt-1.5 grid grid-cols-4 gap-x-2 gap-y-0.5 text-[11px]">
               <div>
-                <dt className="text-muted-foreground">On hand</dt>
+                <dt className="text-muted-foreground">In Stock</dt>
                 <dd className="font-medium tabular-nums">{item.onHand}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">Available</dt>
-                <dd className="tabular-nums">{item.available}</dd>
+                <dt className="text-muted-foreground">In Transit</dt>
+                <dd className="tabular-nums">{item.incoming}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Unit cost</dt>
                 <dd className="tabular-nums">{formatCurrency(item.unitCost)}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Value</dt>
+                <dd className="tabular-nums">{formatCurrency(item.unitCost * item.onHand)}</dd>
               </div>
             </dl>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Building2, Landmark, LogOut, Settings, UserRound } from "lucide-react";
+import { Building2, KeyRound, Landmark, LogOut, Settings, UserRound } from "lucide-react";
 import { userCompanyLabel, userInitials, userRoleLabel } from "@/lib/auth/user-display";
 import { useAdminAuth } from "@/lib/store/admin-auth-store";
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -30,9 +30,15 @@ export function UserAccountMenuItems({ onSignOut }: { onSignOut: () => void }) {
   return (
     <div className="p-0.5">
       <DropdownMenuItem asChild>
-        <Link href="/workspace/business" className="cursor-pointer">
+        <Link href="/workspace/setup" className="cursor-pointer">
           <UserRound className="mr-2 h-3.5 w-3.5" aria-hidden />
           Preferences
+        </Link>
+      </DropdownMenuItem>
+      <DropdownMenuItem asChild>
+        <Link href="/my-account/security" className="cursor-pointer">
+          <KeyRound className="mr-2 h-3.5 w-3.5" aria-hidden />
+          Account security
         </Link>
       </DropdownMenuItem>
       <DropdownMenuItem asChild>
@@ -42,9 +48,9 @@ export function UserAccountMenuItems({ onSignOut }: { onSignOut: () => void }) {
         </Link>
       </DropdownMenuItem>
       <DropdownMenuItem asChild>
-        <Link href="/workspace/branches" className="cursor-pointer">
+        <Link href="/workspace/setup?tab=warehouses" className="cursor-pointer">
           <Building2 className="mr-2 h-3.5 w-3.5" aria-hidden />
-          Branches
+          Business locations
         </Link>
       </DropdownMenuItem>
       <DropdownMenuItem asChild>

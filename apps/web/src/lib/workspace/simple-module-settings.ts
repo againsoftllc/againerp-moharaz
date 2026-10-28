@@ -220,6 +220,59 @@ export const SIMPLE_MODULE_SETTINGS: Record<string, SimpleModuleSettingsDef> = {
       },
     ],
   },
+  security: {
+    title: "Sign-in Security",
+    subtitle: "Rules for every staff account of this company. Enforced by the server at sign-in and on every request.",
+    note: {
+      text: "Asking one member for a new password, lifting a lock and signing someone out are on the member's drawer (Security tab).",
+      href: "/workspace/users",
+      linkLabel: "Open users",
+    },
+    sections: [
+      {
+        id: "lockout",
+        title: "Wrong passwords",
+        fields: [
+          {
+            key: "lockoutAttempts",
+            type: "number",
+            label: "Lock after",
+            help: "Wrong passwords in a row before the account is locked. 0 turns the lock off.",
+            defaultValue: 5,
+            min: 0,
+            max: 20,
+            suffix: "tries",
+          },
+          {
+            key: "lockoutMinutes",
+            type: "number",
+            label: "Lock for",
+            help: "How long the account stays locked. An administrator can lift it sooner.",
+            defaultValue: 15,
+            min: 1,
+            max: 1440,
+            suffix: "minutes",
+          },
+        ],
+      },
+      {
+        id: "passwords",
+        title: "Passwords",
+        fields: [
+          {
+            key: "passwordExpiryDays",
+            type: "number",
+            label: "Password expires after",
+            help: "A password older than this must be changed before the member can do anything else. 0 = never expires.",
+            defaultValue: 0,
+            min: 0,
+            max: 3650,
+            suffix: "days",
+          },
+        ],
+      },
+    ],
+  },
   finance: {
     title: "Finance Settings",
     subtitle: "Payment controls. Posted journals can never be edited; reverse them instead.",

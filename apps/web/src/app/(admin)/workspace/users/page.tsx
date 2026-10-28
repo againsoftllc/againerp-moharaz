@@ -1,7 +1,7 @@
 "use client";
 
-import { redirect } from "next/navigation";
+import { WorkspaceUsersPage } from "@/components/workspace/workspace-users-page";
 
 export default function SystemUsersPage() {
-  redirect("/workspace/business?tab=permission");
+  return <WorkspaceUsersPage />;
 }

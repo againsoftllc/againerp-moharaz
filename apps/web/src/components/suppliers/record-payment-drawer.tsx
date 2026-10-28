@@ -7,10 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { FilterSelect } from "@/components/shared/filter-select";
 import { recordSupplierPayment } from "@/lib/api/supplier-ledger";
+import { ChequeFormDrawer } from "@/components/finance/cheque-form-drawer";
 import { fetchPaymentAccounts, type ApiFinancePaymentAccount } from "@/lib/api/finance";
 import { formatCurrency } from "@/lib/utils";
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, hidden }: { label: string; children: React.ReactNode; hidden?: boolean }) {
+  if (hidden) return null;
   return (
     <div className="space-y-1.5">
       <label className="text-xs font-medium text-foreground">{label}</label>
@@ -47,6 +49,7 @@ export function RecordPaymentDrawer({
   const [writeOffReason, setWriteOffReason] = useState("");
   const [showWriteOff, setShowWriteOff] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [chequeOpen, setChequeOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -65,8 +68,15 @@ export function RecordPaymentDrawer({
   const blocked = value <= 0 && writeOffValue <= 0;
   const overpaying = value > 0 && value + writeOffValue > outstanding && outstanding > 0;
 
+  // A cheque is not money out yet: it has to be issued from a cheque book and followed until the bank honours or dishonours it.
+  const byCheque = method === "cheque";
+
   const submit = async () => {
     if (blocked) return;
+    if (byCheque) {
+      setChequeOpen(true);
+      return;
+    }
     setSaving(true);
     try {
       const payment = await recordSupplierPayment(supplierId, {
@@ -94,6 +104,7 @@ export function RecordPaymentDrawer({
   };
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-[420px] max-w-[92vw] flex-col p-0">
         <div className="border-b border-border px-4 py-3">
@@ -153,7 +164,17 @@ export function RecordPaymentDrawer({
             </Field>
           </div>
 
-          <Field label="Payment account">
+          {byCheque ? (
+            <div className="space-y-1 border border-dashed border-border p-3 text-[11px] text-muted-foreground">
+              <p className="text-xs font-medium text-foreground">Paying by cheque</p>
+              <p>
+                The cheque is issued from a cheque book and goes on this supplier&apos;s account now, so the bill is settled. The bank only
+                moves when the bank honours it. If the bank dishonours it, the amount comes back onto the supplier&apos;s account and the bill.
+              </p>
+            </div>
+          ) : null}
+
+          <Field label="Payment account" hidden={byCheque}>
             <FilterSelect
               value={paymentAccountId}
               onChange={setPaymentAccountId}
@@ -170,7 +191,7 @@ export function RecordPaymentDrawer({
             />
           </Field>
 
-          <Field label="Reference">
+          <Field label="Reference" hidden={byCheque}>
             <Input
               value={reference}
               onChange={(e) => setReference(e.target.value)}
@@ -246,10 +267,21 @@ export function RecordPaymentDrawer({
             Cancel
           </Button>
           <Button size="sm" disabled={blocked || saving} onClick={() => void submit()}>
-            {saving ? "Recording…" : "Record payment"}
+            {saving ? "Recording…" : byCheque ? "Issue cheque…" : "Record payment"}
           </Button>
         </div>
       </SheetContent>
     </Sheet>
+      <ChequeFormDrawer
+        open={chequeOpen}
+        onOpenChange={setChequeOpen}
+        initial={{ direction: "issued", partyId: supplierId, amount: value > 0 ? String(value) : undefined }}
+        onCreated={(cheque) => {
+          toast.success(`Cheque ${cheque.cheque_number} issued to ${supplierName ?? "the supplier"} — it follows the cheque until the bank honours it`);
+          onOpenChange(false);
+          onRecorded?.();
+        }}
+      />
+    </>
   );
 }

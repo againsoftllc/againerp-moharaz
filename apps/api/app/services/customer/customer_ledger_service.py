@@ -475,6 +475,14 @@ def record_payment(
         db.add(write_off_payment)
     db.flush()
 
+    from app.services.finance.finance_service import FinanceService, ledger_payment_description
+
+    if payment:
+        # Dr cash / bank, Cr AR: the money is in the books, not only on the customer's ledger.
+        FinanceService(db).post_ledger_payment_journal(
+            payment, counter_code="1100", description=ledger_payment_description(payment)
+        )
+
     # Credit notes settle first so everything applied below is this receipt's money.
     apply_credit_notes(db, customer_id)
     receivables_before = _receivables(db, customer_id)
@@ -544,11 +552,17 @@ def record_payment(
                 label="Due payment" if payment else "Discount / write-off",
             )
 
-    if write_off_payment:
-        from app.services.finance.finance_service import FinanceService
+    if voucher:
+        from app.services.finance.settlement_service import log_allocations
 
+        log_allocations(
+            db, company_id=company_id, party_type="customer", party_id=customer_id,
+            before=paid_before, docs=_receivables(db, customer_id), payment_id=voucher.id,
+        )
+
+    if write_off_payment:
         desc = write_off_payment.reference or "Discount allowed"
-        FinanceService(db)._post_journal(
+        write_off_payment.journal_entry_id = FinanceService(db)._post_journal(
             company_id=company_id,
             entry_date=write_off_payment.payment_date,
             description=desc,
@@ -558,7 +572,7 @@ def record_payment(
                 ("4210", write_off_amount, ZERO, desc, "customer", customer_id, ZERO),
                 ("1100", ZERO, write_off_amount, desc, "customer", customer_id, ZERO),
             ],
-        )
+        ).id
 
     db.commit()
     result = payment or write_off_payment

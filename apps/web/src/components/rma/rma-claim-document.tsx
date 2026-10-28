@@ -44,7 +44,6 @@ export function RmaClaimDocument({ copy, company }: { copy: RmaClaimCopy; compan
           </div>
           <div>
             <Line label="Supplier" value={copy.supplier_name} />
-            <Line label="Supplier Ref." value={copy.supplier_reference} />
             <Line label="Dispatch Date" value={formatDay(copy.dispatch_date)} />
           </div>
         </div>
@@ -58,7 +57,7 @@ export function RmaClaimDocument({ copy, company }: { copy: RmaClaimCopy; compan
             <Line label="Serial No." value={copy.serial_number} />
             <Line label="Quantity" value={copy.quantity} />
             <Line label="Purchase Receipt" value={copy.purchase_receipt_no} />
-            <Line label="Vendor Invoice No." value={copy.vendor_invoice_no} />
+            {copy.vendor_invoice_no ? <Line label="Vendor Invoice No." value={copy.vendor_invoice_no} /> : null}
             <Line label="Purchase Bill" value={copy.purchase_bill_no} />
             <Line label="Sold On" value={formatDay(copy.sold_on)} />
           </div>

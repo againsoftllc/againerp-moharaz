@@ -17,8 +17,8 @@ export const CHEQUE_STATUS_LABEL: Record<ChequeStatus, string> = {
   issued: "Issued",
   deposited: "Deposited",
   presented: "Presented",
-  cleared: "Cleared",
-  bounced: "Bounced",
+  cleared: "Honoured",
+  bounced: "Dishonoured",
   cancelled: "Cancelled",
 };
 

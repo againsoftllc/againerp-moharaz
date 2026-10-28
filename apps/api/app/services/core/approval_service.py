@@ -21,12 +21,12 @@ from app.models.approval_limit import ApprovalLimit
 # Document types that carry an approval ceiling, with the label shown in Workspace.
 APPROVAL_DOCUMENTS: Dict[str, str] = {
     "finance.expense": "Expense approval",
-    "finance.payment": "Payment",
+    "finance.payment": "Payment (RMA payouts)",
     "purchase.order": "Purchase order confirmation",
     "sales.order": "Sales order confirmation",
-    "purchase.return": "Purchase return",
-    "sales.return": "Sales return",
 }
+# Only types the API actually checks are listed. Purchase and sales returns were listed once but no route enforced them,
+# so a limit set there did nothing; add them back together with an `assert_can_approve` call where a return is confirmed.
 
 
 def _role_slugs(db: Session, user) -> List[str]:

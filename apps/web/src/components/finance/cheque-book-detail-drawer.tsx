@@ -78,7 +78,7 @@ const LEAF_FILTERS: { id: LeafFilter; label: string; match: (status: ChequeLeafD
   { id: "all", label: "All", match: () => true },
   { id: "unused", label: "Unused", match: (s) => s === "unused" },
   { id: "issued", label: "Not treated", match: (s) => s === "not_treated" },
-  { id: "cleared", label: "Cleared", match: (s) => s === "cleared" },
+  { id: "cleared", label: "Honoured", match: (s) => s === "cleared" },
 ];
 
 type Props = {
@@ -388,7 +388,7 @@ export function ChequeBookDetailDrawer({ bookId, summary, canWrite, onOpenChange
                   { id: "all" as const, label: "Cheques", value: book.leaf_count },
                   { id: "unused" as const, label: "Unused", value: loadingDetail ? book.unused_count : (counts.unused ?? 0) },
                   { id: "issued" as const, label: "Not treated", value: loadingDetail ? "–" : (counts.not_treated ?? 0) },
-                  { id: "cleared" as const, label: "Cleared", value: loadingDetail ? "–" : (counts.cleared ?? 0) },
+                  { id: "cleared" as const, label: "Honoured", value: loadingDetail ? "–" : (counts.cleared ?? 0) },
                 ].map((stat) => (
                   <button
                     key={stat.id}

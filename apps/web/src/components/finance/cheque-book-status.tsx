@@ -15,8 +15,8 @@ export const LEAF_STATUS_LABEL: Record<ChequeLeafDisplayStatus, string> = {
   unused: "Unused",
   void: "Void",
   not_treated: "Not Treated",
-  cleared: "Cleared",
-  bounced: "Bounced",
+  cleared: "Honoured",
+  bounced: "Dishonoured",
   cancelled: "Cancelled",
 };
 

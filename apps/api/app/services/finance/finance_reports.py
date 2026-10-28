@@ -1163,25 +1163,27 @@ class FinanceReportService:
                         "journal_entry_id": rec.journal_entry_id,
                     },
                 )
+            # Receipts are credits. An outbound payment to a customer (a refund, or a bounced cheque taken back off the account)
+            # is a debit: leaving it out would leave a dishonoured cheque looking paid.
             pq = self._db.query(FinancePayment).filter(
                 FinancePayment.company_id == company_id,
-                FinancePayment.direction == "inbound",
                 FinancePayment.party_type == "customer",
                 FinancePayment.party_id.isnot(None),
             )
             if partner_id:
                 pq = pq.filter(FinancePayment.party_id == partner_id)
             for pay in pq.all():
+                is_receipt = pay.direction != "outbound"
                 add(
                     pay.party_id,
                     "receivable",
                     pay.payment_date,
-                    ZERO,
-                    money(pay.amount),
+                    ZERO if is_receipt else money(pay.amount),
+                    money(pay.amount) if is_receipt else ZERO,
                     {
                         "id": pay.id,
                         "date": pay.payment_date.isoformat(),
-                        "journal": "PAY",
+                        "journal": "REV" if pay.source_type == "cheque_reversal" else "PAY",
                         "account": "Receivable",
                         "reference": pay.payment_number,
                         "label": pay.reference or SOURCE_TYPE_LABELS.get(pay.source_type, pay.source_type),
@@ -1220,25 +1222,27 @@ class FinanceReportService:
                         "journal_entry_id": pay_doc.journal_entry_id,
                     },
                 )
+            # Payments are debits. An inbound payment from a supplier (a refund, or a dishonoured cheque put back on the account)
+            # is a credit: the supplier is owed again.
             pq = self._db.query(FinancePayment).filter(
                 FinancePayment.company_id == company_id,
-                FinancePayment.direction == "outbound",
                 FinancePayment.party_type.in_(("supplier", "vendor")),
                 FinancePayment.party_id.isnot(None),
             )
             if partner_id:
                 pq = pq.filter(FinancePayment.party_id == partner_id)
             for pay in pq.all():
+                is_payment = pay.direction != "inbound"
                 add(
                     pay.party_id,
                     "payable",
                     pay.payment_date,
-                    money(pay.amount),
-                    ZERO,
+                    money(pay.amount) if is_payment else ZERO,
+                    ZERO if is_payment else money(pay.amount),
                     {
                         "id": pay.id,
                         "date": pay.payment_date.isoformat(),
-                        "journal": "PAY",
+                        "journal": "REV" if pay.source_type == "cheque_reversal" else "PAY",
                         "account": "Payable",
                         "reference": pay.payment_number,
                         "label": pay.reference or SOURCE_TYPE_LABELS.get(pay.source_type, pay.source_type),

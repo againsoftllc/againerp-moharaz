@@ -4,7 +4,7 @@
 >
 > Interactive version of the same report (filters by module, severity and status): [AgainERP Module Audit](https://claude.ai/artifact/San7qih1HBp2NjNAoDwYhw).
 
-**Last updated:** 28 Oct 2026 · **Latest commit covered:** `52900d9`
+**Last updated:** 28 Oct 2026 · **Latest commit covered:** `52900d9` (+ cheque treatment, supplier statement, RMA OnerERP parity, the Finance OnerERP menu and user access, not committed yet)
 
 ## 1. Scope and method
 
@@ -28,7 +28,41 @@ There are no open High findings.
 
 ## 3. Changelog
 
-### Masters from OnerERP roadmap §14 Phase 2
+### Not committed yet — Location (warehouse) access everywhere a member works (OnerERP §3 L4)
+- **Before:** a member limited to some warehouses (Settings → Users → warehouses) was held to them only when creating sales and purchase orders, quotations, and stock transfers, adjustments and counts. They could:
+  - open a POS session in any warehouse and search its stock;
+  - confirm, cancel, deliver or invoice another warehouse's sales order, and confirm, receive or return another warehouse's purchase order;
+  - take a sales return into another warehouse, and convert a quotation into another warehouse;
+  - see every warehouse's orders, receipts, returns, transfers, stock, movements, serials and inventory reports.
+- **Now** the same list governs all of it (403 "You do not have access to this warehouse"):
+  - **POS:** the till's warehouse list, terminals and sessions show only the member's warehouses. Opening a session (it starts at the member's default when none is named), product search / browse / scan / serials, adding to a cart, completing a sale and closing a session all check the warehouse.
+  - **Actions on existing documents:**
+    - Sales orders: edit, replace, delete, duplicate, Pathao booking, confirm, edit request and review, cancel, website status, invoice, public link, link invoice, deliveries (create and post), bulk delete and bulk status.
+    - Quotations: replace, delete, duplicate and status. *Convert* uses the asked warehouse, else the quotation's, else the member's default, and only one of theirs.
+    - Purchase orders: edit, delete, confirm, cancel, status and bulk delete. Goods receipts: create (by the PO's warehouse), post, cancel and line correction. Purchase returns: create (by the PO's warehouse and the named one), approve, reject, cancel and credit.
+    - Sales returns: create (by the order's warehouse, plus the named *Return to*), confirm, cancel and credit.
+  - **Lists and stock:**
+    - These show only the member's warehouses: sales orders, quotations (plus those with no warehouse yet), sales returns (by their order), purchase orders, goods receipts, purchase returns, stock transfers (out of or into theirs), adjustments, counts, stock levels, movements and serials (plus units no longer in a warehouse, so warranty look-ups still work).
+    - Asking for another warehouse's list or stock is refused.
+    - Inventory reports and reorder suggestions use the member's default warehouse when none is chosen, and refuse another.
+  - **Approval:** an approver replays a held call as themselves, so the maker's warehouses are now checked when the call is held: order confirm, invoice, link invoice, delivery post, sales return create / credit, goods receive, purchase return credit, quotation approve and bulk confirm. Before, only stock adjustments and transfers were checked there.
+  - **Web pickers:**
+    - The warehouse lists on Stock, Adjustments, Stock counts, Movements, Serials and the inventory reports show only the member's warehouses. The reports' "All warehouses" reads "My default warehouse" for them.
+    - The transfer drawer's *Source* is limited, and its *Destination* stays open.
+    - The order form's *Return to* is limited. POS gets its list from the server.
+- **Verified:**
+  - Unit tests: core (14, one new for lists and held calls), sales, inventory, POS, customer, RMA and finance all pass.
+  - Type check: no new errors (121). The API imports (269 routes).
+  - Tested live with the test user limited to Chittagong:
+    - Each of these was refused (403) on Dhaka documents: confirming, cancelling and bulk-cancelling SO-00001; a delivery on it; converting a quotation into Dhaka; a sales return on SO-00035; confirming and receiving a Dhaka PO; opening a POS session in Dhaka; POS product search in Dhaka; Dhaka stock; the Dhaka on-hand report.
+    - These now show only Chittagong: POS warehouses, purchase orders, receipts, stock, movements and serials (plus units outside any warehouse). Sales orders and sales returns came back empty, because all of them are in Dhaka.
+    - Transfers show only those out of or into Chittagong. Quotations show the ones with no warehouse.
+    - The on-hand report without a warehouse showed Chittagong.
+  - The test user is back to inactive with no limits, and SO-00001 is still a draft.
+  - The limited web pickers were not clicked through as that user; they were checked by the type check only.
+- **Not covered:** opening a single document by its id (to view it) is not limited. The Sales and Purchase dashboards, the sales reports and the finance side (receivables and payables by location) still show every warehouse. An approver limited to other warehouses than the maker's gets a 403 when approving.
+
+### `d44409d` — Masters from OnerERP roadmap §14 Phase 2
 New features, not audit fixes. Parts done so far are listed below; details in §4.7.
 
 **Part A: customer credit control** (spec §15.2, §15.11)
@@ -141,6 +175,161 @@ New features, not audit fixes. Parts done so far are listed below; details in §
   - RMA picking parts from the spare list.
   - The govt duty table behind the HS code.
 
+### Not committed yet — User access brought up to OnerERP §3 (sign-in security, user-wise permission, accounts and warehouses)
+New features, not audit fixes, so the counts in §2 don't change. Details are in §4.6. *What* came from the spec's 7 access levels. *How* builds on AgainERP's own roles and the user's uncommitted Users / Roles rework: the auth routers, `services/rbac.py`, the user drawer and the module-settings store.
+
+**Phase 1: sign-in security** (spec §3.1, §2.2)
+- **Wrong-password lock:** 5 wrong passwords in a row lock the account for 15 minutes (423). An admin can lift the lock early (user drawer → Security → *Unlock*). Failed and locked attempts are written to the member's Activity.
+- **Change your own password:** user menu → **Account security** (`/my-account/security`). It needs the current password and a new one of at least 8 characters with a letter and a digit, different from the current one. Every other session of the member ends.
+- **Forced change and expiry:**
+  - The user drawer has *Ask for a new password at the next sign-in*. It is on by default for a new member.
+  - The company can set a password expiry in days (default off).
+  - While a change is due, the admin app shows only a *Set a new password* screen. The API refuses every other call (403) except `/auth/me`, `/auth/change-password` and `/auth/logout`.
+- **Sessions:** each session keeps its IP and device. The user drawer's new **Security** tab shows last sign-in, password age and expiry, the lock, and the signed-in devices, with *Sign out everywhere*. Account security lists your own devices, with *Sign out other devices*.
+- **Settings:** Workspace → Users → **Security** (`/workspace/security`, module setting `security`, needs workspace rights). It holds lock after N tries (0 = off), lock minutes, and password expiry days.
+
+**Phase 2: who may do what, and where** (spec §3.2–3.5)
+- **Company modules on the server (L1):**
+  - A module the company does not have now gives nobody any permission, so its API refuses everyone. Before, it was only hidden in the menu.
+  - Workspace and Dashboard always stay. The RMA special permissions follow RMA.
+- **Own permissions per member (L3):** user drawer → Access Rights → **Own permissions**.
+  - It is a module × action grid that starts from the roles (✓). A click gives a permission to this member only (+), the next click takes it away (−), and the next goes back to the roles.
+  - It does not apply to a System Manager, and you cannot change your own.
+  - Modules the company lacks are greyed out.
+- **Cash / bank accounts per member (L5):** user drawer → Access Rights → **Cash / bank accounts**.
+  - A limited member sees only the ticked accounts.
+  - Money can only move through those accounts in Collection (the customer ledger), Payment (the supplier ledger), invoice and bill settle, vouchers, account transfers and expense pay.
+  - When a member names no account, their first allowed account is used, not the company default.
+- **Warehouses (L4):** the existing per-member list now also guards stock transfers (create / edit / ship / cancel on the *from* side, receive on the *to* side), stock adjustments and stock counts. It used to guard only sales and purchase orders.
+- **Approvals keep the maker's limits:**
+  - A call held for approval is replayed later as the approver. So the approval gate now checks the maker's own cash / bank and warehouse limits before it holds the call (`access_scope.scope_held_call`).
+  - When the maker named no account, it stores the maker's account in the held call.
+  - Found live: a limited member's transfer from a forbidden account was held for approval, which would then have run it as the approver.
+
+**Verified**
+- 13 new unit tests (`services/core/test_auth_security.py`, `test_access_scope.py`) pass. The finance (112) and RMA (175) tests still pass.
+- Type check: no new errors (121).
+- Tested live on the rebuilt containers (`127.0.0.1:3270`), API calls from the page with a test user `qa.security` (Staff):
+  - Forced change: 403 before, a weak password refused (400), and after the change every call works.
+  - 3 wrong passwords (lockout set to 3 for the test) gave 401, 401, 423. The right password was refused while locked. Unlock let the member in.
+  - *Sign out everywhere* ended the member's token (401).
+  - Own permissions: a deny on finance read turned vouchers into 403. A + on Finance → Approve set from the drawer was saved.
+  - Limited to Bank: the member saw only Bank. A voucher from Cash was refused (403), and so was a transfer from Cash, now before it can be held. A collection with no account was held with Bank in its body.
+  - Limited to one warehouse: a stock count elsewhere was refused (403).
+  - The Security settings page, the drawer's Security tab and Account security load.
+- **Not checked live:**
+  - The module gate. Changing the company's modules needs the super admin, so it is checked only by unit test.
+  - The *Set a new password* screen in the browser, which would have meant signing the admin out. The API side of it was checked.
+- `docs/OnerERP-RnD-Spec.md` §19.3 now records what of spec §3 is built, and §3 points to it.
+- Clean-up: `qa.security` was left **inactive**, with no limits. The lockout went back to 5. The two test approval requests were cancelled by the sender.
+
+### Not committed yet — Finance brought up to OnerERP's Accounts & Finance menu (spec §7.5, §8, §15.9, §16.4–16.5)
+New features plus one bug fix. The bug was not an audit finding, so the counts in §2 don't change. Details are in §4.5. The spec only decided *what* was missing. *How* uses AgainERP's own finance services, routers and schemas, `FinanceAgListGrid`, the common drawer and `lib/api/*`.
+
+How each item of Oner's menu maps now:
+
+| OnerERP menu | AgainERP |
+|---|---|
+| Collection | Finance → Payments → **Collection** |
+| Payment | Finance → Payments → **Payment** |
+| Party Transaction Settlement | Payments → **Party transaction settlement** |
+| Payment Settlement | Payments → **Payment settlement** |
+| Invoice Wise Pending Collection | Receivables, with the new **Settled by** column |
+| Cheque Treatment | Already built (see the cheque entry below) |
+| Debit / Payment, Credit / Receive, Contra, Journal | Finance → **Vouchers** |
+| Voucher From Template | Vouchers → **Voucher from template** and **Voucher templates** |
+
+- **Bug fixed: customer and supplier ledger payments never reached the GL.** *Receive payment* / *Record payment* on a customer or supplier (source `customer_payment` / `supplier_payment`) updated the party ledger and the invoices, but posted no journal. So Cash / Bank, AR 1100 and AP 2100 were wrong by every such payment. Only the write-off part used to post.
+  - They now post Dr cash/bank / Cr 1100 (customer) or Dr 2100 / Cr cash/bank (supplier) through `FinanceService.post_ledger_payment_journal`.
+  - Deleting a supplier payment posts a mirror entry (`supplier_payment_reversal`).
+  - A startup backfill (`backfill_ledger_payment_journals`) posts the old ones. Locally it posted 3 (PAY-CUS-00001, -00002, PAY-SUP-00003).
+  - Choosing *Cheque* in a customer's payment drawer or Payments tab now opens the cheque register (as the supplier drawer already did). Before, it booked the money as received at once.
+- **Collection / Payment in Finance:** Payments has **Collection** and **Payment** buttons. You pick the customer or supplier (server search), and the same Record payment drawer the party's Ledger tab uses opens. It applies to the chosen invoices first, then oldest first, with advance, write-off and cheque.
+- **Vouchers** (`/finance/vouchers`, menu *Vouchers*):
+  - Four types: **Debit / Payment** (any heads Dr, the cash/bank account Cr), **Credit / Receive**, **Contra** (cash ↔ bank, bank ↔ bank) and **Journal** (any heads, debits = credits). Numbers are DV-/CV-/CON-/JV-YYYY-nnnnn.
+  - Each voucher goes Draft → **Approve** → **Cancel**:
+    - Draft: edit, delete.
+    - Approve: posts one journal through `_post_journal` (period lock applies) plus the cash/bank payment rows that balances come from. It uses the approval-limit check `finance.voucher`.
+    - Cancel: needs a reason and posts the mirror entry and mirror payments. Nothing posted is edited or deleted.
+  - Lines may not use cash/bank heads (the account field moves those), AR/AP control or the cheque heads.
+- **Voucher templates** (`/finance/voucher-templates`): a voucher kept for re-use, with amounts optional. You can start from one in three places: *New → From template*, *Voucher from template*, or *New voucher from this*. Any voucher can be kept with *Save as template*.
+- **Bill-wise settlement** (`/finance/settlements`, Oner's Party Transaction / Payment Settlement):
+  - Pick a customer or supplier, then take money that already settled one invoice or bill and put it on another. *Spread oldest first* fills the put-on side.
+  - Both sides must be equal, so the party's due and AR/AP do not change and no journal is posted.
+  - A sales order's own paid / due / history follows its invoice.
+  - A supplier's settlements are put back after a payment delete re-matches the bills.
+- **Spec status:** `docs/OnerERP-RnD-Spec.md` has a new **§19**, which says what of the spec is built in AgainERP. It covers the Accounts & Finance menu mapping, how each piece differs from Oner, and what is still missing. §11, §15.9 and §16.5 point to it.
+- **Settled by** on Receivables and Payables (also in each settlement row): the payments, settlements, cheques and order payments that settled each document. Money matched before this record existed shows as *Advance / earlier receipt*.
+- Verified:
+  - 112 finance unit tests pass (20 new: `test_ledger_payment_posting.py`, `test_vouchers.py`, `test_settlements.py`). The 175 RMA tests pass too: `rma/test_settlement_flow.py` only needed the new `finance_allocations` table in its in-memory table list. All of them need `app.models.*` imported first (PLT-04).
+  - Type check: no new errors (121 before, 121 after).
+  - Tested live on the rebuilt containers (`127.0.0.1:3270`). One rebuild hit the DNS failure and left the old images running; it was rebuilt again and both images were confirmed *Built*.
+  - The backfill posted the 3 old ledger payments, and the Payments list now shows their account.
+  - *Collection* → A K Azad → ৳10 cash gave PAY-CUS-00004 with JE-00091 (Dr 1000 / Cr 1100). *Payment* lists suppliers.
+  - Vouchers:
+    - DV-2026-00001 (6120 Rent ৳25 from Cash) was approved as JE-00092 with payment PAY-00039. Cancelling it posted JE-00093 and the mirror PAY-00040.
+    - A journal line on 1100 was refused (400).
+    - Template "QA Monthly rent" fills a new voucher from *Voucher from template*.
+  - Settlement:
+    - Riyad CEO: STL-2026-00001 took ৳10 off invoice 0012 and *Spread oldest first* put it on 0007. Both invoices and both sales orders' paid / due moved by ৳10, and no journal was posted.
+    - Receivables shows *Settled by* (STL-…, PAY-…, Advance / earlier receipt).
+    - Taking money off an unpaid invoice was refused (400).
+    - STL-2026-00002 put it back.
+  - Left in the local database: PAY-CUS-00004 (A K Azad's ৳10 advance), cancelled DV-2026-00001, template "QA Monthly rent", and STL-2026-00001/00002, which cancel each other out.
+
+### Not committed yet — RMA brought up to OnerERP (spec §7.4, §8, §12, §15.2, §18.8)
+New features, not audit fixes, so the counts in §2 don't change. Details are in §4.4 and `docs/RMA.md` B.12. The spec only decided *what* was missing; *how* uses the RMA module's own services, routers and schemas, `FinanceAgListGrid`, the common drawers and `lib/api/rma.ts`. The RMA already had the whole Complain → Claim → Receive → Delivery flow with approvals; six gaps were built:
+- **Customer RMA lock** (Oner `IsRMALocked`): Customer drawer › Profile › Accounting › *RMA: Open / Locked* + reason. A locked customer's complaint is refused on create, send for approval and approve (400, with the reason); the New RMA drawer shows the lock and won't save. The change is logged on the customer's timeline.
+- **Sale type** (Oner Against System / Previous / Unknown Sales): *Claim without an invoice* now asks *Previous sale* (old invoice no. + sale date, which measure the warranty) or *Unknown sale* (warranty stays Unverified). A sale this ERP knows always wins. Complaints from before this change with no sale behind them were set to *Unknown*.
+- **Generate Serial** (Oner `GenerateProductSerial(8)` with Bulk Qty): *Generate* next to the serial field gives an unused 8-character serial; without an invoice, *Units* = N gives N serials and opens one claim per unit. Never added to the inventory serial registry; refused for a serial-tracked product.
+- **Warranty days left** on the RMA header, the Warranty section and the Complain register.
+- **Discount on a charge** line (spare / service): the line total, the RMA total and the bill use the net amount.
+- **RMA reports** (Oner Reports › RMA): `/inventory/rma/reports` now has the Complain Receive, Replacement Claim, Replacement Receive and Customer Delivery registers, each with an Analysis (grouped by product, customer, supplier, problem, warranty, sale type, engineer, type or status). Date range, status, search, CSV; a document no. opens the RMA drawer. The old count overview is kept as the *Summary* report.
+- Not built on purpose: one supplier claim carrying several complaints, separate RMA ledger heads (the spec marks Oner's RMA auto vouchers as unverified), service-warranty days (no product field) and a serial history timeline (inventory-wide).
+- Verified:
+  - 175 RMA unit tests pass, 17 of them new (`test_oner_parity.py`); they need all `app.models.*` imported first (PLT-04). Building them caught a bug: the generated-serial check found the claim's own serial and refused it.
+  - Type check: no new errors (121 before, 121 after).
+  - Tested live on the rebuilt containers (`localhost:3270`):
+    - A *Previous sale* claim for a non-serial watch, sold 20 Jul 2026, with *Units* 2 and *Generate 2*, opened RMA-2026-0015 and -0016. Each got its own serial and was approved into the RMA Store; the header shows "In warranty · 265 days left", and the Unit section shows "generated by the RMA".
+    - A ৳150 × 2 charge with a ৳50 discount gave a ৳250 line and total; a discount above the line was refused (400).
+    - Customer AFTAB was locked from the customer drawer. The New RMA drawer showed the lock and kept Save disabled; a direct API create got 400, and no ticket was made.
+    - All four registers and their analyses load, and a row opens the RMA drawer.
+  - Clean-up: AFTAB was unlocked, and both test RMAs were cancelled, so their intake stock was reversed through the ledger.
+
+### Not committed yet — cheque treatment and supplier statement (OnerERP spec §11, §15.6)
+New features, not audit fixes, so the counts in §2 don't change. Details are in §4.3. The spec only decided *what* to build; *how* follows AgainERP's own pieces: the finance cheque service and routers, the supplier ledger service, `FinanceAgListGrid`, the common drawer (`docs/common/drawercommon.md`) and the shared account statement.
+- **Dishonoured cheques can be presented again or closed** (OnerERP D → S and D → B). *Present again* posts the cheque back (received: Dr 1160 / Cr 1100; issued: Dr 2100 / Cr 2150), books a fresh party-ledger payment and pays the invoice or bill again as far as it is still open. *Close* posts nothing: the amount stays owed. A bounce penalty now adds up across bounces instead of being overwritten.
+- **Bulk Cheque Treatment** (§11.4): Payments → Cheques now has tick boxes (the expense list's pattern, now built into `FinanceAgListGrid` through the `selection` prop). Ticking cheques shows a bulk bar with *Treat selected*, which opens the **Cheque treatment** drawer. It is a common drawer: actions on top, resizable, and it keeps a draft. You pick one status move (only moves that every selected cheque allows), a date and the sending bank. `POST /finance/cheques/bulk-actions` runs each cheque in its own savepoint and reports the result per cheque. An issued cheque from a cheque book clears into that book's bank when no bank is given.
+- **Cheque list**: server filters for bank account, cheque-date range and number search. New *Invoice / Bill*, *Bank account*, *Last treated* and *Dishonours* columns, and a bank-account filter.
+- **Cheque Reports** (§11.8) at `/finance/reports/cheque-register`, a `FinanceAgListGrid` with the page name, the ⚙ settings menu and a *Report* picker in the filter bar: Status-wise, Cheque in Hand, Advance Cheque Issued, Bounce Analysis, Party Performance and History. Every view can show the position on any past date (*As on*), and the date range can use cheque, payment or treatment date. *In Hand* and *Advance Issued* reconcile the register to GL 1150/1160 and 2150, which is the spec's verification rule.
+- **Supplier Statement** (§15.6) at `/finance/reports/supplier-statement`, and a *Statement* button on the supplier ledger panel.
+  - The data comes from `GET /commerce/suppliers/{id}/statement`, a new `statement()` in the existing supplier ledger service.
+  - It shows a server-side opening balance (the master opening plus everything before the period) and Oner's columns: Date · Transaction Type · Particular · Transaction No. · Dr · Cr · Balance (Cr/Dr), followed by a Total row. Below that come a Transaction Summary and the Credit Limit Summary (net outstanding, unreceived open POs, both together, credit limit, available credit, credit days).
+  - It is drawn by the shared account statement (`LedgerStatementDocument`, which gets a new optional `layout: "ledger"`), so the Export menu gives Excel and the Print / PDF overlay with the share link, email and WhatsApp, the same as every other ledger. On screen, each transaction number opens its journal entry.
+- **Bug fixed along the way:** fixing a cheque's number or bank (*Edit details*) left its party-ledger payment on the old number. Cheque 1005 still showed "Cheque 123" on the HomeNest ledger. Now the payment and reversal rows are renamed together with the cheque. That old row was left as it is, and the statement reads the number from the cheque, so it shows 1005.
+- Verified: the new and existing cheque unit tests pass (`test_cheque_treatment.py`, `test_cheque_service.py`). Like PLT-04, they only run with all models imported first. Type check: no new errors (121 before, 121 after). Tested live on the rebuilt containers (`localhost:3270`):
+  - Bulk deposit of 2 cheques worked. A mixed selection offered only the move every cheque allows.
+  - Dishonour → *Present again* → dishonour → *Present again* → honour on one cheque gave 7 separate journal entries.
+  - An issued cheque was dishonoured with a ৳25 bank charge, then closed.
+  - Every Cheque Reports view loads, and the GL check matches today and on a back-dated As-on.
+  - The HomeNest statement's closing balance (৳1,000 Dr) equals the drawer ledger's advance. The transaction-number link opens the journal entry. The supplier Ledger tab shows *Statement*.
+  - Test cheques `QA-R1…R3` and `QA-I1` are left in the local database, ending honoured or cancelled. Excel/CSV downloads were not clicked in the live app.
+  - After the move onto AgainERP's own pieces, rebuilt and checked live again:
+    - The supplier statement is drawn by the shared account statement. The Export → PDF / Print overlay (with share link) shows the ledger layout, and HomeNest still closes at ৳1,000 Dr.
+    - Cheques have AG Grid tick boxes only on cheques that can still move, plus the bulk bar ("1 selected · ৳150 · Treat selected").
+    - The Cheque treatment drawer has Apply / Cancel on top. Deposit worked, then Done. The ticks clear and the list reloads.
+    - Cheque reports has the page name, the ⚙ menu and the Report picker.
+    - Test cheque `QA-R4` was added and ends cancelled.
+- **Credit Limit Summary follows OnerERP's own** (as the user asked from Oner's printed supplier ledger):
+  - The order is: Ledger Balance → Adv. Cheque Issued (Not Treated, Presented, Dishonored) → Net Outstanding → Unsettled Order Balance → Net Outstanding (Considering Unsettled Order Value) → Credit Allowed Days. AgainERP's own Credit Limit and Available Credit rows stay.
+  - Oner's rule, read from its printout: Net Outstanding = Ledger Balance − Adv. Cheque Issued. A cheque counts as paid on the ledger from the day it is written, so the cheques the bank hasn't paid yet are still owed.
+  - The one difference: in Oner a dishonoured cheque stays inside Adv. Cheque Issued. In AgainERP a bounce already puts the amount back on the ledger, so *Dishonored* is shown but not deducted again.
+  - The statement also lists **Cheques not honoured yet** (number, date, bank, status, since, bill, amount), using each cheque's status on the statement's last day.
+  - The supplier's own Ledger tab shows the same summary in a *Supplier credit limit summary* strip. The statement exported from that tab (PDF / Print, Excel) carries the summary and the cheque list too.
+  - Checked live on HomeNest with one not-treated cheque of ৳400: Ledger ৳1,400 Dr − ৳400 = Net ৳1,000 Dr. The test cheque `QA-I2` was then cancelled.
+- **Treatment dates keep their order:** a treatment can't be dated before the cheque's last one (400). When no date is sent, it takes the last treatment's date if that is later than today. Found live: a cancel dated by the server's UTC day landed before a deposit dated by the company's day, so the as-on report showed a cancelled cheque as deposited. The one test cheque it affected (`QA-R4`) was corrected.
+- Verified again: 68 finance tests pass, and the type check shows no new errors (121).
+
 ### `52900d9` — vendor API role check; Website settings made real
 - **PLT-01** `rbac_guard.py` maps `vendors/` → `purchase`. Every write to `/api/v1/vendors/*` now needs purchase permission. Verified: the seed `viewer` user gets 403 on create/delete; admin passes; reads unchanged.
 - **OTH-01** Website → Settings (catalog) saves per company (`module-settings/catalog`). Kept only settings that are enforced (see §4.1); removed ~22 toggles with no feature behind them; the page links to where reviews on/off, SEO defaults and category-page options live. Verified live: publish rules, SKU rules and Q&A toggle via the API; save + reload in the UI. All settings were returned to defaults afterwards.
@@ -176,6 +365,119 @@ New features, not audit fixes. Parts done so far are listed below; details in §
 - **Platform settings** are global (no `company_id`); see PLT-02 before a second company signs up.
 - **List export**: `lib/list-io/grid-table.ts` (`gridToTable`) + `lib/list-io/export-list.ts` (`exportListTable`); server-paged lists export the page on screen.
 - **AI billing (super admin)**: `/api/v1/super-admin/companies/{id}/ai-billing` (get, record-payment, package).
+
+### 4.3 Cheques and supplier statement
+- **Status mapping to OnerERP:** N = `received` / `issued`, S = `deposited` / `presented`, H = `cleared`, D = `bounced`, B = `cancelled`. From `bounced`, the actions are `represent` (received → `deposited`, issued → `presented`) and `close` (→ `cancelled`, posts nothing). `cheque_service.TRANSITIONS` / `ISSUED_TRANSITIONS`.
+- **Posting cycles:** journal entries are unique per `(source_type, source_id)`, and `_post_journal` returns an existing entry instead of posting again. So after a re-presentation, every posting of the cheque uses the `represent` event's id as `source_id` (`ChequeService._cycle_key`). The cheque drawer lists the postings of every cycle (`journal_entry_ids`). New source type `cheque_represent`.
+- **Bulk treatment:** `ChequeService.apply_bulk`, at most 200 cheques per call. Each cheque runs in its own savepoint, so a failure does not undo the others.
+- **Reports:** `app/services/finance/cheque_report_service.py` (`GET /finance/reports/cheque-register?view=…&as_of=…`, `FinanceReportResponse`). A cheque's status on a date is the `to_status` of its last event dated on or before that day. UI: `components/finance/cheque-register-report.tsx`.
+- **Supplier statement:**
+  - Backend: `supplier_ledger_service.statement()` serves `GET /commerce/suppliers/{id}/statement` (purchase read). Its schemas are in `schemas/supplier/ledger.py`. It reads the same bills and payments as `ledger()`, without void bills.
+  - Frontend: `fetchSupplierStatement` (`lib/api/supplier-ledger.ts`) → `ledgerStatementFromSupplier` (`lib/finance/ledger-statement.ts`) → `LedgerStatementDocument` with `layout: "ledger"`, plus `LedgerExportMenu`. The page is `components/finance/supplier-statement-report.tsx`.
+  - The ledger layout adds optional fields to `LedgerStatement`: opening, Dr/Cr per line, `positiveSide`, credit and transaction summaries, `pendingCheques`. Either layout prints the credit summary and the cheque list when they are present; nothing else changes in the account layout.
+  - Credit summary (`SupplierCreditSummary`): `ledger_balance`, `adv_cheque_issued` (= `not_treated` + `presented`), `dishonoured` (shown, not deducted), `net_outstanding` = ledger + adv, then the open-order lines. All of it is Cr-positive.
+  - `pending_cheques` comes from `_pending_cheques()`, which reads the status as of `date_to` with `cheque_report_service.status_as_of`.
+  - The supplier Ledger tab (`partner-ledger-panel.tsx`) fetches the statement for today only to show this summary.
+- **Tick-box lists:** `FinanceAgListGrid` takes `selection` (`isRowSelectable`, `onChange`), a `banner` for the bulk bar, and `clearSelection()` on its handle.
+- **Not built on purpose:** Oner's "Against Bounced Cheque" payment mode (here a bounce already reopens the bill, so a normal payment settles it), Oner's auto-honour posting (AgainERP keeps its own cheque accounts 1150/1160/2150), and the Local/Foreign supplier-type filter (suppliers have no type field yet).
+
+### 4.4 RMA: OnerERP parity
+- **Customer lock:** `commerce_customers.rma_locked` + `rma_lock_reason` (customer PATCH, `customers:write`). `complaint_service.assert_customer_not_rma_locked` runs in `create_ticket`, `submit_for_approval` and `decide(approved)`; reject still works. `GET /rma/customer-lock?customer_id=` feeds the New RMA drawer.
+- **Sale type:** `rma_tickets.sale_source` (`system` · `previous` · `unknown`) and `previous_invoice_no`. `system` whenever an order or a sold serial is found; `previous` needs a past sale date, which becomes `purchased_at` and is evaluated with the product's warranty text (`warranty_source = previous_sale`).
+- **Generated serials:** `POST /rma/serials/generate {count ≤ 100}` (`complaint_service.generate_serials`): 8 characters from an alphabet without 0/O/1/I/L, unused by `inventory_serials` and by any RMA's serial or received serial. `rma_tickets.serial_generated`; `check_generated_serial` refuses a serial-tracked product and a serial already in use.
+- **Discount:** `rma_charges.discount`; `add_charge` keeps `line_total = qty × price − discount` (0 ≤ discount ≤ gross), so `_recalculate`, the bill and the delivery copy use the net amount.
+- **Warranty days left:** `RmaTicket.warranty_days_left` (derived from `warranty_expires_on`; negative = expired).
+- **Registers:** `services/rma/register_service.py` (`register`, `analysis`; read-only over tickets, claims, receipts and deliveries). Endpoints `GET /rma/registers/{complain|claim|receive|delivery}` and `…/analysis?group_by=` (RMA read), schemas in `schemas/rma/register.py`. UI `components/rma/rma-register-report.tsx` on `FinanceAgListGrid`, mounted by `app/(admin)/inventory/rma/reports/page.tsx`.
+- Schema changes are additive, in `services/rma/schema.py::ensure_rma_columns` (the module's own pattern).
+
+### 4.5 Finance: Collection, Payment, Vouchers, Settlement (OnerERP Accounts & Finance)
+- **Party ledger payments post to the GL:**
+  - `FinanceService.post_ledger_payment_journal(payment, counter_code, description)` posts one entry keyed on `(source_type, payment.id)` and fills `payment.journal_entry_id`. When the payment names no account, it picks one from the payment method.
+  - It is called from `customer_ledger_service.record_payment` (1100) and `supplier_ledger_service.record_payment` (2100). Write-off payments now keep their journal id as well.
+  - `FinanceService.reverse_journal_entry` posts a mirror entry. Deleting a supplier payment uses it (`supplier_payment_reversal`).
+  - `backfill_ledger_payment_journals()` runs at startup in `main.py`. It is idempotent and logs a payment it cannot post (for example in a closed period) instead of failing.
+- **Collection / Payment UI:** `components/finance/party-payment-launcher.tsx` (party search through `searchTradingParties` in `lib/api/party-search.ts`) opens `CustomerRecordPaymentDrawer` or the supplier `RecordPaymentDrawer`. Cheque in the customer drawers opens `ChequeFormDrawer` (`direction: "received"`).
+- **Vouchers:**
+  - Data: `models/finance_voucher.py` (`finance_vouchers`, `finance_voucher_lines`, `finance_voucher_templates`, `finance_voucher_template_lines`).
+  - Logic: `services/finance/voucher_service.py`.
+  - API: `routers/finance_vouchers.py`, with routes `/finance/vouchers` (+ `/approve`, `/cancel`) and `/finance/voucher-templates`.
+  - Schemas: `schemas/finance_voucher.py`.
+  - Numbers: sequences `finance.voucher.{debit,credit,contra,journal}`.
+  - Posting:
+
+    | Voucher | Journal | Cash / bank rows |
+    |---|---|---|
+    | Debit | each line Dr, the account's GL Cr | one outbound payment |
+    | Credit | the account's GL Dr, each line Cr | one inbound payment |
+    | Contra | Dr the to-account GL, Cr the from-account GL | two transfer payments |
+    | Journal | the lines as entered | none |
+
+    The source type is `voucher`, and a cancel posts `voucher_reversal` with mirror payments.
+  - Lines may not use: any payment account's GL, 1100, 2100, 1150, 1160 or 2150.
+  - Permissions: finance read / create / write / delete. Approve also runs `assert_can_approve(…, "finance.voucher")`. `finance.voucher` is not in `APPROVAL_DOCUMENTS` yet, so no approval limit can be set for it.
+  - UI:
+    - Page and list: `app/(admin)/finance/vouchers/page.tsx` (`?type=`, `?from=template`) and `voucher-grid.tsx`.
+    - Drawer: `voucher-drawer.tsx`, a common drawer with drafts.
+    - Shared header and lines editor: `voucher-form.tsx`.
+    - Templates: `voucher-template-drawer.tsx`, `voucher-template-grid.tsx` and `app/(admin)/finance/voucher-templates/page.tsx`.
+    - API client: `lib/api/finance-vouchers.ts`.
+- **Settlement and "Settled by":**
+  - Data: `models/finance_settlement.py`. `finance_settlements` holds the header. `finance_allocations` records which money settled which document: +settled / −released, from `payment` or `settlement`.
+  - Allocations are written by:
+    - the customer and supplier `record_payment` (the change in `amount_paid` per document)
+    - `FinanceService.settle_receivable` / `settle_payable` (`_log_settle`)
+    - `SettlementService.create`
+  - `settled_by()` adds cheques linked by `receivable_id` / `payable_id` (not bounced or cancelled) and `sales_order_payment` rows by order number. Whatever paid amount is still unexplained shows as *Advance / earlier receipt*.
+  - Rules: `plan_moves` (take off ≤ paid, put on ≤ due, both sides equal).
+  - Side effects:
+    - A customer move also updates the sales order's payment block, with history kind `settlement` and a `ledger_` id, so `sync_order_payments` skips it.
+    - `supplier_ledger_service._rebuild_bill_allocations` re-applies the supplier's settlements (`replay_supplier_settlements`).
+  - API: `routers/finance_settlements.py`: `GET /finance/settlements`, `GET /documents`, `POST /settled-by` (read-only), `GET /{id}` and `POST`.
+  - UI:
+    - Page and list: `app/(admin)/finance/settlements/page.tsx` (`?party=`) and `settlement-grid.tsx`.
+    - Drawer: `settlement-drawer.tsx`.
+    - API client: `lib/api/finance-settlements.ts`.
+    - The *Settled by* column on `receivable-grid.tsx` / `payable-grid.tsx` uses the optional `settledBy` prop.
+- **Not built on purpose:**
+  - Oner's multi-mode split in one collection (one receipt per mode instead).
+  - Eventual contra through a transit head.
+  - Cheque issue from a Debit voucher (use Payment → Cheque).
+  - Posting / Accounts Closing (AgainERP posts on approve and locks periods in Fiscal periods).
+  - Drafts in the settlement drawer: it reloads the party's documents, so a half-done settlement is not kept.
+  - Documents settled before `finance_allocations` existed are only explained through cheques and order payments; anything else shows as *Advance / earlier receipt*.
+
+### 4.6 User access: sign-in security and access beyond roles
+- **Sign-in security:** `services/core/auth_security.py`.
+  - Columns are added by `ensure_auth_security_columns()`, which runs right after `create_all` in `main.py`, before anything reads `auth_users`:
+    - `auth_users`: `must_change_password`, `password_changed_at`, `last_login_at`, `failed_login_count`, `locked_until`
+    - `auth_sessions`: `ip`, `user_agent`
+  - The rules are module setting `security`: `lockoutAttempts` (5, 0 = off), `lockoutMinutes` (15) and `passwordExpiryDays` (0 = off). They are edited at `/workspace/security`.
+  - The password-change gate is `deps.auth._check_password_change`, called from `get_current_user` with the request path.
+  - The admin app shows the change screen from `AdminAuthGate` when `user.password_change_due`.
+  - Routes:
+    - `POST /auth/change-password`, `GET /auth/sessions`, `POST /auth/sessions/sign-out-others`
+    - `POST /auth/users/{id}/unlock`, `GET|DELETE /auth/users/{id}/sessions` (System Manager)
+- **Access beyond roles:** `services/core/access_scope.py`, with tables in `models/auth_user_access.py` (`auth_user_permissions`, `auth_user_payment_accounts`).
+  - `rbac.user_permissions` now runs in three steps: the roles (`_role_permissions`), then the member's overrides (skipped for a System Manager), then `restrict_to_company_modules`. So `has_permission`, `require_permission`, the RBAC guard and the permission map sent to the app all follow it.
+  - The user API reads and writes `permission_overrides` (replace-all) and `payment_account_ids` (empty = all). `GET /auth/users/{id}/permissions` feeds the drawer's grid.
+  - Cash / bank access:
+    - `pick_payment_account` is used where a member may name an account or leave it out: invoice and bill settle, expense pay, and customer and supplier ledger payments.
+    - `assert_payment_account` is used where accounts are always named: transfers, voucher create / update / approve, and expense pay with the expense's own account.
+    - The payment-account list is filtered.
+  - Warehouses: `assert_warehouse_access` / `assert_document_warehouse` on stock transfers, adjustments and counts.
+  - Warehouses everywhere (L4): `warehouse_scope(db, user)` (None = no limit) feeds a `warehouse_ids` filter in the sales, purchase and inventory list services. `assert_document_warehouse` / `assert_documents_warehouse` guard actions on existing documents in `routers/sales.py`, `sales_returns.py`, `purchase_orders.py`, `purchase_receipts.py`, `purchase_returns.py` and `pos.py`. `resolve_user_warehouse` picks the default for POS sessions, quotation convert and inventory reports. `_HELD_DOCUMENT_ACTIONS` in `access_scope.py` checks held calls on one document. Web: `useWarehouseAccess().pickable` on the inventory pages, the transfer source and the order form's *Return to*.
+  - Held calls: `middleware/approval_gate.py` calls `scope_held_call` before `hold_call`. It answers 403 itself, and it may rewrite the stored body to carry the maker's account.
+- **UI:**
+  - Pages: `/my-account/security` (`/account` is a legacy storefront redirect, so it is not used) and `/workspace/security` (a tab of Users).
+  - Components: `components/auth/change-password-form.tsx`, `session-list.tsx`, `user-security-tab.tsx` and `user-permission-overrides.tsx`.
+  - The user drawer gained the *ask for a new password* tick, the Security tab, and the two Access Rights sections.
+- **Not built:**
+  - Login time windows (spec §3.7, Phase 3).
+  - Re-entering the password on approve (§3.8).
+  - Oner's separate Level and page-wise menu codes (AgainERP is module-wise by design).
+  - Report-only warehouse access: reads are not limited by warehouse, only stock movements.
+  - Cash / bank limits on the cheque register, the POS and a sales order's Payment tab.
+  - Moving the token out of localStorage.
 
 ### 4.7 Masters (OnerERP roadmap §14 Phase 2)
 - **Customer credit control:** `services/customer/credit_control.py`.
@@ -308,4 +610,4 @@ New features, not audit fixes. Parts done so far are listed below; details in §
 | FIN-01 | High | `/finance/settings` | Finance settings are saved only in the browser and have no effect | `9da1604` |
 | PLT-01 | High | `/api/v1/vendors/*` | Any logged-in user can change vendors, vendor portal users and price lists | `52900d9` |
 | OTH-01 | High | `/website/settings` | Website catalog settings: Save stores nothing | `52900d9` |
-| INV-08 | Medium | `/inventory/warehouses · catalog quick-add` | Custom warehouse types and unit types are kept only in the browser | Masters (Part C) |
+| INV-08 | Medium | `/inventory/warehouses · catalog quick-add` | Custom warehouse types and unit types are kept only in the browser | `d44409d` |

@@ -15,13 +15,15 @@ from sqlalchemy.orm import Session
 from app.models.company_module_setting import CompanyModuleSetting
 
 MODULE_IDS: frozenset[str] = frozenset(
-    {"dashboard", "inventory", "rma", "service", "vendors", "finance", "crm", "media", "catalog"}
+    {"dashboard", "inventory", "rma", "service", "vendors", "finance", "crm", "media", "catalog", "security"}
 )
 
 # Keys read by backend code, with the value used until the company saves the page.
 BACKEND_DEFAULTS: dict[str, dict[str, Any]] = {
     "finance": {"requirePaymentAccount": False},
     "media": {"maxUploadMb": 25},
+    # Workspace → Users → Security (services/core/auth_security.py)
+    "security": {"lockoutAttempts": 5, "lockoutMinutes": 15, "passwordExpiryDays": 0},
     # Website → Settings (catalog). Defaults keep the behaviour from before the page saved anything.
     "catalog": {
         "auto_generate_sku": True,

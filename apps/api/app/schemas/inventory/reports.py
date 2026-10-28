@@ -109,6 +109,7 @@ class MovementSummaryLine(BaseModel):
     effect: str
     sku: Optional[str] = None
     name: Optional[str] = None
+    thumbnail: Optional[str] = None
     warehouse_name: Optional[str] = None
     quantity: int
     qty_before: int
@@ -229,7 +230,13 @@ class ProductReportRow(BaseModel):
     on_hand: int = 0
     reserved: int = 0
     available: int = 0
+    incoming: int = 0
+    unit_cost: Decimal = Decimal("0")
     stock_value: Decimal = Decimal("0")
+    status: str = "out_of_stock"
+    warehouse_name: Optional[str] = None
+    thumbnail: Optional[str] = None
+    updated_at: Optional[datetime] = None
     purchased_qty: int = 0
     purchased_value: Decimal = Decimal("0")
     sold_qty: int = 0

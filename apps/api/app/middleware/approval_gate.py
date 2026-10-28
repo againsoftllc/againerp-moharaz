@@ -6,10 +6,11 @@ caller without the base grant is refused there; this layer only ever sees caller
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -18,6 +19,7 @@ from app.database import SessionLocal
 from app.models.auth_session import AuthSession
 from app.models.auth_user import AuthUser
 from app.services.core import approval_gate as gate
+from app.services.core.access_scope import scope_held_call
 from app.services.core.approval_actions import ACTIONS, COMPILED
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,13 @@ class ApprovalGateMiddleware(BaseHTTPMiddleware):
                     return None, user.id  # may finalize without asking
                 if not rights.can_submit(action):
                     return None, None  # not even allowed to try: the endpoint answers 403 as it always did
+                # the approver replays the call as themselves: the maker's own cash / bank and warehouse limits apply now
+                held_body = gate.parse_body(body_raw)
+                try:
+                    scoped = scope_held_call(db, user, action.key, params, dict(held_body))
+                except HTTPException as exc:
+                    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}), None
+                stored_body = json.dumps(scoped).encode() if scoped != held_body else body_raw
                 row = gate.hold_call(
                     db,
                     user,
@@ -76,7 +85,7 @@ class ApprovalGateMiddleware(BaseHTTPMiddleware):
                     method=method,
                     path=path,
                     query_string=query,
-                    body_raw=body_raw,
+                    body_raw=stored_body,
                     path_params=params,
                 )
                 return (

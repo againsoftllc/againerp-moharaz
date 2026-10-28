@@ -80,6 +80,7 @@ Local admin: prefix `http://localhost:3210`.
 | Sales returns | `sales-return-grid.tsx` | `/sales/returns` |
 | Service jobs | `service-job-grid.tsx` | `/service/jobs` |
 | RMA (one datatable, **Stage** column + filter) | `rma-grid.tsx` | `/inventory/rma` |
+| RMA reports (Complain Receive, Replacement Claim, Replacement Receive, Customer Delivery; Register or Analysis) | `rma-register-report.tsx` → `FinanceAgListGrid` | `/inventory/rma/reports` |
 
 ### Inventory
 
@@ -124,6 +125,7 @@ Local admin: prefix `http://localhost:3210`.
 | Serials | `serial-grid.tsx` | `/inventory/serials` |
 | Adjustments | `stock-adjustment-grid.tsx` | `/inventory/adjustments` |
 | Transfers | `stock-transfer-grid.tsx` | `/inventory/transfers` |
+| Users (Settings › Permission) | `workspace-users-panel.tsx` (on `FinanceAgListGrid`) | `/workspace/business?tab=permission` |
 | Stock counts | `stock-count-grid.tsx` | `/inventory/stock-counts` |
 | Inventory reports | `inventory-report-grid.tsx` | `/inventory/reports/on-hand`, `/valuation`, `/by-supplier`, `/movements`, `/serials` |
 
@@ -138,7 +140,8 @@ Local admin: prefix `http://localhost:3210`.
 | Cost centers | `cost-center-grid.tsx` → `FinanceAgListGrid` | `/finance/cost-centers` |
 | Allocation rules | `allocation-rule-grid.tsx` → `FinanceAgListGrid` | `/finance/allocation-rules` |
 | Payments | `payment-grid.tsx` | `/finance/payments` |
-| Cheques (Cheques tab) | `cheque-grid.tsx` → `FinanceAgListGrid` | `/finance/payments` |
+| Cheques (Cheques tab) | `cheque-grid.tsx` → `FinanceAgListGrid` (tick boxes via `selection` + bulk bar → Cheque treatment drawer) | `/finance/payments` |
+| Cheque reports | `cheque-register-report.tsx` → `FinanceAgListGrid` | `/finance/reports/cheque-register` |
 | Payables | `payable-grid.tsx` | `/finance/payables` |
 | Receivables | `receivable-grid.tsx` | `/finance/receivables` |
 | P&amp;L | `profit-loss-grid.tsx` → `FinanceAgListGrid` | `/finance/reports/profit-loss` |

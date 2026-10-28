@@ -360,6 +360,9 @@ def decide_settlement(db: Session, s: RmaSettlement, *, decision: str, reason: O
     ticket = db.get(RmaTicket, s.rma_id)
     complaint_service.lock_ticket(db, ticket)  # one posting at a time per RMA
     db.refresh(s)  # a concurrent approval that just finished must be seen before deciding
+    # an approver finalizes a draft in one step: it is sent and decided in this same call (docs/approval.md)
+    if decision == "approved" and s.status in {"draft", "correction_requested"}:
+        submit_settlement(db, s, actor=user.id)
     if s.status != "pending_approval":
         raise HTTPException(
             status_code=400,

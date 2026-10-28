@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_permission, get_current_company_id
 from app.models.auth_user import AuthUser
+from app.models.inventory_stock_adjustment import InventoryStockAdjustment
+from app.services.core.access_scope import assert_document_warehouse, assert_warehouse_access, warehouse_scope
 from app.schemas.inventory.stock_adjustment import (
     StockAdjustmentCreate,
     StockAdjustmentListMeta,
@@ -36,7 +38,7 @@ def _commit(db: Session, row):
 @router.get("", response_model=StockAdjustmentListResponse)
 def list_adjustments(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("inventory", "read")),
+    user: AuthUser = Depends(require_permission("inventory", "read")),
     company_id: str = Depends(get_current_company_id),
     status: Optional[str] = Query(default=None),
     warehouse_id: Optional[str] = Query(default=None),
@@ -45,8 +47,11 @@ def list_adjustments(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=50, ge=1, le=500),
 ) -> StockAdjustmentListResponse:
+    assert_warehouse_access(db, user, warehouse_id)
+    scope = warehouse_scope(db, user)
     svc = StockAdjustmentService(db)
     rows, total = svc.list_adjustments(
+        warehouse_ids=scope,
         company_id=company_id,
         status=status,
         warehouse_id=warehouse_id,
@@ -81,6 +86,7 @@ def create_adjustment(
     user: AuthUser = Depends(require_permission("inventory", "create")),
     company_id: str = Depends(get_current_company_id),
 ) -> StockAdjustmentResponse:
+    assert_warehouse_access(db, user, payload.warehouse_id)
     try:
         row = StockAdjustmentService(db, company_id=company_id).create_adjustment(
             company_id=company_id,
@@ -117,6 +123,7 @@ def apply_adjustment(
     user: AuthUser = Depends(require_permission("inventory", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> StockAdjustmentResponse:
+    assert_document_warehouse(db, user, InventoryStockAdjustment, adjustment_id, "warehouse_id")
     try:
         row = StockAdjustmentService(db, company_id=company_id).apply_adjustment(adjustment_id, actor_id=user.id)
         row = _commit(db, row)
@@ -133,6 +140,7 @@ def cancel_adjustment(
     user: AuthUser = Depends(require_permission("inventory", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> StockAdjustmentResponse:
+    assert_document_warehouse(db, user, InventoryStockAdjustment, adjustment_id, "warehouse_id")
     try:
         row = StockAdjustmentService(db, company_id=company_id).cancel_adjustment(adjustment_id, actor_id=user.id)
         row = _commit(db, row)

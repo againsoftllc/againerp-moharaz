@@ -27,6 +27,8 @@ export type ApiStockTransferLine = {
   received_qty: number;
   remaining_qty: number;
   available_qty: number | null;
+  /** The source warehouse's cost per unit: what the transfer is worth. */
+  unit_cost: string | null;
   notes: string | null;
   serials: ApiStockTransferSerial[];
 };
@@ -54,7 +56,9 @@ export type ApiStockTransfer = {
   requested_by: string | null;
   requested_by_name: string | null;
   shipped_by: string | null;
+  shipped_by_name: string | null;
   received_by: string | null;
+  received_by_name: string | null;
   notes: string | null;
   shipped_at: string | null;
   completed_at: string | null;
@@ -112,6 +116,15 @@ export async function fetchStockTransfer(id: string): Promise<ApiStockTransfer> 
 export async function createStockTransfer(input: CreateStockTransferInput): Promise<ApiStockTransfer> {
   const res = await apiFetch<ItemResponse>("/api/v1/inventory/stock-transfers", {
     method: "POST",
+    body: JSON.stringify(input),
+  });
+  return res.data;
+}
+
+/** Edit a draft transfer (header and lines). Shipped transfers can only be received. */
+export async function updateStockTransfer(id: string, input: CreateStockTransferInput): Promise<ApiStockTransfer> {
+  const res = await apiFetch<ItemResponse>(`/api/v1/inventory/stock-transfers/${id}`, {
+    method: "PUT",
     body: JSON.stringify(input),
   });
   return res.data;

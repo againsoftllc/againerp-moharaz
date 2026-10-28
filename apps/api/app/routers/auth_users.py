@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -20,6 +21,11 @@ from app.models.auth_user import AuthUser
 from app.schemas.auth import (
     MentionableUserListResponse,
     MentionableUserRead,
+    PermissionModuleRow,
+    PermissionOverride,
+    SessionListResponse,
+    UserPermissionsRead,
+    UserPermissionsResponse,
     UserCreate,
     UserListMeta,
     UserListResponse,
@@ -31,6 +37,7 @@ from app.security import hash_password
 from app.services import rbac as rbac_service
 from app.services.auth_user_warehouses import set_user_warehouses, user_warehouse_access
 from app.services.auth_user_read import user_read as _user_read
+from app.services.core import access_scope, auth_security
 
 router = APIRouter(prefix="/users", tags=["auth-users"])
 
@@ -137,6 +144,8 @@ def create_user(
         role="staff",
         password_hash=hash_password(payload.password),
         is_active=True,
+        must_change_password=payload.must_change_password,
+        password_changed_at=datetime.utcnow(),
     )
     db.add(user)
     db.flush()
@@ -150,6 +159,8 @@ def create_user(
             set_user_warehouses(db, user, payload.warehouse_ids, payload.default_warehouse_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if payload.payment_account_ids:
+        access_scope.set_user_payment_accounts(db, user, payload.payment_account_ids)
 
     _dual_log(
         db,
@@ -349,6 +360,33 @@ def update_user(
             actor_detail=f"Set {row.name}'s warehouse access to {scope}",
         )
 
+    overrides = changes.pop("permission_overrides", None)
+    if overrides is not None:
+        if isSelf:
+            raise HTTPException(status_code=400, detail="You cannot change your own permissions")
+        count = access_scope.set_user_overrides(db, row, [(o["module"], o["action"], o["allow"]) for o in overrides])
+        _dual_log(
+            db,
+            target=row, actor=actor,
+            target_action="permissions_changed",
+            actor_action="changed_permissions",
+            target_detail=f"Own permissions set to {count} override(s) by {actor.name}",
+            actor_detail=f"Set {row.name}'s own permissions ({count} override(s))",
+        )
+
+    payment_account_ids = changes.pop("payment_account_ids", None)
+    if payment_account_ids is not None:
+        access_scope.set_user_payment_accounts(db, row, payment_account_ids)
+        scope = f"{len(set(payment_account_ids))} account(s)" if payment_account_ids else "every account"
+        _dual_log(
+            db,
+            target=row, actor=actor,
+            target_action="accounts_changed",
+            actor_action="changed_accounts",
+            target_detail=f"Cash / bank access set to {scope} by {actor.name}",
+            actor_detail=f"Set {row.name}'s cash / bank access to {scope}",
+        )
+
     info_parts_target: list[str] = []
     info_parts_actor: list[str] = []
     for field in ("name", "email", "username"):
@@ -369,6 +407,12 @@ def update_user(
         info_parts_target.append("Password changed by " + (actor.name if not isSelf else "you"))
         if not isSelf:
             info_parts_actor.append(f"Changed {row.name}'s password")
+    if "must_change_password" in changes and changes["must_change_password"] != row.must_change_password:
+        asked = bool(changes["must_change_password"])
+        info_parts_target.append(("Asked to set a new password at the next sign-in" if asked else "No longer asked to change the password") + f" by {actor.name}")
+        info_parts_actor.append(f"{'Asked' if asked else 'Stopped asking'} {row.name} to change the password")
+    if changes.get("must_change_password") is None:
+        changes.pop("must_change_password", None)
 
     if info_parts_target:
         _dual_log(
@@ -382,6 +426,7 @@ def update_user(
 
     if "password" in changes:
         row.password_hash = hash_password(changes.pop("password"))
+        row.password_changed_at = datetime.utcnow()
         if not isSelf:
             # Old tokens must stop working, otherwise the member stays signed in
             # with the password an admin just replaced. Self-changes keep their
@@ -396,3 +441,99 @@ def update_user(
     db.commit()
     db.refresh(row)
     return UserResponse(data=_user_read(db, row))
+
+
+@router.post("/{user_id}/unlock", response_model=UserResponse)
+def unlock_user(
+    user_id: str,
+    actor: AuthUser = Depends(require_system_manager),
+    db: Session = Depends(get_db),
+    company_id: str = Depends(get_current_company_id),
+) -> UserResponse:
+    """Lift a wrong-password lock before it runs out."""
+    row = _scoped_user(db, user_id, company_id)
+    auth_security.unlock(row)
+    _dual_log(
+        db,
+        target=row, actor=actor,
+        target_action="unlocked",
+        actor_action="unlocked_user",
+        target_detail=f"Sign-in lock lifted by {actor.name}",
+        actor_detail=f"Lifted {row.name}'s sign-in lock",
+    )
+    db.commit()
+    db.refresh(row)
+    return UserResponse(data=_user_read(db, row))
+
+
+@router.get("/{user_id}/sessions", response_model=SessionListResponse)
+def user_sessions(
+    user_id: str,
+    authorization: Optional[str] = Header(default=None),
+    _: AuthUser = Depends(require_system_manager),
+    db: Session = Depends(get_db),
+    company_id: str = Depends(get_current_company_id),
+) -> SessionListResponse:
+    from app.routers.auth import _bearer, session_reads
+
+    row = _scoped_user(db, user_id, company_id)
+    return SessionListResponse(data=session_reads(db, row.id, _bearer(authorization)))
+
+
+@router.delete("/{user_id}/sessions", response_model=SessionListResponse)
+def end_user_sessions(
+    user_id: str,
+    authorization: Optional[str] = Header(default=None),
+    actor: AuthUser = Depends(require_system_manager),
+    db: Session = Depends(get_db),
+    company_id: str = Depends(get_current_company_id),
+) -> SessionListResponse:
+    """Sign the member out everywhere (your own current session is kept when it is yours)."""
+    from app.routers.auth import _bearer, session_reads
+
+    row = _scoped_user(db, user_id, company_id)
+    token = _bearer(authorization)
+    ended = auth_security.revoke_sessions(db, row.id, keep_token=token if row.id == actor.id else None)
+    _dual_log(
+        db,
+        target=row, actor=actor,
+        target_action="sessions_ended",
+        actor_action="ended_sessions",
+        target_detail=f"Signed out everywhere by {actor.name} ({ended} session(s))",
+        actor_detail=f"Signed {row.name} out everywhere ({ended} session(s))",
+    )
+    db.commit()
+    return SessionListResponse(data=session_reads(db, row.id, token))
+
+
+@router.get("/{user_id}/permissions", response_model=UserPermissionsResponse)
+def user_permission_grid(
+    user_id: str,
+    _: AuthUser = Depends(require_system_manager),
+    db: Session = Depends(get_db),
+    company_id: str = Depends(get_current_company_id),
+) -> UserPermissionsResponse:
+    """Per module: what the roles give, what the member ends up with, and whether the company has the module."""
+    row = _scoped_user(db, user_id, company_id)
+    from_roles, system_manager = rbac_service._role_permissions(db, row)
+    effective = rbac_service.user_permissions(db, row)
+    enabled = access_scope.company_modules(db, company_id)
+    modules = [
+        PermissionModuleRow(
+            id=m["id"],
+            label=m["label"],
+            group=m.get("group", ""),
+            enabled=access_scope.module_enabled(enabled, m["id"]),
+            from_roles=sorted(from_roles.get(m["id"], set())),
+            effective=sorted(effective.get(m["id"], set())),
+        )
+        for m in rbac_service.module_registry()
+    ]
+    return UserPermissionsResponse(
+        data=UserPermissionsRead(
+            actions=list(rbac_service.RBAC_ACTIONS),
+            system_manager=system_manager,
+            modules=modules,
+            overrides=[PermissionOverride(module=o.module, action=o.action, allow=o.allow) for o in access_scope.user_overrides(db, row.id)],
+        )
+    )

@@ -137,11 +137,14 @@ class SalesService:
         sort_dir: str = "desc",
         limit: int = 100,
         offset: int = 0,
+        warehouse_ids: Optional[list[str]] = None,
     ) -> tuple[list[SalesQuotation], int]:
         query = self._db.query(SalesQuotation).filter(
             SalesQuotation.company_id == company_id,
             SalesQuotation.deleted_at.is_(None),
         )
+        if warehouse_ids is not None:  # a member limited to some warehouses: theirs, and quotations with none yet
+            query = query.filter(or_(SalesQuotation.warehouse_id.in_(warehouse_ids), SalesQuotation.warehouse_id.is_(None)))
         if status:
             query = query.filter(SalesQuotation.status == status)
         if customer_id:
@@ -397,11 +400,14 @@ class SalesService:
         sort_dir: str = "desc",
         limit: int = 100,
         offset: int = 0,
+        warehouse_ids: Optional[list[str]] = None,
     ) -> tuple[list[SalesOrder], int]:
         query = self._db.query(SalesOrder).filter(
             SalesOrder.company_id == company_id,
             SalesOrder.deleted_at.is_(None),
         )
+        if warehouse_ids is not None:  # a member limited to some warehouses sees only their orders
+            query = query.filter(SalesOrder.warehouse_id.in_(warehouse_ids))
         if status:
             query = query.filter(SalesOrder.status == status)
         if customer_id:
@@ -1102,6 +1108,7 @@ class SalesService:
 
         check_order_confirm(self._db, order, paid_at_counter=paid_at_counter)
         lines = self.get_order_lines(order.id)
+        self._require_trackable_lines(order, lines)
         backordered: list[str] = []
         for line in lines:
             remaining = line.quantity_ordered - line.quantity_delivered
@@ -1593,6 +1600,31 @@ class SalesService:
         self._db.flush()
         return delivery
 
+    def _require_trackable_lines(self, order: SalesOrder, lines: list[SalesOrderLine]) -> None:
+        """A serial-tracked product leaves stock only as named serial units that are in the order's warehouse.
+
+        Without this a sale could take 1 from Dhaka HQ's count while the serial it names sits in Chittagong - stock and
+        the serial registry then disagree for good."""
+        from app.services.inventory import serial_service
+
+        company = order.company_id or "default"
+        for line in lines:
+            remaining = line.quantity_ordered - line.quantity_delivered
+            if remaining <= 0:
+                continue
+            serial_service.require_serials_for_units(
+                self._db,
+                item_id=line.item_id,
+                sku=line.sku,
+                units=remaining,
+                serial_count=len(line.serial_numbers or []),
+                action="confirming the order",
+            )
+            for number in line.serial_numbers or []:
+                row = serial_service.find_by_number(self._db, number, company_id=company)
+                if row is not None and not (row.status == "sold" and row.order_id == order.id):
+                    serial_service.require_serial_in_warehouse(self._db, row, order.warehouse_id, action="sell it")
+
     def _deliver_on_confirm(
         self, order: SalesOrder, lines: list[SalesOrderLine], *, actor_id: Optional[str]
     ) -> bool:
@@ -1655,6 +1687,17 @@ class SalesService:
             if not product_master.moves_stock(self._db, item):
                 so_line.quantity_delivered += qty
                 continue
+            from app.services.inventory import serial_service
+
+            # units already handed over + these must all be named serials (the registry has to move with the stock)
+            serial_service.require_serials_for_units(
+                self._db,
+                item_id=so_line.item_id,
+                sku=so_line.sku,
+                units=so_line.quantity_delivered + qty,
+                serial_count=len(so_line.serial_numbers or []),
+                action="delivering",
+            )
             movement_type = (
                 MOVEMENT_POS_SALE if (order.sales_rep or "") == "POS" else MOVEMENT_SALES_DELIVERY
             )
@@ -2374,6 +2417,7 @@ class SalesService:
             item=item,
             company_id=order.company_id or "default",
             order_id=order.id,
+            warehouse_id=order.warehouse_id,
         )
         if len(serials) > int(line_in.quantity or 0):
             raise HTTPException(

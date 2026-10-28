@@ -21,6 +21,7 @@ from app.schemas.rma.claim import (
     RmaClaimUpdate,
 )
 from app.services import rbac
+from app.services.rma import decision_rights
 from app.services.rma import claim_service, rma_service
 
 router = APIRouter(prefix="/rma", tags=["rma-claims"])
@@ -120,7 +121,7 @@ def decide_claim(
     user: AuthUser = Depends(require_permission("rma", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> RmaClaimResponse:
-    _need(db, user, "rma_claim_approve", "approve or reject supplier claims")
+    decision_rights.need_to_decide(db, user, "rma_claim_approve", "approve or reject supplier claims")
     claim = _claim(db, claim_id, company_id)
     claim_service.decide_claim(db, claim, decision=payload.decision, reason=payload.reason, user=user)
     db.commit()

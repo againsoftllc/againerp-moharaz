@@ -10,7 +10,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import dynamic from "next/dynamic";
+import { FilterSelect } from "@/components/shared/filter-select";
 import { ListGridHeaderStart } from "@/components/shared/list-grid-header-start";
+import { ListGridOpenFallback } from "@/components/shared/list-grid-open-fallback";
+import { RMA_REPORT_OPTIONS, type RmaReportId } from "@/components/rma/rma-register-report";
 import { fetchRmaReports, RESOLUTION_LABEL, WARRANTY_LABEL, type RmaReports } from "@/lib/api/rma";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -47,7 +51,23 @@ function CountTable({
   );
 }
 
+const RmaRegisterReport = dynamic(() => import("@/components/rma/rma-register-report").then((m) => m.RmaRegisterReport), {
+  ssr: false,
+  loading: () => <ListGridOpenFallback />,
+});
+
+/** Reports › RMA: the four registers with their analysis (OnerERP), and the older count summary. */
 export default function RmaReportsPage() {
+  const [report, setReport] = useState<RmaReportId>("complain");
+  if (report === "summary") return <RmaSummaryReport onReportChange={setReport} />;
+  return (
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
+      <RmaRegisterReport kind={report} onReportChange={setReport} />
+    </div>
+  );
+}
+
+function RmaSummaryReport({ onReportChange }: { onReportChange: (next: RmaReportId) => void }) {
   const [data, setData] = useState<RmaReports | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -107,6 +127,14 @@ export default function RmaReportsPage() {
             </DropdownMenu>
           </ListGridHeaderStart>
         </div>
+        <FilterSelect
+          value="summary"
+          onChange={(next) => onReportChange((next || "summary") as RmaReportId)}
+          width="w-[180px]"
+          className="shrink-0"
+          ariaLabel="Report"
+          options={RMA_REPORT_OPTIONS}
+        />
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">

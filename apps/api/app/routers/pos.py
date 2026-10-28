@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_permission, get_current_company_id
 from app.models.auth_user import AuthUser
-from app.models.pos import PosCartLine
+from app.models.pos import PosCart, PosCartLine, PosSession, PosTerminal
+from app.services.auth_user_warehouses import resolve_user_warehouse
+from app.services.core.access_scope import assert_document_warehouse, assert_warehouse_access, warehouse_scope
 from app.schemas.pos import (
     PosCartRead,
     PosCashMovementCreate,
@@ -113,10 +115,13 @@ def payment_methods(
 @router.get("/warehouses")
 def list_pos_warehouses(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("pos", "read")),
+    user: AuthUser = Depends(require_permission("pos", "read")),
     company_id: str = Depends(get_current_company_id),
 ) -> dict[str, Any]:
     rows = PosService(db).list_warehouses(company_id)
+    scope = warehouse_scope(db, user)
+    if scope is not None:  # a member limited to some warehouses (locations) sells only there
+        rows = [row for row in rows if row.id in scope]
     return {
         "data": [
             {"id": row.id, "name": row.name, "code": row.code, "address": row.address}
@@ -128,11 +133,13 @@ def list_pos_warehouses(
 @router.get("/terminals", response_model=list[PosTerminalRead])
 def list_terminals(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("pos", "read")),
+    user: AuthUser = Depends(require_permission("pos", "read")),
     company_id: str = Depends(get_current_company_id),
     status: Optional[str] = Query(default=None),
 ) -> list[PosTerminalRead]:
-    return [terminal_to_read(row) for row in PosService(db).list_terminals(company_id, status=status)]
+    rows = PosService(db).list_terminals(company_id, status=status)
+    scope = warehouse_scope(db, user)
+    return [terminal_to_read(row) for row in rows if scope is None or row.warehouse_id in scope]
 
 
 @router.post("/terminals", response_model=PosTerminalRead, status_code=201)
@@ -142,6 +149,7 @@ def create_terminal(
     user: AuthUser = Depends(require_permission("pos", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> PosTerminalRead:
+    assert_warehouse_access(db, user, payload.warehouse_id)
     row = PosService(db).create_terminal(
         name=payload.name,
         code=payload.code,
@@ -167,6 +175,8 @@ def update_terminal(
     db: Session = Depends(get_db),
     user: AuthUser = Depends(require_permission("pos", "write")),
 ) -> PosTerminalRead:
+    assert_document_warehouse(db, user, PosTerminal, terminal_id, "warehouse_id")
+    assert_warehouse_access(db, user, payload.warehouse_id)
     row = PosService(db).update_terminal(
         terminal_id,
         actor_id=user.id,
@@ -180,7 +190,7 @@ def update_terminal(
 @router.get("/sessions", response_model=list[PosSessionRead])
 def list_sessions(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("pos", "read")),
+    user: AuthUser = Depends(require_permission("pos", "read")),
     company_id: str = Depends(get_current_company_id),
     status: Optional[str] = Query(default=None),
     warehouse_id: Optional[str] = Query(default=None),
@@ -192,7 +202,8 @@ def list_sessions(
         warehouse_id=warehouse_id,
         terminal_id=terminal_id,
     )
-    return [PosSessionRead.model_validate(row) for row in rows]
+    scope = warehouse_scope(db, user)
+    return [PosSessionRead.model_validate(row) for row in rows if scope is None or row.warehouse_id in scope]
 
 
 @router.post("/sessions/open", response_model=PosSessionRead, status_code=201)
@@ -202,9 +213,12 @@ def open_session(
     user: AuthUser = Depends(require_permission("pos", "create")),
     company_id: str = Depends(get_current_company_id),
 ) -> PosSessionRead:
+    if payload.terminal_id:
+        assert_document_warehouse(db, user, PosTerminal, payload.terminal_id, "warehouse_id")
     svc = PosService(db)
     session = svc.open_session(
-        warehouse_id=payload.warehouse_id,
+        # a member limited to some warehouses opens at their default when none is named, and only at one of theirs
+        warehouse_id=resolve_user_warehouse(db, user, payload.warehouse_id),
         company_id=company_id,
         register_name=payload.register_name,
         opening_float=payload.opening_float,
@@ -224,8 +238,9 @@ def close_session(
     session_id: str,
     payload: PosSessionClose,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("pos", "write")),
+    user: AuthUser = Depends(require_permission("pos", "write")),
 ) -> PosSessionRead:
+    assert_document_warehouse(db, user, PosSession, session_id, "warehouse_id")
     svc = PosService(db)
     session = svc.close_session(session_id, closing_cash=payload.closing_cash, notes=payload.notes)
     db.commit()
@@ -251,10 +266,11 @@ def search_products(
     q: str = Query(..., min_length=1),
     warehouse_id: str = Query(...),
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("pos", "read")),
+    user: AuthUser = Depends(require_permission("pos", "read")),
     company_id: str = Depends(get_current_company_id),
     limit: int = Query(20, ge=1, le=50),
 ) -> list[PosProductRead]:
+    assert_warehouse_access(db, user, warehouse_id)
     rows = PosService(db).search_products(q, warehouse_id=warehouse_id, company_id=company_id, limit=limit)
     return [PosProductRead.model_validate(r) for r in rows]
 
@@ -263,13 +279,14 @@ def search_products(
 def browse_products(
     warehouse_id: str = Query(...),
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("pos", "read")),
+    user: AuthUser = Depends(require_permission("pos", "read")),
     company_id: str = Depends(get_current_company_id),
     category: Optional[str] = Query(default=None),
     q: Optional[str] = Query(default=None),
     limit: int = Query(40, ge=1, le=80),
     offset: int = Query(0, ge=0),
 ) -> list[PosProductRead]:
+    assert_warehouse_access(db, user, warehouse_id)
     rows = PosService(db).browse_products(
         warehouse_id=warehouse_id,
         company_id=company_id,
@@ -295,9 +312,10 @@ def scan_barcode(
     barcode: str = Query(..., min_length=1),
     warehouse_id: str = Query(...),
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("pos", "read")),
+    user: AuthUser = Depends(require_permission("pos", "read")),
     company_id: str = Depends(get_current_company_id),
 ) -> PosProductRead:
+    assert_warehouse_access(db, user, warehouse_id)
     row = PosService(db).scan_barcode(barcode, warehouse_id=warehouse_id, company_id=company_id)
     return PosProductRead.model_validate(row)
 
@@ -307,9 +325,10 @@ def list_item_serials(
     item_id: str,
     warehouse_id: Optional[str] = Query(default=None),
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("pos", "read")),
+    user: AuthUser = Depends(require_permission("pos", "read")),
     company_id: str = Depends(get_current_company_id),
 ) -> list[PosSerialRead]:
+    assert_warehouse_access(db, user, warehouse_id)
     rows = PosService(db).list_available_serials(item_id, warehouse_id=warehouse_id, company_id=company_id)
     return [
         PosSerialRead(id=row.id, serial_number=row.serial_number, status=row.status, warehouse_id=row.warehouse_id)
@@ -321,8 +340,9 @@ def list_item_serials(
 def get_active_cart(
     session_id: str,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("pos", "read")),
+    user: AuthUser = Depends(require_permission("pos", "read")),
 ) -> PosCartRead:
+    assert_document_warehouse(db, user, PosSession, session_id, "warehouse_id")
     svc = PosService(db)
     cart = svc.get_or_create_active_cart(session_id)
     db.commit()
@@ -390,8 +410,9 @@ def add_cart_line(
     cart_id: str,
     payload: PosLineAdd,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("pos", "write")),
+    user: AuthUser = Depends(require_permission("pos", "write")),
 ) -> PosCartRead:
+    assert_document_warehouse(db, user, PosCart, cart_id, "warehouse_id")
     svc = PosService(db)
     svc.add_line(
         cart_id,
@@ -491,7 +512,7 @@ def list_held_carts(
 @router.get("/orders")
 def list_orders(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("pos", "read")),
+    user: AuthUser = Depends(require_permission("pos", "read")),
     company_id: str = Depends(get_current_company_id),
     status: str = Query(default="completed"),
     session_id: Optional[str] = Query(default=None),
@@ -499,7 +520,8 @@ def list_orders(
 ) -> dict[str, Any]:
     svc = PosService(db)
     carts = svc.list_orders(company_id, status=status, session_id=session_id, q=q)
-    return {"data": [svc.order_summary(cart) for cart in carts]}
+    scope = warehouse_scope(db, user)
+    return {"data": [svc.order_summary(cart) for cart in carts if scope is None or cart.warehouse_id in scope]}
 
 
 @router.post("/carts/{cart_id}/complete", response_model=PosCompleteResponse)
@@ -509,6 +531,7 @@ def complete_cart(
     db: Session = Depends(get_db),
     user: AuthUser = Depends(require_permission("pos", "create")),
 ) -> PosCompleteResponse:
+    assert_document_warehouse(db, user, PosCart, cart_id, "warehouse_id")
     svc = PosService(db)
     cart, receipt = svc.complete_cart(
         cart_id,

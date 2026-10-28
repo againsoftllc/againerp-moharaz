@@ -45,7 +45,6 @@ export function RmaReceiveDocument({ copy, company }: { copy: RmaReceiptCopy; co
           </div>
           <div>
             <Line label="Supplier" value={copy.supplier_name} />
-            <Line label="Supplier Ref." value={copy.supplier_reference} />
             <Line label="Supplier Delivery Ref." value={copy.supplier_delivery_ref} />
             <Line label="Received Date" value={formatDay(copy.received_date)} />
           </div>
@@ -59,10 +58,13 @@ export function RmaReceiveDocument({ copy, company }: { copy: RmaReceiptCopy; co
           <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2 print:grid-cols-2">
             <Line label="Serial Sent" value={copy.serial_sent} />
             <Line label="Serial Received" value={copy.serial_received} />
-            <Line label="Outcome" value={copy.outcome_label} />
+            <Line label="Received" value={copy.outcome_label} />
             <Line label="Serial Changed" value={copy.serial_changed ? "Yes — the original serial is kept and linked" : "No"} />
+            {copy.received_sku ? <Line label="Product Received" value={`${copy.received_product_name ?? ""} (${copy.received_sku})`} /> : null}
+            {copy.outcome === "cash_back" ? <Line label="Cash Back" value={copy.refund_amount != null ? String(copy.refund_amount) : null} /> : null}
+            {copy.settlement_number ? <Line label="Settlement" value={copy.settlement_number} /> : null}
           </div>
-          <Line label="Outcome Note" value={copy.outcome_note} />
+          <Line label="Reason / Note" value={copy.outcome_note} />
         </div>
 
         <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2 print:grid-cols-2 px-3 py-2">

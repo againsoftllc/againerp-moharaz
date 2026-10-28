@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { fetchAdminMe } from "@/lib/api/auth";
+import { fetchAdminMe, logoutAdmin } from "@/lib/api/auth";
+import { ChangePasswordForm } from "@/components/auth/change-password-form";
 import { ApiError } from "@/lib/api/client";
 import { useAdminAuth } from "@/lib/store/admin-auth-store";
 import { useSubscriptionStatus } from "@/lib/store/subscription-status-store";
@@ -35,6 +36,39 @@ function SubscriptionBlockedScreen() {
   );
 }
 
+/** Shown instead of the app while the member must set a new password (an admin asked for it, or it expired). The API refuses
+ * everything else meanwhile, so this is the only screen that can work. */
+function PasswordChangeScreen({ name, expired }: { name: string; expired: boolean }) {
+  const router = useRouter();
+  const clearSession = useAdminAuth((s) => s.clearSession);
+  return (
+    <div className="flex min-h-screen w-full items-center justify-center bg-background px-4 text-foreground">
+      <div className="w-full max-w-sm space-y-4 border border-border bg-card p-6">
+        <div>
+          <h1 className="text-lg font-semibold">Set a new password</h1>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {expired
+              ? `${name}, your password has expired. Choose a new one to continue.`
+              : `${name}, an administrator asked you to choose your own password before you continue.`}
+          </p>
+        </div>
+        <ChangePasswordForm submitLabel="Save and continue" />
+        <button
+          type="button"
+          className="text-[11px] text-muted-foreground hover:text-foreground"
+          onClick={() => {
+            void logoutAdmin().catch(() => undefined);
+            clearSession();
+            router.replace("/login");
+          }}
+        >
+          Sign out instead
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AdminAuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const token = useAdminAuth((s) => s.token);
@@ -43,6 +77,7 @@ export function AdminAuthGate({ children }: { children: React.ReactNode }) {
   const setPermissions = useAdminAuth((s) => s.setPermissions);
   const clearSession = useAdminAuth((s) => s.clearSession);
   const inactiveStatus = useSubscriptionStatus((s) => s.inactiveStatus);
+  const user = useAdminAuth((s) => s.user);
   const setInactiveStatus = useSubscriptionStatus((s) => s.setInactiveStatus);
   const [ready, setReady] = useState(false);
 
@@ -98,6 +133,9 @@ export function AdminAuthGate({ children }: { children: React.ReactNode }) {
   }
   if (inactiveStatus) {
     return <SubscriptionBlockedScreen />;
+  }
+  if (user?.password_change_due) {
+    return <PasswordChangeScreen name={user.name} expired={!user.must_change_password} />;
   }
   return <>{children}</>;
 }

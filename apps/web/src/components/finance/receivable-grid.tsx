@@ -31,6 +31,7 @@ import {
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { useUserScopedState } from "@/lib/hooks/use-user-scoped-state";
 import type { ApiFinanceReceivable } from "@/lib/api/finance";
+import { settledByLabel, type SettledByMap } from "@/lib/api/finance-settlements";
 import {
   apiSalesOrderToOrder,
   fetchSalesOrder,
@@ -71,6 +72,7 @@ const COLUMN_KEYS = [
   "balance",
   "tax",
   "status",
+  "settledBy",
   "posting",
   "createdAt",
 ] as const;
@@ -86,6 +88,7 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
   balance: "Balance",
   tax: "Tax",
   status: "Status",
+  settledBy: "Settled by",
   posting: "Posting",
   createdAt: "Created",
 };
@@ -100,6 +103,7 @@ const DEFAULT_VISIBLE: Record<ColumnKey, boolean> = {
   balance: true,
   tax: false,
   status: true,
+  settledBy: true,
   posting: false,
   createdAt: false,
 };
@@ -193,13 +197,15 @@ export const ReceivableGrid = forwardRef<
     rows: ApiFinanceReceivable[];
     loading?: boolean;
     onSettle: (row: ApiFinanceReceivable) => void;
+    /** What settled each document (payments, settlements, cheques), from /finance/settlements/settled-by. */
+    settledBy?: SettledByMap;
     onFilterCountChange?: (count: number) => void;
     headerLeftActions?: ReactNode;
     footerLeftActions?: ReactNode;
     className?: string;
   }
 >(function ReceivableGrid(
-  { rows, loading = false, onSettle, onFilterCountChange, headerLeftActions, footerLeftActions, className },
+  { rows, loading = false, onSettle, settledBy, onFilterCountChange, headerLeftActions, footerLeftActions, className },
   ref,
 ) {
   const canWrite = useAdminCanWrite();
@@ -306,6 +312,7 @@ export const ReceivableGrid = forwardRef<
         row.balance,
         row.tax_amount,
         row.status,
+        settledByLabel(settledBy?.[row.id]),
         row.posting_status ?? "",
         row.created_at,
       ]
@@ -320,7 +327,7 @@ export const ReceivableGrid = forwardRef<
     a.click();
     URL.revokeObjectURL(url);
     toast.success(`Exported ${filtered.length} receivable${filtered.length === 1 ? "" : "s"}`);
-  }, [filtered]);
+  }, [filtered, settledBy]);
 
   useImperativeHandle(
     ref,
@@ -497,6 +504,15 @@ export const ReceivableGrid = forwardRef<
         },
       },
       {
+        colId: "settledBy",
+        headerName: COLUMN_LABELS.settledBy,
+        hide: !resolvedCols.settledBy,
+        width: 200,
+        minWidth: 140,
+        valueGetter: (p) => (p.data ? settledByLabel(settledBy?.[p.data.id]) : ""),
+        tooltipValueGetter: (p) => (p.data ? settledByLabel(settledBy?.[p.data.id], true) : ""),
+      },
+      {
         colId: "posting",
         field: "posting_status",
         headerName: COLUMN_LABELS.posting,
@@ -523,7 +539,7 @@ export const ReceivableGrid = forwardRef<
         valueFormatter: (p) => formatDate(p.value),
       },
     ],
-    [RowMenu, openCustomerDrawer, openInvoiceDrawer, resolvedCols],
+    [RowMenu, openCustomerDrawer, openInvoiceDrawer, resolvedCols, settledBy],
   );
 
 

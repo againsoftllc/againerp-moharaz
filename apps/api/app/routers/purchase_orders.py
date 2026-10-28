@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_permission, get_current_company_id
 from app.models.auth_user import AuthUser
+from app.models.purchase_order import PurchaseOrder
 from app.services.auth_user_warehouses import resolve_user_warehouse
+from app.services.core.access_scope import assert_document_warehouse, assert_documents_warehouse, warehouse_scope
 from app.schemas.purchase.order import (
     PurchaseBulkDeleteRequest,
     PurchaseBulkDeleteResponse,
@@ -72,7 +74,7 @@ def purchase_dashboard(
 @router.get("/orders", response_model=PurchaseOrderListResponse)
 def list_orders(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("purchase", "read")),
+    user: AuthUser = Depends(require_permission("purchase", "read")),
     company_id: str = Depends(get_current_company_id),
     status: Optional[str] = Query(
         default=None, pattern="^(draft|confirmed|partial_received|completed|cancelled)$"
@@ -82,6 +84,7 @@ def list_orders(
     per_page: int = Query(default=50, ge=1, le=500),
 ) -> PurchaseOrderListResponse:
     rows, total = _service(db, company_id).list_orders(
+        warehouse_ids=warehouse_scope(db, user),
         company_id=company_id,
         status=status,
         supplier_id=supplier_id,
@@ -187,6 +190,7 @@ def bulk_delete_orders(
     user: AuthUser = Depends(require_permission("purchase", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseBulkDeleteResponse:
+    assert_documents_warehouse(db, user, PurchaseOrder, payload.ids, "warehouse_id")
     deleted, skipped = _service(db, company_id).bulk_delete_orders(payload.ids, actor_id=user.id)
     db.commit()
     return PurchaseBulkDeleteResponse(
@@ -201,6 +205,7 @@ def delete_order(
     user: AuthUser = Depends(require_permission("purchase", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> Response:
+    assert_document_warehouse(db, user, PurchaseOrder, order_id, "warehouse_id")  # only the member's warehouses
     _service(db, company_id).delete_order(order_id, actor_id=user.id)
     db.commit()
     return Response(status_code=204)
@@ -278,6 +283,7 @@ def update_order(
     user: AuthUser = Depends(require_permission("purchase", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseOrderResponse:
+    assert_document_warehouse(db, user, PurchaseOrder, order_id, "warehouse_id")  # only the member's warehouses
     service = _service(db, company_id)
     lines = [
         PurchaseLineInput(
@@ -317,6 +323,7 @@ def confirm_order(
     user: AuthUser = Depends(require_permission("purchase", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseOrderResponse:
+    assert_document_warehouse(db, user, PurchaseOrder, order_id, "warehouse_id")  # only the member's warehouses
     svc = _service(db, company_id)
     pending = svc.get_order(order_id)
     assert_can_approve(db, company_id, user, "purchase.order", getattr(pending, "total", None))
@@ -334,6 +341,7 @@ def cancel_order(
     company_id: str = Depends(get_current_company_id),
     reason: Optional[str] = Query(default=None),
 ) -> PurchaseOrderResponse:
+    assert_document_warehouse(db, user, PurchaseOrder, order_id, "warehouse_id")  # only the member's warehouses
     order = _service(db, company_id).cancel_order(order_id, actor_id=user.id, reason=reason)
     db.commit()
     db.refresh(order)
@@ -348,6 +356,7 @@ def update_order_status(
     user: AuthUser = Depends(require_permission("purchase", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseOrderResponse:
+    assert_document_warehouse(db, user, PurchaseOrder, order_id, "warehouse_id")  # only the member's warehouses
     order = _service(db, company_id).update_status(
         order_id, payload.status, actor_id=user.id, notes=payload.notes
     )

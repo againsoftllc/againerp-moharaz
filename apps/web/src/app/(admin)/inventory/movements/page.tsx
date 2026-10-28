@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { Filter, RefreshCw, Settings2, SlidersHorizontal } from "lucide-react";
@@ -17,6 +17,7 @@ import { ListGridOpenFallback } from "@/components/shared/list-grid-open-fallbac
 import type { MovementGridHandle, MovementRow } from "@/components/inventory/movement-grid";
 import { fetchStockMovements } from "@/lib/api/inventory";
 import { useInventoryWarehouses } from "@/lib/api/use-inventory";
+import { useWarehouseAccess } from "@/lib/auth/warehouse-access";
 import { useApiHealth } from "@/lib/api/use-api-health";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -31,7 +32,10 @@ function MovementsContent() {
   const itemId = searchParams.get("item") || undefined;
   const sku = searchParams.get("sku") ?? "";
 
-  const { warehouses } = useInventoryWarehouses();
+  const { warehouses: allWarehouses } = useInventoryWarehouses();
+  const warehouseAccess = useWarehouseAccess();
+  // a member limited to some warehouses (locations) picks and filters only among theirs
+  const warehouses = useMemo(() => warehouseAccess.pickable(allWarehouses), [warehouseAccess, allWarehouses]);
   const apiHealth = useApiHealth();
   const gridRef = useRef<MovementGridHandle>(null);
   const [movements, setMovements] = useState<MovementRow[]>([]);

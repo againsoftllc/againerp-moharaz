@@ -18,7 +18,7 @@ import { formatCurrency } from "@/lib/utils";
  * Approval ceilings per role and document. A blank cell means unlimited, so
  * nothing is restricted until a number is entered here.
  */
-export function WorkspaceApprovalLimitsPanel() {
+export function WorkspaceApprovalLimitsPanel({ embedded = false }: { embedded?: boolean }) {
   const canWrite = useAdminCanWrite();
   const [rows, setRows] = useState<ApiApprovalLimit[]>([]);
   const [meta, setMeta] = useState<ApprovalLimitMeta | null>(null);
@@ -87,13 +87,13 @@ export function WorkspaceApprovalLimitsPanel() {
   }
 
   return (
-    <div className="p-4">
+    <div className={embedded ? "p-3" : "p-4"}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="page-title">Approval limits</h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          {embedded ? null : <h1 className="page-title">Approval limits</h1>}
+          <p className={embedded ? "max-w-2xl text-[11px] text-muted-foreground" : "mt-1 max-w-2xl text-xs text-muted-foreground"}>
             The most a role may approve on a single document. Leave a field blank for unlimited.
-            Checked when an expense is approved and when a sales or purchase order is confirmed;
+            Checked when an expense is approved, when a sales or purchase order is confirmed and on RMA payouts;
             a user with several roles gets the highest of them.
           </p>
         </div>

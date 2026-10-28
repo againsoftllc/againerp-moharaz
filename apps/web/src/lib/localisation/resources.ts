@@ -174,8 +174,7 @@ export function getLocalisationResource(id: string): LocalisationResourceDef | u
   return LOCALISATION_RESOURCES.find((r) => r.id === id);
 }
 
-import { businessSettingsHref } from "@/lib/settings/business-settings-tabs";
-
-export function getLocalisationHref(id: LocalisationResourceId) {
-  return businessSettingsHref("localisation", id);
+/** The storefront lists (languages, currencies, countries …) are not offered in Configuration any more: currency, timezone and formats are on Company › Localization. */
+export function getLocalisationHref(_id?: LocalisationResourceId) {
+  return "/workspace/setup?tab=localization";
 }

@@ -1,21 +1,15 @@
 import { BUSINESS_SETTINGS_CATEGORIES } from "@/lib/settings/settings-schema";
 
-export const BUSINESS_GENERAL_TAB_IDS = [
-  "store",
-  "catalog",
-  "customers",
-  "orders",
-  "checkout",
-  "marketing",
-  "seo",
-] as const;
+/**
+ * Only the settings the ERP reads are listed. The old Store, Catalog, Orders, Checkout, Marketing, SEO and Email / SMS pages held
+ * values nothing consumed (Store duplicated Company, Localisation duplicated Company › Localization, Permission moved to Users &
+ * Roles), so they are no longer offered. Their keys stay in settings-schema.ts.
+ */
+export const BUSINESS_GENERAL_TAB_IDS = ["customers"] as const;
 
 export const BUSINESS_CONFIG_TABS = [
-  { id: "localisation", title: "Localisation" },
   { id: "payments", title: "Payment Gateways" },
   { id: "shipping", title: "Shipping Methods" },
-  { id: "notifications", title: "Email / SMS" },
-  { id: "permission", title: "Permission" },
 ] as const;
 
 export type BusinessSettingsTabId =
@@ -31,20 +25,20 @@ export function isBusinessSettingsTabId(value: string): value is BusinessSetting
   return ALL_TAB_IDS.has(value);
 }
 
+/** Where the pages that used to be tabs here live now. */
+export const MOVED_BUSINESS_TABS: Record<string, string> = {
+  permission: "/workspace/users",
+  localisation: "/workspace/setup?tab=localization",
+};
+
 export function parseBusinessSettingsTab(raw: string | null): BusinessSettingsTabId {
-  if (raw === "general") return "store";
   if (raw && isBusinessSettingsTabId(raw)) return raw;
-  return "store";
+  return "customers";
 }
 
-export function businessSettingsHref(tab: BusinessSettingsTabId, loc?: string) {
-  if (tab === "store" && !loc) return "/workspace/business";
-  const params = new URLSearchParams();
-  params.set("tab", tab);
-  if (tab === "localisation" && loc && loc !== "store-locations") {
-    params.set("loc", loc);
-  }
-  return `/workspace/business?${params.toString()}`;
+export function businessSettingsHref(tab: BusinessSettingsTabId) {
+  if (tab === "customers") return "/website/settings/checkout";
+  return `/website/settings/checkout?tab=${tab}`;
 }
 
 export function businessGeneralTabs() {

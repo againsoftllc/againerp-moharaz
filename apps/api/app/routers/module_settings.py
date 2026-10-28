@@ -16,7 +16,7 @@ from app.services.core.module_settings import MODULE_IDS, get_saved_values, save
 router = APIRouter(prefix="/module-settings", tags=["module-settings"])
 
 # Settings pages whose module has no RBAC entry of its own.
-_PERMISSION_MODULE = {"vendors": "purchase"}
+_PERMISSION_MODULE = {"vendors": "purchase", "security": "workspace"}
 
 SettingValue = Union[bool, int, float, str]
 

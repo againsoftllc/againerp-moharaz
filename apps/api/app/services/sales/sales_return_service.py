@@ -55,8 +55,13 @@ class SalesReturnService:
         status: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        warehouse_ids: Optional[list[str]] = None,
     ) -> tuple[list[SalesReturn], int]:
         query = self._db.query(SalesReturn).filter(SalesReturn.company_id == company_id)
+        if warehouse_ids is not None:  # a member limited to some warehouses: returns of their orders
+            query = query.join(SalesOrder, SalesOrder.id == SalesReturn.sales_order_id).filter(
+                SalesOrder.warehouse_id.in_(warehouse_ids)
+            )
         if sales_order_id:
             query = query.filter(SalesReturn.sales_order_id == sales_order_id)
         if status:

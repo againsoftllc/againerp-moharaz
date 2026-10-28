@@ -26,6 +26,9 @@ from app.models.finance import (
     FinancePaymentAccount,
     FinanceReceivable,
 )
+from app.models.commerce_customer import CommerceCustomer
+from app.models.commerce_supplier import CommerceSupplier
+from app.models.party import Party
 from app.models.finance_cheque_book import FinanceChequeBook, FinanceChequeLeaf
 from app.models.finance_period import FinancePeriod
 from app.services.finance.cheque_service import (
@@ -55,6 +58,9 @@ TABLES = [
     FinanceChequeLeaf.__table__,
     CoreSequence.__table__,
     FinancePeriod.__table__,
+    Party.__table__,
+    CommerceSupplier.__table__,
+    CommerceCustomer.__table__,
 ]
 
 
@@ -305,3 +311,48 @@ class ChequeServiceTests(TestCase):
         self._act(ch, "cancel")
         with self.assertRaises(HTTPException):
             self.svc.update_details(ch.id, company_id=CO, notes="x")
+
+    # the two supplier ledgers must agree with the books at every step of an issued cheque
+    def _ledgers(self):
+        from app.services.finance.finance_reports import FinanceReportService
+        from app.services.supplier import supplier_ledger_service
+
+        _entries, summary = supplier_ledger_service.ledger(self.db, "sup1")
+        rows = FinanceReportService(self.db).partner_ledger(company_id=CO, partner_id="sup1", ledger_type="payable")["rows"]
+        report_balance = rows[0]["balance"] if rows else D("0")
+        return summary.outstanding, report_balance
+
+    def test_supplier_ledgers_follow_an_issued_cheque_through_honour_and_dishonour(self):
+        bill = D("800")
+        outstanding, report = self._ledgers()
+        self.assertEqual((outstanding, report), (bill, -bill))  # we owe the bill
+
+        first = self._issued("I-1", "300")
+        outstanding, report = self._ledgers()
+        self.assertEqual((outstanding, report), (D("500"), D("-500")))  # issuing already settles it on the ledger
+        self.assertEqual(self._bal("2100"), D("300"))  # payables control: the bill is not journalled in this fixture, the cheque is
+
+        self._act(first, "present")
+        self._act(first, "clear", payment_account_id=self.bank.id)  # honoured: only the bank moves
+        outstanding, report = self._ledgers()
+        self.assertEqual((outstanding, report), (D("500"), D("-500")))
+
+        second = self._issued("I-2", "200")
+        outstanding, report = self._ledgers()
+        self.assertEqual((outstanding, report), (D("300"), D("-300")))
+
+        self._act(second, "bounce", note="Insufficient funds")  # dishonoured: the supplier is owed that money again
+        outstanding, report = self._ledgers()
+        self.assertEqual((outstanding, report), (D("500"), D("-500")))
+        self.assertEqual(self.pay.balance, D("500"))
+        self.assertEqual(self._bal("2100"), D("300"))  # only the honoured cheque is left against the supplier
+        self.assertEqual(self._bal("2150"), D("0"))  # nothing stuck in cheques issued
+        self._assert_books_balance()
+
+    def test_dishonoured_cheque_with_bank_charge_hits_bank_not_the_supplier(self):
+        ch = self._issued("I-3", "300")
+        self._act(ch, "bounce", payment_account_id=self.bank.id, bank_charge=D("50"))
+        outstanding, report = self._ledgers()
+        self.assertEqual((outstanding, report), (D("800"), D("-800")))  # the fee is ours, not on the supplier account
+        self.assertEqual(self.fin.get_payment_account_balance(self.bank), D("-50"))
+        self._assert_books_balance()

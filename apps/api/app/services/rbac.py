@@ -99,39 +99,205 @@ BUSINESS_MODULES = (
 )
 
 
+# How the role editor groups the module rows (Odoo shows access rights per application), and what each one opens.
+MODULE_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Sales & customers", ("sales", "customers", "crm", "pos")),
+    ("Inventory & purchasing", ("inventory", "purchase", "catalog", "dropshipping")),
+    ("Finance", ("finance",)),
+    ("People", ("hrm",)),
+    ("After-sales", ("rma", "service")),
+    ("Website & content", ("website", "blog", "media")),
+    ("Workspace", ("dashboard", "workspace", "plugins")),
+)
+
+MODULE_LABELS: dict[str, str] = {
+    "dashboard": "Dashboard",
+    "catalog": "Catalog",
+    "dropshipping": "Dropshipping",
+    "hrm": "HRM",
+    "sales": "Sales",
+    "customers": "Customers",
+    "inventory": "Inventory",
+    "purchase": "Purchase & Suppliers",
+    "rma": "RMA & Warranty",
+    "service": "Service",
+    "finance": "Finance",
+    "crm": "CRM",
+    "media": "Media",
+    "blog": "Blog",
+    "website": "Website",
+    "workspace": "Workspace",
+    "plugins": "Plugins",
+    "pos": "POS",
+    "rma_approve": "Approve / reject complaints",
+    "rma_override": "Override protected fields (supplier, lookup exception)",
+    "rma_reprint": "Reprint documents",
+    "rma_claim_approve": "Approve supplier claims",
+    "rma_dispatch": "Dispatch units to a supplier",
+    "rma_receive_approve": "Approve supplier receipts",
+    "rma_serial_change": "Change the actual received serial",
+    "rma_delivery_approve": "Approve customer deliveries",
+    "rma_payment": "Record settlements (money in / money out)",
+    "rma_settlement_approve": "Approve and post settlements",
+    "rma_stock_adjust": "Release to stock, scrap, issue a replacement from stock",
+}
+
+MODULE_HINTS: dict[str, str] = {
+    "dashboard": "The home dashboards and KPI widgets.",
+    "catalog": "Products, brands, categories, prices and images.",
+    "dropshipping": "Supplier-shipped orders and the 1688 import.",
+    "hrm": "Employees, payroll, attendance, leave and recruitment — sensitive personal data.",
+    "sales": "Quotations, sales orders, deliveries and sales returns.",
+    "customers": "Customer records, groups, wallets and loyalty points.",
+    "inventory": "Stock levels, transfers, adjustments, counts and serial numbers.",
+    "purchase": "Suppliers, purchase orders, receipts and purchase returns.",
+    "rma": "Warranty complaints, supplier claims and settlements.",
+    "service": "Service jobs and repair work orders.",
+    "finance": "Journals, payments, expenses, cheques, ledgers and reports — money data.",
+    "crm": "Leads, tickets and follow-ups.",
+    "media": "The shared image and file library.",
+    "blog": "Blog articles.",
+    "website": "Website pages, menus and storefront content.",
+    "workspace": "Company setup, users, roles and settings. Write access here is administration.",
+    "plugins": "Plugin settings and keys.",
+    "pos": "The point-of-sale screen and cash sessions.",
+}
+
+
 def module_registry() -> list[dict[str, str]]:
-    labels = {
-        "dashboard": "Dashboard",
-        "catalog": "Catalog",
-        "dropshipping": "Dropshipping",
-        "hrm": "HRM",
-        "sales": "Sales",
-        "customers": "Customers",
-        "inventory": "Inventory",
-        "purchase": "Purchase & Suppliers",
-        "rma": "RMA & Warranty",
-        "service": "Service",
-        "finance": "Finance",
-        "crm": "CRM",
-        "media": "Media",
-        "blog": "Blog",
-        "website": "Website",
-        "workspace": "Workspace",
-        "plugins": "Plugins",
-        "pos": "POS",
-        "rma_approve": "RMA — approve / reject complaints",
-        "rma_override": "RMA — override protected fields (supplier, lookup exception)",
-        "rma_reprint": "RMA — reprint documents",
-        "rma_claim_approve": "RMA — approve supplier claims",
-        "rma_dispatch": "RMA — dispatch units to a supplier",
-        "rma_receive_approve": "RMA — approve supplier receipts",
-        "rma_serial_change": "RMA — change the actual received serial",
-        "rma_delivery_approve": "RMA — approve customer deliveries",
-        "rma_payment": "RMA — record settlements (money in / money out)",
-        "rma_settlement_approve": "RMA — approve and post settlements",
-        "rma_stock_adjust": "RMA — release to stock, scrap, issue a replacement from stock",
-    }
-    return [{"id": m, "label": labels.get(m, m.title())} for m in RBAC_MODULES]
+    group_of = {m: g for g, mods in MODULE_GROUPS for m in mods}
+    out: list[dict[str, str]] = []
+    for m in RBAC_MODULES:
+        privileged = m in PRIVILEGED_MODULES
+        out.append(
+            {
+                "id": m,
+                "label": MODULE_LABELS.get(m, m.title()),
+                "group": "RMA special permissions" if privileged else group_of.get(m, "Other"),
+                "hint": "Needs the Write box: a role can do this only when it is ticked." if privileged else MODULE_HINTS.get(m, ""),
+            }
+        )
+    return out
+
+
+# Job-based starting points for a new role. The letters are the boxes ticked per module:
+# R read · C create · W write · D delete · P publish · E export · A approve. A module not listed gets nothing.
+_ROLE_TEMPLATES: dict[str, dict] = {
+    "operations-manager": {
+        "name": "Operations Manager",
+        "description": "Runs day-to-day operations across sales, stock, purchasing and after-sales, and approves what staff prepare. No delete, no workspace or plugin administration.",
+        "grants": {
+            "dashboard": "RE", "catalog": "RCWPE", "dropshipping": "RCWPE", "sales": "RCWPEA", "customers": "RCWPEA",
+            "inventory": "RCWPEA", "purchase": "RCWPEA", "rma": "RCWPEA", "service": "RCWPE", "finance": "RCWEA",
+            "crm": "RCWPE", "pos": "RCWE", "media": "RCWPE", "blog": "RCWPE", "website": "RCWPE", "hrm": "R", "workspace": "R",
+            "rma_approve": "RW", "rma_claim_approve": "RW", "rma_delivery_approve": "RW", "rma_receive_approve": "RW",
+            "rma_settlement_approve": "RW", "rma_dispatch": "RW", "rma_reprint": "RW",
+        },
+    },
+    "sales-executive": {
+        "name": "Sales Executive",
+        "description": "Quotes and sells: sales orders, customers, leads and the POS. Sees stock and the catalog but cannot change them; sees finance but cannot post to it.",
+        "grants": {
+            "dashboard": "R", "sales": "RCWPE", "customers": "RCWE", "crm": "RCWPE", "pos": "RCW", "catalog": "R",
+            "inventory": "R", "finance": "R", "rma": "RC",
+        },
+    },
+    "purchase-officer": {
+        "name": "Purchase Officer",
+        "description": "Manages suppliers and purchase orders and receives goods into stock. Reads the catalog and finance.",
+        "grants": {
+            "dashboard": "R", "purchase": "RCWPE", "inventory": "RCWE", "catalog": "R", "finance": "R", "dropshipping": "R",
+        },
+    },
+    "warehouse-keeper": {
+        "name": "Warehouse Keeper",
+        "description": "Owns stock: transfers, adjustments, counts and serial numbers. Reads orders and purchases to pick and receive; no prices, no finance.",
+        "grants": {
+            "dashboard": "R", "inventory": "RCWPE", "purchase": "R", "sales": "R", "catalog": "R", "rma": "R", "dropshipping": "R",
+        },
+    },
+    "accountant": {
+        "name": "Accountant",
+        "description": "Keeps the books: journals, payments, expenses, cheques and reports, with approval. Reads sales, purchases and stock to reconcile; no HR, no delete.",
+        "grants": {
+            "dashboard": "R", "finance": "RCWEA", "sales": "RE", "purchase": "RE", "customers": "RE", "inventory": "RE",
+            "catalog": "R", "workspace": "R",
+        },
+    },
+    "hr-officer": {
+        "name": "HR Officer",
+        "description": "People records: employees, attendance, leave, payroll and recruitment. Nothing else.",
+        "grants": {"dashboard": "R", "hrm": "RCWDEA", "workspace": "R"},
+    },
+    "service-technician": {
+        "name": "Service Technician",
+        "description": "Works service jobs and RMA complaints. Reads customers, sales and stock; cannot approve or settle anything.",
+        "grants": {
+            "dashboard": "R", "service": "RCW", "rma": "RCW", "customers": "R", "sales": "R", "inventory": "R", "catalog": "R",
+            "rma_reprint": "RW",
+        },
+    },
+    "rma-manager": {
+        "name": "RMA Manager",
+        "description": "Owns warranty and supplier claims end to end: approves complaints, claims, deliveries and settlements, dispatches to suppliers, and releases stock. Cannot override protected fields or change a received serial.",
+        "grants": {
+            "dashboard": "R", "rma": "RCWPEA", "service": "RCWE", "customers": "R", "sales": "R", "inventory": "R",
+            "purchase": "R", "finance": "R", "catalog": "R",
+            "rma_approve": "RW", "rma_claim_approve": "RW", "rma_dispatch": "RW", "rma_receive_approve": "RW",
+            "rma_delivery_approve": "RW", "rma_payment": "RW", "rma_settlement_approve": "RW", "rma_stock_adjust": "RW",
+            "rma_reprint": "RW",
+        },
+    },
+    "content-editor": {
+        "name": "Content Editor",
+        "description": "Website, blog and media, plus product descriptions and images. Nothing that touches money or stock.",
+        "grants": {"dashboard": "R", "website": "RCWPE", "blog": "RCWPE", "media": "RCWPE", "catalog": "RCWP"},
+    },
+    "pos-cashier": {
+        "name": "POS Cashier",
+        "description": "Sells at the till and registers walk-in customers. Reads the catalog and stock; no reports, no returns approval.",
+        "grants": {"pos": "RCW", "customers": "RC", "catalog": "R", "inventory": "R", "rma": "R"},
+    },
+    "auditor": {
+        "name": "Auditor",
+        "description": "Reads and exports everything the business records — including finance and HR — and changes nothing.",
+        "grants": {m: "RE" for m in BUSINESS_MODULES} | {"workspace": "R"},
+    },
+}
+
+_ACTION_LETTERS = {
+    "R": "can_read",
+    "C": "can_create",
+    "W": "can_write",
+    "D": "can_delete",
+    "P": "can_publish",
+    "E": "can_export",
+    "A": "can_approve",
+}
+
+
+def role_templates() -> list[dict]:
+    return [
+        {
+            "id": tid,
+            "name": t["name"],
+            "description": t["description"],
+            "permissions": [
+                {"module": m, **template_flags(tid, m)} for m in RBAC_MODULES if t["grants"].get(m)
+            ],
+        }
+        for tid, t in _ROLE_TEMPLATES.items()
+    ]
+
+
+def template_flags(template_id: str, module: str) -> dict[str, bool]:
+    letters = _ROLE_TEMPLATES[template_id]["grants"].get(module, "")
+    flags = {key: False for key in _ACTION_LETTERS.values()}
+    for letter in letters:
+        flags[_ACTION_LETTERS[letter]] = True
+    if any(flags.values()):
+        flags["can_read"] = True  # every other box needs Read
+    return flags
 
 
 def _empty_matrix() -> dict[str, set[str]]:
@@ -173,7 +339,18 @@ def user_role_rows(db: Session, user_id: str) -> list[AuthRole]:
 
 
 def user_permissions(db: Session, user: AuthUser) -> dict[str, set[str]]:
-    """Union of permissions across all assigned roles. System Manager → all."""
+    """What the member may do: their roles, then their own allow / deny overrides (not for a System Manager), then only the
+    modules the company has (services/core/access_scope.py)."""
+    from app.services.core.access_scope import apply_user_overrides, restrict_to_company_modules
+
+    matrix, system_manager = _role_permissions(db, user)
+    if not system_manager:
+        matrix = apply_user_overrides(db, user, matrix)
+    return restrict_to_company_modules(db, user.company_id, matrix)
+
+
+def _role_permissions(db: Session, user: AuthUser) -> tuple[dict[str, set[str]], bool]:
+    """Union of permissions across all assigned roles, and whether one of them is System Manager (→ all)."""
     roles = user_role_rows(db, user.id)
     if not roles:
         # Fallback: derive from legacy AuthUser.role until backfill runs
@@ -183,12 +360,12 @@ def user_permissions(db: Session, user: AuthUser) -> dict[str, set[str]]:
             roles = [role]
 
     if any(r.slug == SYSTEM_MANAGER_SLUG for r in roles):
-        return _full_matrix()
+        return _full_matrix(), True
 
     matrix = _empty_matrix()
     role_ids = [r.id for r in roles]
     if not role_ids:
-        return matrix
+        return matrix, False
 
     rows = (
         db.query(AuthRolePermission)
@@ -212,7 +389,7 @@ def user_permissions(db: Session, user: AuthUser) -> dict[str, set[str]]:
             matrix[row.module].add("export")
         if getattr(row, "can_approve", False):
             matrix[row.module].add("approve")
-    return matrix
+    return matrix, False
 
 
 def permissions_for_api(db: Session, user: AuthUser) -> dict[str, list[str]]:
@@ -308,9 +485,10 @@ def default_permission_flags(slug: str, module: str) -> dict[str, bool]:
             return {"can_read": module == "workspace", "can_create": False, "can_write": False, "can_delete": False, "can_publish": False, "can_export": False, "can_approve": False}
         return {"can_read": True, "can_create": True, "can_write": True, "can_delete": False, "can_publish": True, "can_export": True, "can_approve": False}
 
-    # Custom role default: read-only business modules
+    # Custom role default: read-only on the business modules, except the two that hold money and personal data — a role gets
+    # Finance or HR access only when someone ticks it.
     return {
-        "can_read": module in BUSINESS_MODULES,
+        "can_read": module in BUSINESS_MODULES and module not in {"finance", "hrm"},
         "can_create": False,
         "can_write": False,
         "can_delete": False,
@@ -318,6 +496,15 @@ def default_permission_flags(slug: str, module: str) -> dict[str, bool]:
         "can_export": False,
         "can_approve": False,
     }
+
+
+def apply_role_template(db: Session, role: AuthRole, template_id: str) -> None:
+    """Fill a new role's matrix from one of the job-based templates."""
+    if template_id not in _ROLE_TEMPLATES:
+        raise ValueError("Unknown role template")
+    for module in RBAC_MODULES:
+        db.add(AuthRolePermission(role_id=role.id, module=module, **template_flags(template_id, module)))
+    db.flush()
 
 
 def ensure_role_permissions(db: Session, role: AuthRole) -> None:

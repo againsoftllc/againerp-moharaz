@@ -66,6 +66,7 @@ from app.schemas.commerce_customer import (
     WalletRechargeRequest,
 )
 from app.security import new_session_token
+from app.services.core.access_scope import pick_payment_account
 from app.services.customer import customer_ledger_service
 from app.services.ecommerce.checkout_constants import PAYMENT_METHODS
 from app.services.ecommerce.storefront_customer_auth_service import (
@@ -686,6 +687,8 @@ def _to_read(
         wallet_balance=row.wallet_balance,
         opening_balance=getattr(row, "opening_balance", None) or Decimal("0"),
         credit_limit=getattr(row, "credit_limit", None) or Decimal("0"),
+        rma_locked=bool(getattr(row, "rma_locked", False)),
+        rma_lock_reason=getattr(row, "rma_lock_reason", None),
         sales_locked=bool(getattr(row, "sales_locked", False)),
         sales_lock_reason=getattr(row, "sales_lock_reason", None),
         trade_mode=getattr(row, "trade_mode", None) or "both",
@@ -757,6 +760,8 @@ def _field_label(key: str) -> str:
         "profile_image": "Profile photo",
         "opening_balance": "Opening balance",
         "credit_limit": "Credit limit",
+        "rma_locked": "RMA locked",
+        "rma_lock_reason": "RMA lock reason",
         "sales_locked": "Sales locked",
         "sales_lock_reason": "Sales lock reason",
         "trade_mode": "Sells on",
@@ -796,6 +801,8 @@ def _summarize_customer_changes(
         "credit_limit",
         "payment_terms",
         "payment_schedule",
+        "rma_locked",
+        "rma_lock_reason",
         "sales_locked",
         "sales_lock_reason",
         "trade_mode",
@@ -1422,9 +1429,11 @@ def record_customer_ledger_payment(
     customer_id: str,
     payload: CustomerPaymentCreate,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("customers", "write")),
+    user: AuthUser = Depends(require_permission("customers", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> CustomerPaymentResponse:
+    if payload.amount > 0:
+        payload.payment_account_id = pick_payment_account(db, user, payload.payment_account_id)
     payment = customer_ledger_service.record_payment(
         db, customer_id, payload, company_id=company_id
     )

@@ -60,6 +60,7 @@ from app.services.inventory.constants import (
     RESERVATION_TYPES,
 )
 from app.services.inventory.stock_level_service import movements_to_read, to_read_many
+from app.services.inventory.stock_status import compute_stock_status
 from app.services.inventory.stock_movement_service import movement_effect
 
 # Rows that never touch on-hand: holds and reservations (same set used by the
@@ -124,12 +125,12 @@ def _stock_query(
         query = query.filter(InventoryStockLevel.warehouse_id == warehouse_id)
     if status:
         query = query.filter(InventoryStockLevel.status == status)
-    if q:
+    if q and q.strip():
         like = f"%{q.strip()}%"
         query = query.filter(
             (InventoryStockLevel.sku.ilike(like)) | (InventoryStockLevel.name.ilike(like))
         )
-    return query.order_by(InventoryStockLevel.name.asc()).limit(REPORT_ROW_CAP).all()
+    return query
 
 
 def on_hand_report(
@@ -139,11 +140,30 @@ def on_hand_report(
     warehouse_id: Optional[str] = None,
     status: Optional[str] = None,
     q: Optional[str] = None,
+    page: Optional[int] = None,
+    per_page: Optional[int] = None,
 ) -> tuple[list[OnHandLine], OnHandMeta]:
-    rows = _stock_query(
-        db, company_id=company_id, warehouse_id=warehouse_id, status=status, q=q
-    )
-    reads = to_read_many(db, rows)
+    """On-hand lines plus totals. The totals are summed in SQL over every line the filters match, so they stay right
+    when the lines themselves are paged (`page`/`per_page`)."""
+    query = _stock_query(db, company_id=company_id, warehouse_id=warehouse_id, status=status, q=q)
+
+    on_hand_col = InventoryStockLevel.on_hand
+    totals = query.with_entities(
+        func.count(InventoryStockLevel.id),
+        func.coalesce(func.sum(on_hand_col), 0),
+        func.coalesce(func.sum(InventoryStockLevel.reserved), 0),
+        func.coalesce(func.sum(on_hand_col * InventoryStockLevel.unit_cost), 0),
+        func.coalesce(func.sum(case((InventoryStockLevel.status == "low_stock", 1), else_=0)), 0),
+        func.coalesce(func.sum(case((InventoryStockLevel.status == "out_of_stock", 1), else_=0)), 0),
+    ).one()
+    count, total_units, reserved_units, total_value, low_stock, out_of_stock = totals
+
+    ordered = query.order_by(InventoryStockLevel.name.asc(), InventoryStockLevel.id.asc())
+    if per_page:
+        per_page = max(1, min(per_page, 200))
+        ordered = ordered.offset((max(page or 1, 1) - 1) * per_page).limit(per_page)
+    # no per_page = every matching line (the CSV export); the grid always pages
+    reads = to_read_many(db, ordered.all())
     lines = [
         OnHandLine(
             id=row.id,
@@ -162,13 +182,13 @@ def on_hand_report(
         for row in reads
     ]
     meta = OnHandMeta(
-        count=len(lines),
-        total_units=sum(line.on_hand for line in lines),
-        total_value=sum((line.stock_value for line in lines), Decimal("0")),
-        reserved_units=sum(line.reserved for line in lines),
-        available_units=sum(line.available for line in lines),
-        low_stock_count=sum(1 for line in lines if line.status == "low_stock"),
-        out_of_stock_count=sum(1 for line in lines if line.status == "out_of_stock"),
+        count=int(count or 0),
+        total_units=int(total_units or 0),
+        total_value=_money(total_value),
+        reserved_units=int(reserved_units or 0),
+        available_units=int(total_units or 0) - int(reserved_units or 0),
+        low_stock_count=int(low_stock or 0),
+        out_of_stock_count=int(out_of_stock or 0),
     )
     return lines, meta
 
@@ -365,7 +385,15 @@ def movement_summary_report(
     warehouse_id: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
+    movement_type: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50,
 ) -> tuple[list[MovementSummaryLine], list[MovementTypeBucket], MovementSummaryMeta]:
+    """One page of movement lines, newest first. The in/out totals and the per-type buckets are summed in SQL over
+    every movement the filters match, so they stay right however the lines are paged."""
+    from app.models.item import Item
+
     day = _movement_day_expr()
     query = db.query(InventoryStockMovement).filter(
         InventoryStockMovement.company_id == company_id
@@ -376,45 +404,60 @@ def movement_summary_report(
         query = query.filter(day >= date_from)
     if date_to:
         query = query.filter(day <= date_to)
-
-    total = query.count()
-    rows = (
-        query.order_by(InventoryStockMovement.created_at.desc())
-        .limit(REPORT_ROW_CAP)
-        .all()
-    )
-    reads = movements_to_read(db, rows)
+    if movement_type:
+        query = query.filter(InventoryStockMovement.movement_type == movement_type)
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        matching_items = db.query(Item.id).filter((Item.sku.ilike(like)) | (Item.name.ilike(like)))
+        query = query.filter(
+            (InventoryStockMovement.reference.ilike(like))
+            | (InventoryStockMovement.item_id.in_(matching_items.scalar_subquery()))
+        )
 
     buckets: dict[str, MovementTypeBucket] = {}
     qty_in = 0
     qty_out = 0
-    lines: list[MovementSummaryLine] = []
+    total = 0
+    grouped = query.with_entities(
+        InventoryStockMovement.movement_type,
+        func.count(InventoryStockMovement.id),
+        func.coalesce(func.sum(func.abs(InventoryStockMovement.quantity)), 0),
+    ).group_by(InventoryStockMovement.movement_type)
+    for kind, count, qty_sum in grouped.all():
+        try:
+            effect = movement_effect(kind)
+        except Exception:
+            effect = "other"
+        qty_sum = int(qty_sum or 0)
+        bucket = MovementTypeBucket(
+            movement_type=kind,
+            movement_label=_label(kind),
+            count=int(count or 0),
+            qty_in=qty_sum if effect == "on_hand_in" else 0,
+            qty_out=qty_sum if effect == "on_hand_out" else 0,
+        )
+        buckets[kind] = bucket
+        total += bucket.count
+        qty_in += bucket.qty_in
+        qty_out += bucket.qty_out
 
+    per_page = max(1, min(per_page, 10000))
+    page = max(page, 1)
+    rows = (
+        query.order_by(InventoryStockMovement.created_at.desc(), InventoryStockMovement.id.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+    reads = movements_to_read(db, rows)
+
+    lines: list[MovementSummaryLine] = []
     for row, read in zip(rows, reads):
         kind = row.movement_type
         try:
             effect = movement_effect(kind)
         except Exception:
             effect = "other"
-        qty = abs(int(row.quantity or 0))
-        bucket = buckets.get(kind)
-        if bucket is None:
-            bucket = MovementTypeBucket(
-                movement_type=kind,
-                movement_label=_label(kind),
-                count=0,
-                qty_in=0,
-                qty_out=0,
-            )
-            buckets[kind] = bucket
-        bucket.count += 1
-        if effect == "on_hand_in":
-            bucket.qty_in += qty
-            qty_in += qty
-        elif effect == "on_hand_out":
-            bucket.qty_out += qty
-            qty_out += qty
-
         moved_on = row.posting_date or row.document_date
         if moved_on is None and row.created_at:
             moved_on = row.created_at.date() if isinstance(row.created_at, datetime) else None
@@ -428,6 +471,7 @@ def movement_summary_report(
                 effect=effect,
                 sku=read.sku,
                 name=read.name,
+                thumbnail=read.thumbnail,
                 warehouse_name=read.warehouse_name,
                 quantity=int(row.quantity or 0),
                 qty_before=int(row.qty_before or 0),
@@ -439,7 +483,7 @@ def movement_summary_report(
 
     by_type = sorted(buckets.values(), key=lambda b: (-(b.qty_in + b.qty_out), b.movement_label))
     meta = MovementSummaryMeta(
-        count=len(lines),
+        count=total,
         total=total,
         qty_in=qty_in,
         qty_out=qty_out,
@@ -732,6 +776,7 @@ def product_report_list(
     search: Optional[str] = None,
     category_id: Optional[str] = None,
     warehouse_id: Optional[str] = None,
+    status: Optional[str] = None,
     sort_by: str = "name",
     sort_dir: str = "asc",
     page: int = 1,
@@ -759,6 +804,33 @@ def product_report_list(
         )
     if category_id:
         base = base.filter(CatalogProduct.category_id == category_id)
+    if status in ("in_stock", "low_stock", "out_of_stock", "overstock"):
+        # status is judged on the per-product totals (see compute_stock_status), so filter on the same sums
+        totals = db.query(
+            InventoryStockLevel.item_id.label("item_id"),
+            func.coalesce(func.sum(InventoryStockLevel.on_hand), 0).label("on_hand"),
+            func.coalesce(func.sum(InventoryStockLevel.min_qty), 0).label("min_qty"),
+            func.coalesce(func.sum(InventoryStockLevel.max_qty), 0).label("max_qty"),
+        )
+        if warehouse_id:
+            totals = totals.filter(InventoryStockLevel.warehouse_id == warehouse_id)
+        totals = totals.group_by(InventoryStockLevel.item_id).subquery()
+        on_hand_sum = func.coalesce(totals.c.on_hand, 0)
+        base = base.outerjoin(totals, totals.c.item_id == CatalogProduct.item_id)
+        if status == "out_of_stock":
+            base = base.filter(on_hand_sum <= 0)
+        elif status == "low_stock":
+            base = base.filter(on_hand_sum > 0, on_hand_sum < totals.c.min_qty)
+        elif status == "overstock":
+            base = base.filter(
+                on_hand_sum > 0, on_hand_sum >= totals.c.min_qty, totals.c.max_qty > 0, on_hand_sum > totals.c.max_qty
+            )
+        else:
+            base = base.filter(
+                on_hand_sum > 0,
+                on_hand_sum >= totals.c.min_qty,
+                (totals.c.max_qty <= 0) | (on_hand_sum <= totals.c.max_qty),
+            )
 
     sort_column = {
         "name": CatalogProduct.name,
@@ -779,17 +851,30 @@ def product_report_list(
     item_id_set = set(item_ids)
 
     # ---- stock now (grouped) --------------------------------------------------
+    # Same figures the Stock page shows per line, summed per product: In Stock, In Transit, value at each
+    # line's own unit cost, and the reorder bounds the status is judged against.
     stock_q = db.query(
         InventoryStockLevel.item_id,
         func.coalesce(func.sum(InventoryStockLevel.on_hand), 0),
         func.coalesce(func.sum(InventoryStockLevel.reserved), 0),
+        func.coalesce(func.sum(InventoryStockLevel.incoming), 0),
+        func.coalesce(func.sum(InventoryStockLevel.min_qty), 0),
+        func.coalesce(func.sum(InventoryStockLevel.max_qty), 0),
+        func.coalesce(func.sum(InventoryStockLevel.on_hand * InventoryStockLevel.unit_cost), 0),
+        func.max(InventoryStockLevel.updated_at),
     ).filter(InventoryStockLevel.item_id.in_(item_id_set))
     if warehouse_id:
         stock_q = stock_q.filter(InventoryStockLevel.warehouse_id == warehouse_id)
     stock_by_item = {
-        item_id: (int(on_hand or 0), int(reserved or 0))
-        for item_id, on_hand, reserved in stock_q.group_by(InventoryStockLevel.item_id).all()
+        item_id: (int(on_hand or 0), int(reserved or 0), int(incoming or 0), int(min_qty or 0), int(max_qty or 0), _money(value), updated)
+        for item_id, on_hand, reserved, incoming, min_qty, max_qty, value, updated in stock_q.group_by(
+            InventoryStockLevel.item_id
+        ).all()
     }
+    warehouse_label = "All warehouses"
+    if warehouse_id:
+        warehouse = db.get(InventoryWarehouse, warehouse_id)
+        warehouse_label = warehouse.name if warehouse else warehouse_label
 
     # ---- purchased (lifetime, from the movement ledger) ------------------------
     purchase_q = (
@@ -883,7 +968,9 @@ def product_report_list(
         item_id = product.item_id
         cost = _money(product.purchase_price) if product.purchase_price is not None else Decimal("0")
         sale = _money(product.price)
-        on_hand, reserved = stock_by_item.get(item_id, (0, 0))
+        on_hand, reserved, incoming, min_qty, max_qty, level_value, updated = stock_by_item.get(
+            item_id, (0, 0, 0, 0, 0, Decimal("0"), None)
+        )
         purchased_qty, purchased_value = purchased_by_item.get(item_id, (0, Decimal("0")))
         sold_qty, sales_revenue = sales_by_item.get(item_id, (0, Decimal("0")))
         return_qty, return_value = returns_by_item.get(item_id, (0, Decimal("0")))
@@ -892,7 +979,8 @@ def product_report_list(
         cogs = _money(Decimal(net_sold) * cost)
         profit = _money(net_revenue - cogs)
         margin = _money(profit / net_revenue * 100) if net_revenue > 0 else None
-        stock_value = _money(Decimal(on_hand) * cost)
+        stock_value = level_value
+        unit_cost = _money(level_value / on_hand) if on_hand > 0 else cost
         supplier = suppliers.get(item_id)
         rows.append(
             ProductReportRow(
@@ -909,7 +997,13 @@ def product_report_list(
                 on_hand=on_hand,
                 reserved=reserved,
                 available=on_hand - reserved,
+                incoming=incoming,
+                unit_cost=unit_cost,
                 stock_value=stock_value,
+                status=compute_stock_status(on_hand, min_qty, max_qty),
+                warehouse_name=warehouse_label,
+                thumbnail=product.thumbnail,
+                updated_at=updated,
                 purchased_qty=purchased_qty,
                 purchased_value=purchased_value,
                 sold_qty=sold_qty,

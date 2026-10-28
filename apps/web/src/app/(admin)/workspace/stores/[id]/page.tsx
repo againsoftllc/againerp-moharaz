@@ -7,5 +7,5 @@ type Props = {
 /** Legacy URL — store settings now live under Sites. */
 export default async function WorkspaceStoreIdRedirect({ params }: Props) {
   const { id } = await params;
-  redirect(`/workspace/sites/${id}`);
+  redirect(`/website/configuration/sites/${id}`);
 }

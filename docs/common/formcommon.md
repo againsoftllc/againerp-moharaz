@@ -6,6 +6,8 @@ Reference implementations
 - Edit / add product: `apps/web/src/components/inventory/inventory-product-quick-add.tsx`
 - Sales order → **Payment** (register payment), **Shipping**, **Others** and the **Return details** group of the Returns tab: `apps/web/src/components/sales/sales-order-form-drawer.tsx`. The Order Lines and Return Lines *tables* keep their own cell inputs; only the form groups around them use this standard.
 - Partner (supplier / customer) Profile tab and the Payments tab's receive-payment form: `apps/web/src/components/customers/partner-form-sheet.tsx` (`TextRow`, `AddressFields`), `partner-payments-panel.tsx`
+- Company setup page (not a drawer): `apps/web/src/components/workspace/company-setup-panel.tsx` — control bar (Save / Discard), a white sheet on the grey form background with the company name as the title, logo top right, stat boxes, then Odoo notebook tabs (General Information · Tax & Registration · Localization · Business Locations · Invoices); each tab is `TabFields` + `SetupBlock` (group title, half or whole width by the sheet's own width) + `Field` (label left, underline control)
+- Roles (access rights): `apps/web/src/components/workspace/workspace-roles-panel.tsx` — role list left; title band with stat boxes; Access Rights (rows grouped by area, a level select plus the seven boxes) · Users · Access Review (plain-words findings); new roles start from job templates served by `GET /api/v1/auth/roles/templates` (`ROLE_TEMPLATES` in `services/rbac.py`)
 - Read-only: `apps/web/src/components/products/product-drawer/` (`FactList`), RMA detail (`Fact` / `Section`)
 
 ---

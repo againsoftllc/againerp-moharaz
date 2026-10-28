@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps.auth import require_permission, get_current_company_id
 from app.models.auth_user import AuthUser
+from app.services.core.access_scope import assert_document_warehouse, assert_warehouse_access, warehouse_scope
 from app.models.inventory_stock_count import InventoryStockCount
 from app.models.inventory_warehouse import InventoryWarehouse
 from app.schemas.inventory.stock_count import (
@@ -45,13 +46,14 @@ def _read(db: Session, count: InventoryStockCount) -> StockCountRead:
 @router.get("", response_model=StockCountListResponse)
 def list_counts(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("inventory", "read")),
+    user: AuthUser = Depends(require_permission("inventory", "read")),
     company_id: str = Depends(get_current_company_id),
     warehouse_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
 ) -> StockCountListResponse:
+    assert_warehouse_access(db, user, warehouse_id)
     rows = stock_count_service.list_counts(
-        db, company_id=company_id, warehouse_id=warehouse_id, status=status
+        db, company_id=company_id, warehouse_id=warehouse_id, status=status, warehouse_ids=warehouse_scope(db, user)
     )
     data = [_read(db, row) for row in rows]
     return StockCountListResponse(data=data, meta=StockCountListMeta(count=len(data)))
@@ -75,6 +77,7 @@ def create_count(
     user: AuthUser = Depends(require_permission("inventory", "create")),
     company_id: str = Depends(get_current_company_id),
 ) -> StockCountResponse:
+    assert_warehouse_access(db, user, payload.warehouse_id)
     row = stock_count_service.create_count(
         db,
         company_id=company_id,
@@ -91,9 +94,10 @@ def update_line(
     line_id: str,
     payload: StockCountLineUpdate,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("inventory", "write")),
+    user: AuthUser = Depends(require_permission("inventory", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> StockCountResponse:
+    assert_document_warehouse(db, user, InventoryStockCount, count_id, "warehouse_id")
     stock_count_service.update_line_counted_qty(
         db,
         count_id,
@@ -113,6 +117,7 @@ def post_count(
     user: AuthUser = Depends(require_permission("inventory", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> StockCountResponse:
+    assert_document_warehouse(db, user, InventoryStockCount, count_id, "warehouse_id")
     row = stock_count_service.post_count(db, count_id, company_id=company_id, actor_id=user.id)
     return StockCountResponse(data=_read(db, row))
 
@@ -121,9 +126,10 @@ def post_count(
 def cancel_count(
     count_id: str,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("inventory", "write")),
+    user: AuthUser = Depends(require_permission("inventory", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> StockCountResponse:
+    assert_document_warehouse(db, user, InventoryStockCount, count_id, "warehouse_id")
     row = stock_count_service.cancel_count(db, count_id, company_id=company_id)
     return StockCountResponse(data=_read(db, row))
 

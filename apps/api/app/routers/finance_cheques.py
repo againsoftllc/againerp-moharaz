@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -14,6 +15,9 @@ from app.models.finance import FinanceCheque, FinancePayable, FinancePaymentAcco
 from app.routers.finance import _journal_entry_read, _journal_line_read
 from app.schemas.finance import (
     FinanceChequeActionRequest,
+    FinanceChequeBulkActionRequest,
+    FinanceChequeBulkResponse,
+    FinanceChequeBulkResult,
     FinanceChequeCreate,
     FinanceChequeDetailRead,
     FinanceChequeEventRead,
@@ -33,7 +37,7 @@ def _actor(user: AuthUser) -> str:
     return getattr(user, "email", None) or str(user.id)
 
 
-def _read_data(db: Session, cheque: FinanceCheque) -> dict:
+def _read_data(db: Session, cheque: FinanceCheque, stats: Optional[dict] = None) -> dict:
     if cheque.party_type == "supplier":
         party = db.get(CommerceSupplier, cheque.party_id)
     else:
@@ -53,24 +57,16 @@ def _read_data(db: Session, cheque: FinanceCheque) -> dict:
         payment_account_name=account.name if account else None,
         available_actions=available_actions(cheque.status),
     )
+    if stats is None:
+        stats = ChequeService(db).event_stats([cheque.id]).get(cheque.id, {})
+    data.update(stats)
     return data
 
 
 def _detail(db: Session, service: ChequeService, cheque: FinanceCheque) -> FinanceChequeDetailRead:
     fin = FinanceService(db)
-    entry_ids = [
-        eid
-        for eid in (
-            cheque.receipt_journal_entry_id,
-            cheque.deposit_journal_entry_id,
-            cheque.clearance_journal_entry_id,
-            cheque.reversal_journal_entry_id,
-            cheque.bank_charge_journal_entry_id,
-        )
-        if eid
-    ]
     entries = []
-    for eid in entry_ids:
+    for eid in service.journal_entry_ids(cheque):
         entry = fin.get_journal_entry(eid, company_id=cheque.company_id)
         lines = [_journal_line_read(db, line) for line in fin.get_journal_lines(eid)]
         entries.append(_journal_entry_read(entry, lines).model_dump())
@@ -88,15 +84,29 @@ def list_cheques(
     direction: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
     party_id: Optional[str] = Query(default=None),
+    payment_account_id: Optional[str] = Query(default=None),
+    date_from: Optional[date] = Query(default=None),
+    date_to: Optional[date] = Query(default=None),
+    q: Optional[str] = Query(default=None, max_length=64),
     limit: int = Query(default=200, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> FinanceChequeListResponse:
     service = ChequeService(db)
     rows, total = service.list(
-        company_id=company_id, direction=direction, status=status, party_id=party_id, limit=limit, offset=offset,
+        company_id=company_id,
+        direction=direction,
+        status=status,
+        party_id=party_id,
+        payment_account_id=payment_account_id,
+        date_from=date_from,
+        date_to=date_to,
+        search=q,
+        limit=limit,
+        offset=offset,
     )
+    stats = service.event_stats([row.id for row in rows])
     return FinanceChequeListResponse(
-        data=[FinanceChequeRead(**_read_data(db, row)) for row in rows],
+        data=[FinanceChequeRead(**_read_data(db, row, stats.get(row.id, {}))) for row in rows],
         meta=FinanceListMeta(total=total, limit=limit, offset=offset),
     )
 
@@ -126,6 +136,30 @@ def create_cheque(
     db.commit()
     db.refresh(cheque)
     return FinanceChequeResponse(data=_detail(db, service, cheque))
+
+
+@router.post("/bulk-actions", response_model=FinanceChequeBulkResponse)
+def cheque_bulk_action(
+    payload: FinanceChequeBulkActionRequest,
+    db: Session = Depends(get_db),
+    user: AuthUser = Depends(require_permission("finance", "write")),
+    company_id: str = Depends(get_current_company_id),
+) -> FinanceChequeBulkResponse:
+    """Cheque Treatment — one status move for many cheques, each reported on its own."""
+    results = ChequeService(db).apply_bulk(
+        payload.cheque_ids,
+        payload.action,
+        company_id=company_id,
+        action_date=payload.action_date,
+        payment_account_id=payload.payment_account_id,
+        note=payload.note,
+        actor=_actor(user),
+    )
+    db.commit()
+    ok = sum(1 for r in results if r["ok"])
+    return FinanceChequeBulkResponse(
+        data=[FinanceChequeBulkResult(**r) for r in results], succeeded=ok, failed=len(results) - ok,
+    )
 
 
 @router.get("/{cheque_id}", response_model=FinanceChequeResponse)

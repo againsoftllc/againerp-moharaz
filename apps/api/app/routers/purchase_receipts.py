@@ -17,6 +17,9 @@ from app.schemas.purchase.order import (
     PurchaseReceiptLineCorrectionRead,
     PurchaseReceiptResponse,
 )
+from app.models.purchase_order import PurchaseOrder
+from app.models.purchase_receipt import PurchaseReceipt
+from app.services.core.access_scope import assert_document_warehouse, warehouse_scope
 from app.services.finance.finance_service import FinanceService
 from app.services.purchase import purchase_read_service as reads
 from app.services.purchase.purchase_order_service import (
@@ -30,7 +33,7 @@ router = APIRouter(prefix="/purchase/receipts", tags=["purchase-receipts"])
 @router.get("", response_model=PurchaseReceiptListResponse)
 def list_receipts(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("purchase", "read")),
+    user: AuthUser = Depends(require_permission("purchase", "read")),
     company_id: str = Depends(get_current_company_id),
     purchase_order_id: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None, pattern="^(draft|posted|cancelled)$"),
@@ -38,6 +41,7 @@ def list_receipts(
     per_page: int = Query(default=50, ge=1, le=500),
 ) -> PurchaseReceiptListResponse:
     rows, total = PurchaseOrderService(db).list_receipts(
+        warehouse_ids=warehouse_scope(db, user),
         company_id=company_id,
         purchase_order_id=purchase_order_id,
         status=status,
@@ -70,6 +74,7 @@ def create_receipt(
     user: AuthUser = Depends(require_permission("purchase", "create")),
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseReceiptResponse:
+    assert_document_warehouse(db, user, PurchaseOrder, payload.purchase_order_id, "warehouse_id")
     receipt = PurchaseOrderService(db, company_id=company_id).create_receipt(
         payload.purchase_order_id,
         [
@@ -100,6 +105,7 @@ def post_receipt(
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseReceiptResponse:
     """Posting moves the goods into stock — the service writes inventory movements."""
+    assert_document_warehouse(db, user, PurchaseReceipt, receipt_id, "warehouse_id")  # only the member's warehouses
     receipt = PurchaseOrderService(db, company_id=company_id).post_receipt(receipt_id, actor_id=user.id)
     db.commit()
     db.refresh(receipt)
@@ -113,6 +119,7 @@ def cancel_receipt(
     user: AuthUser = Depends(require_permission("purchase", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> PurchaseReceiptResponse:
+    assert_document_warehouse(db, user, PurchaseReceipt, receipt_id, "warehouse_id")  # only the member's warehouses
     receipt = PurchaseOrderService(db, company_id=company_id).cancel_receipt(receipt_id, actor_id=user.id)
     db.commit()
     db.refresh(receipt)
@@ -135,6 +142,7 @@ def correct_receipt_line(
     receipt. Every correction is written to a permanent audit trail (see
     GET .../corrections) and the linked Finance payable is adjusted by the
     same value delta so AP never drifts from the corrected stock."""
+    assert_document_warehouse(db, user, PurchaseReceipt, receipt_id, "warehouse_id")  # only the member's warehouses
     svc = PurchaseOrderService(db, company_id=company_id)
     _, audit, delta = svc.correct_receipt_line(
         receipt_id,

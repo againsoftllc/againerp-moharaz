@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import type { ICellRendererParams, ValueFormatterParams, ValueGetterParams } from "ag-grid-community";
@@ -10,6 +10,16 @@ import { Input } from "@/components/ui/input";
 import { ListGridOpenFallback } from "@/components/shared/list-grid-open-fallback";
 import { GridChipBadge } from "@/components/shared/grid-chip-badge";
 import type { InventoryReportGridColumn } from "@/components/inventory/inventory-report-grid";
+import type {
+  ProductReportGridFilters,
+  ProductReportGridHandle,
+  ProductReportRow,
+} from "@/components/inventory/product-report-grid";
+import type {
+  MovementReportGridFilters,
+  MovementReportGridHandle,
+} from "@/components/inventory/movement-report-grid";
+import { InventoryGridHeader } from "@/components/inventory/inventory-grid-header";
 import {
   InventoryReportToolbar,
   NUMERIC_CELL,
@@ -23,12 +33,10 @@ import {
   fetchMovementSummaryReport,
   fetchOnHandReport,
   fetchProductReportList,
-  type ApiProductReportRow,
   fetchProfitBreakdownReport,
   fetchProfitLossReport,
   fetchSupplierValuationReport,
   fetchValuationReport,
-  type ApiMovementSummaryLine,
   type ApiMovementSummaryReport,
   type ApiOnHandLine,
   type ApiOnHandReport,
@@ -41,6 +49,7 @@ import {
   type ProfitBreakdownGroup,
 } from "@/lib/api/inventory";
 import { useInventoryWarehouses } from "@/lib/api/use-inventory";
+import { useWarehouseAccess } from "@/lib/auth/warehouse-access";
 import { INVENTORY_REPORTS } from "@/lib/inventory/inventory-nav";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +67,24 @@ const ProductDrawer = dynamic(
 const InventoryReportGrid = dynamic(
   () =>
     import("@/components/inventory/inventory-report-grid").then((m) => m.InventoryReportGrid),
+  {
+    ssr: false,
+    loading: () => <ListGridOpenFallback label="Opening report…" />,
+  },
+);
+
+// The product report is laid out like the Stock page (same toolbar, settings menu, columns and paging).
+const ProductReportGrid = dynamic(
+  () => import("@/components/inventory/product-report-grid").then((m) => m.ProductReportGrid),
+  {
+    ssr: false,
+    loading: () => <ListGridOpenFallback label="Opening report…" />,
+  },
+);
+
+// The movements report is laid out like the Stock page too.
+const MovementReportGrid = dynamic(
+  () => import("@/components/inventory/movement-report-grid").then((m) => m.MovementReportGrid),
   {
     ssr: false,
     loading: () => <ListGridOpenFallback label="Opening report…" />,
@@ -393,7 +420,7 @@ const SUPPLIER_COLUMNS: InventoryReportGridColumn<ApiValuationSupplierGroup>[] =
  * datatable — one row per catalog product, lifetime stock/purchase/sales/profit
  * figures (the same numbers `product_report` computes per item). Click a row to
  * drill into that product's dated movement ledger below. */
-type ProductReportListRow = ApiProductReportRow & { id: string };
+type ProductReportListRow = ProductReportRow;
 type ProfitBreakdownGridRow = ApiProfitBreakdownRow & { id: string };
 
 const PL_BREAKDOWN_TABS: { id: ProfitBreakdownGroup; label: string; column: string }[] = [
@@ -458,200 +485,6 @@ function plBreakdownColumns(columnLabel: string): InventoryReportGridColumn<Prof
   ];
 }
 
-const PRODUCT_REPORT_LIST_COLUMNS: InventoryReportGridColumn<ProductReportListRow>[] = [
-  { colId: "name", headerName: "Product", field: "name", flex: 2, minWidth: 200 },
-  {
-    colId: "sku",
-    headerName: "SKU",
-    field: "sku",
-    width: 130,
-    minWidth: 110,
-    cellClass: "font-mono text-[11px]",
-  },
-  { colId: "category", headerName: "Category", field: "category", width: 130, minWidth: 100, valueFormatter: (p) => p.value || "—" },
-  {
-    colId: "supplier_name",
-    headerName: "Supplier",
-    field: "supplier_name",
-    width: 150,
-    minWidth: 110,
-    valueFormatter: (p) => p.value || "—",
-  },
-  {
-    colId: "on_hand",
-    headerName: "On hand",
-    field: "on_hand",
-    width: 100,
-    minWidth: 90,
-    type: "numericColumn",
-    headerClass: "ag-right-aligned-header",
-    cellClass: (p) => cn(NUMERIC_CELL, Number(p.value) < 0 && "text-destructive"),
-    valueFormatter: (p) => qty(p.value),
-  },
-  {
-    colId: "available",
-    headerName: "Available",
-    field: "available",
-    width: 100,
-    minWidth: 90,
-    type: "numericColumn",
-    headerClass: "ag-right-aligned-header",
-    cellClass: NUMERIC_CELL,
-    valueFormatter: (p) => qty(p.value),
-  },
-  {
-    colId: "stock_value",
-    headerName: "Stock value",
-    field: "stock_value",
-    width: 120,
-    minWidth: 100,
-    type: "numericColumn",
-    headerClass: "ag-right-aligned-header",
-    cellClass: NUMERIC_CELL,
-    valueFormatter: (p) => taka(p.value),
-  },
-  {
-    colId: "purchased_qty",
-    headerName: "Purchased",
-    field: "purchased_qty",
-    width: 100,
-    minWidth: 90,
-    type: "numericColumn",
-    headerClass: "ag-right-aligned-header",
-    cellClass: NUMERIC_CELL,
-    valueFormatter: (p) => qty(p.value),
-  },
-  {
-    colId: "sold_qty",
-    headerName: "Sold",
-    field: "sold_qty",
-    width: 90,
-    minWidth: 80,
-    type: "numericColumn",
-    headerClass: "ag-right-aligned-header",
-    cellClass: NUMERIC_CELL,
-    valueFormatter: (p) => qty(p.value),
-  },
-  {
-    colId: "sales_revenue",
-    headerName: "Sales",
-    field: "sales_revenue",
-    width: 120,
-    minWidth: 100,
-    type: "numericColumn",
-    headerClass: "ag-right-aligned-header",
-    cellClass: NUMERIC_CELL,
-    valueFormatter: (p) => taka(p.value),
-  },
-  {
-    colId: "profit",
-    headerName: "Profit / loss",
-    field: "profit",
-    width: 120,
-    minWidth: 100,
-    type: "numericColumn",
-    headerClass: "ag-right-aligned-header",
-    cellClass: (p) => cn(NUMERIC_CELL, Number(p.value) < 0 ? "text-destructive" : Number(p.value) > 0 ? "text-emerald-600 dark:text-emerald-400" : ""),
-    valueFormatter: (p) => taka(p.value),
-  },
-];
-
-const MOVEMENT_COLUMNS: InventoryReportGridColumn<ApiMovementSummaryLine>[] = [
-  {
-    colId: "moved_on",
-    headerName: "Date",
-    width: 110,
-    minWidth: 96,
-    valueGetter: (p: ValueGetterParams<ApiMovementSummaryLine>) =>
-      p.data?.moved_on ?? p.data?.created_at?.slice(0, 10) ?? "",
-  },
-  {
-    colId: "movement_label",
-    field: "movement_label",
-    headerName: "Type",
-    width: 150,
-    minWidth: 120,
-  },
-  {
-    colId: "name",
-    field: "name",
-    headerName: "Name",
-    flex: 2,
-    minWidth: 160,
-    tooltipField: "name",
-    valueFormatter: (p: ValueFormatterParams<ApiMovementSummaryLine>) => p.value || "—",
-  },
-  {
-    colId: "sku",
-    field: "sku",
-    headerName: "SKU",
-    width: 110,
-    minWidth: 80,
-    cellClass: "font-mono text-[11px]",
-    valueFormatter: (p: ValueFormatterParams<ApiMovementSummaryLine>) => p.value || "—",
-  },
-  {
-    colId: "warehouse_name",
-    field: "warehouse_name",
-    headerName: "Warehouse",
-    width: 150,
-    minWidth: 110,
-  },
-  {
-    colId: "quantity",
-    field: "quantity",
-    headerName: "Qty",
-    width: 88,
-    minWidth: 64,
-    type: "numericColumn",
-    cellClass: NUMERIC_CELL,
-    cellRenderer: (p: ICellRendererParams<ApiMovementSummaryLine>) => {
-      const row = p.data;
-      if (!row) return null;
-      return (
-        <span
-          className={cn(
-            "tabular-nums",
-            row.effect === "on_hand_out" && "text-red-600 dark:text-red-400",
-            row.effect === "on_hand_in" && "text-emerald-700 dark:text-emerald-400",
-          )}
-        >
-          {row.quantity}
-        </span>
-      );
-    },
-  },
-  {
-    colId: "qty_before",
-    field: "qty_before",
-    headerName: "Before",
-    width: 88,
-    minWidth: 64,
-    type: "numericColumn",
-    cellClass: NUMERIC_CELL,
-    valueFormatter: (p: ValueFormatterParams<ApiMovementSummaryLine>) => qty(p.value),
-  },
-  {
-    colId: "qty_after",
-    field: "qty_after",
-    headerName: "After",
-    width: 88,
-    minWidth: 64,
-    type: "numericColumn",
-    cellClass: NUMERIC_CELL,
-    valueFormatter: (p: ValueFormatterParams<ApiMovementSummaryLine>) => qty(p.value),
-  },
-  {
-    colId: "reference",
-    field: "reference",
-    headerName: "Reference",
-    width: 140,
-    minWidth: 100,
-    cellClass: "font-mono text-[11px] text-muted-foreground",
-    valueFormatter: (p: ValueFormatterParams<ApiMovementSummaryLine>) => p.value || "—",
-  },
-];
-
 export default function InventoryReportPage() {
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
@@ -671,7 +504,10 @@ function InventoryReportBody() {
   const slug = useParams<{ slug: string }>().slug;
   const router = useRouter();
   const meta = INVENTORY_REPORTS.find((r) => r.id === slug);
-  const { warehouses } = useInventoryWarehouses();
+  const { warehouses: allWarehouses } = useInventoryWarehouses();
+  const warehouseAccess = useWarehouseAccess();
+  // a member limited to some warehouses (locations) picks and filters only among theirs
+  const warehouses = useMemo(() => warehouseAccess.pickable(allWarehouses), [warehouseAccess, allWarehouses]);
   const [warehouseId, setWarehouseId] = useState("all");
   const [supplierId, setSupplierId] = useState("all");
   const [status, setStatus] = useState("all");
@@ -702,25 +538,42 @@ function InventoryReportBody() {
   // The product report's datatable stage:
   // server-paged, server-searched — this is the whole catalog's report, not a
   // client-side slice of it.
-  const [productListSearch, setProductListSearch] = useState("");
+  // On-hand report: the lines run to thousands, so search and paging are done by the server (the totals above the
+  // grid come from the server too and cover every matching line, not just the page on screen).
+  const [movementFilters, setMovementFilters] = useState<MovementReportGridFilters>({
+    search: "",
+    warehouseId: "all",
+    type: "all",
+    dateFrom: yearStartIso(),
+    dateTo: todayIso(),
+  });
+  const [movementFilterCount, setMovementFilterCount] = useState(0);
+  const movementGridRef = useRef<MovementReportGridHandle>(null);
+  const [movementPage, setMovementPage] = useState(0);
+  const [movementPageSize, setMovementPageSize] = useState(50);
+  const [movementLoading, setMovementLoading] = useState(true);
+  const [onHandPage, setOnHandPage] = useState(0);
+  const [onHandPageSize, setOnHandPageSize] = useState(50);
+  const [onHandLoading, setOnHandLoading] = useState(true);
+  const [productFilters, setProductFilters] = useState<ProductReportGridFilters>({
+    search: "",
+    warehouseId: "all",
+    status: "all",
+  });
+  const [productFilterCount, setProductFilterCount] = useState(0);
+  const productGridRef = useRef<ProductReportGridHandle>(null);
   const [productListPage, setProductListPage] = useState(0);
   const [productListPageSize, setProductListPageSize] = useState(50);
   const [productListLoading, setProductListLoading] = useState(true);
   const [productListRows, setProductListRows] = useState<ProductReportListRow[]>([]);
   const [productListTotal, setProductListTotal] = useState(0);
-  const [productListSums, setProductListSums] = useState({
-    stockValue: 0,
-    soldQty: 0,
-    salesRevenue: 0,
-    profit: 0,
-  });
 
   const warehouseOptions = useMemo(
     () => [
-      { value: "all", label: "All warehouses" },
+      { value: "all", label: warehouseAccess.restricted ? "My default warehouse" : "All warehouses" },
       ...warehouses.map((w) => ({ value: w.id, label: w.name })),
     ],
-    [warehouses],
+    [warehouses, warehouseAccess.restricted],
   );
 
   const load = useCallback(async () => {
@@ -728,25 +581,10 @@ function InventoryReportBody() {
     setLoading(true);
     try {
       const wh = warehouseId === "all" ? undefined : warehouseId;
-      if (slug === "on-hand") {
-        setOnHand(
-          await fetchOnHandReport({
-            warehouseId: wh,
-            status: status === "all" ? undefined : status,
-          }),
-        );
-      } else if (slug === "valuation") {
+      if (slug === "valuation") {
         setValuation(await fetchValuationReport({ warehouseId: wh }));
       } else if (slug === "by-supplier") {
         setBySupplier(await fetchSupplierValuationReport({ warehouseId: wh }));
-      } else if (slug === "movements") {
-        setMovements(
-          await fetchMovementSummaryReport({
-            warehouseId: wh,
-            dateFrom,
-            dateTo,
-          }),
-        );
       } else if (slug === "profit-loss") {
         setProfitLoss(await fetchProfitLossReport({ warehouseId: wh, dateFrom, dateTo }));
       }
@@ -757,42 +595,129 @@ function InventoryReportBody() {
     } finally {
       setLoading(false);
     }
-  }, [slug, warehouseId, status, dateFrom, dateTo]);
+  }, [slug, warehouseId, dateFrom, dateTo]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const onHandSearch = searchInput.trim();
+  useEffect(() => {
+    setOnHandPage(0);
+  }, [onHandSearch, warehouseId, status]);
+
+  const loadOnHand = useCallback(async () => {
+    setOnHandLoading(true);
+    try {
+      setOnHand(
+        await fetchOnHandReport({
+          warehouseId: warehouseId === "all" ? undefined : warehouseId,
+          status: status === "all" ? undefined : status,
+          search: onHandSearch || undefined,
+          page: onHandPage + 1,
+          perPage: onHandPageSize,
+        }),
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load report");
+    } finally {
+      setOnHandLoading(false);
+    }
+  }, [warehouseId, status, onHandSearch, onHandPage, onHandPageSize]);
+
+  useEffect(() => {
+    if (slug !== "on-hand") return;
+    const handle = setTimeout(() => void loadOnHand(), 250);
+    return () => clearTimeout(handle);
+  }, [slug, loadOnHand]);
+
+  // Movements report: every filter, the paging and the totals are the server's (thousands of movements).
+  useEffect(() => {
+    setMovementPage(0);
+  }, [movementFilters]);
+
+  const movementQuery = useCallback(
+    (extra: { page?: number; perPage?: number }) => ({
+      warehouseId: movementFilters.warehouseId === "all" ? undefined : movementFilters.warehouseId,
+      movementType: movementFilters.type === "all" ? undefined : movementFilters.type,
+      search: movementFilters.search || undefined,
+      dateFrom: movementFilters.dateFrom,
+      dateTo: movementFilters.dateTo,
+      ...extra,
+    }),
+    [movementFilters],
+  );
+
+  const loadMovements = useCallback(async () => {
+    setMovementLoading(true);
+    try {
+      setMovements(
+        await fetchMovementSummaryReport(movementQuery({ page: movementPage + 1, perPage: movementPageSize })),
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load report");
+    } finally {
+      setMovementLoading(false);
+    }
+  }, [movementQuery, movementPage, movementPageSize]);
+
+  useEffect(() => {
+    if (slug !== "movements") return;
+    const handle = setTimeout(() => void loadMovements(), 250);
+    return () => clearTimeout(handle);
+  }, [slug, loadMovements]);
+
+  const exportMovements = useCallback(async () => {
+    try {
+      const res = await fetchMovementSummaryReport(movementQuery({ page: 1, perPage: 10000 }));
+      downloadCsv(
+        `stock-movements-${movementFilters.dateFrom}-${movementFilters.dateTo}.csv`,
+        ["Date", "Type", "Name", "SKU", "Warehouse", "Qty", "Before", "After", "Reference"],
+        res.data.map((r) => [
+          r.moved_on ?? "",
+          r.movement_label,
+          r.name ?? "",
+          r.sku ?? "",
+          r.warehouse_name ?? "",
+          r.quantity,
+          r.qty_before,
+          r.qty_after,
+          r.reference ?? "",
+        ]),
+      );
+      if (res.meta.total > res.data.length) {
+        toast.message(`Exported the latest ${qty(res.data.length)} of ${qty(res.meta.total)} movements — narrow the dates for the rest`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Export failed");
+    }
+  }, [movementQuery, movementFilters.dateFrom, movementFilters.dateTo]);
 
   // Product report datatable stage: server paged and
   // searched — reset to page 0 whenever the filters change so a stale page
   // number never lands on an empty page.
   useEffect(() => {
     setProductListPage(0);
-  }, [productListSearch, warehouseId]);
+  }, [productFilters]);
 
   const loadProductList = useCallback(async () => {
     setProductListLoading(true);
     try {
       const res = await fetchProductReportList({
-        search: productListSearch.trim() || undefined,
-        warehouseId: warehouseId === "all" ? undefined : warehouseId,
+        search: productFilters.search || undefined,
+        warehouseId: productFilters.warehouseId === "all" ? undefined : productFilters.warehouseId,
+        status: productFilters.status === "all" ? undefined : productFilters.status,
         page: productListPage + 1,
         perPage: productListPageSize,
       });
       setProductListRows(res.data.map((r) => ({ ...r, id: r.item_id })));
       setProductListTotal(res.meta.total);
-      setProductListSums({
-        stockValue: Number(res.meta.sum_stock_value) || 0,
-        soldQty: res.meta.sum_sold_qty,
-        salesRevenue: Number(res.meta.sum_sales_revenue) || 0,
-        profit: Number(res.meta.sum_profit) || 0,
-      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load the product report");
     } finally {
       setProductListLoading(false);
     }
-  }, [productListSearch, warehouseId, productListPage, productListPageSize]);
+  }, [productFilters, productListPage, productListPageSize]);
 
   useEffect(() => {
     if (slug !== "product") return;
@@ -992,64 +917,36 @@ function InventoryReportBody() {
     // view in the app, not a second one duplicating its Ledger tab).
     return (
       <>
-        <InventoryReportGrid<ProductReportListRow>
-          storageKey="product-report-list"
+        <ProductReportGrid
+          ref={productGridRef}
           rows={productListRows}
-          columns={PRODUCT_REPORT_LIST_COLUMNS}
-          loading={productListLoading}
-          emptyTitle="No products"
-          emptyHint="Nothing in the catalog matches — try another name or SKU"
-          mobileLine={(r) => ({
-            title: r.name,
-            meta: `${r.sku} · on hand ${qty(r.on_hand)}`,
-            value: taka(r.profit),
-          })}
-          onRowClicked={(r) => r.product_id && setOpenProductId(r.product_id)}
+          warehouses={warehouses}
+          loading={productListLoading && productListRows.length === 0}
           serverPaging={{
             total: productListTotal,
             page: productListPage,
             pageSize: productListPageSize,
             onPageChange: setProductListPage,
-            onPageSizeChange: setProductListPageSize,
+            onPageSizeChange: (size) => {
+              setProductListPageSize(size);
+              setProductListPage(0);
+            },
           }}
-          toolbar={
-            <InventoryReportToolbar
+          onFiltersChange={setProductFilters}
+          onFilterCountChange={setProductFilterCount}
+          onOpenProduct={setOpenProductId}
+          headerLeftActions={
+            <InventoryGridHeader
               title={meta.label}
-              onRefresh={() => void loadProductList()}
               loading={productListLoading}
-              extraFilters={
-                <>
-                  <Input
-                    value={productListSearch}
-                    onChange={(e) => setProductListSearch(e.target.value)}
-                    placeholder="Search product by name or SKU…"
-                    className="h-[26px] w-[240px] shrink-0 rounded-none text-xs"
-                    data-testid="product-report-list-search"
-                  />
-                  {warehouseFilter}
-                </>
-              }
+              filterCount={productFilterCount}
+              onRefresh={() => void loadProductList()}
+              onOpenFilters={() => productGridRef.current?.openFilters()}
+              onOpenColumns={() => productGridRef.current?.openColumns()}
+              onResetFilters={() => productGridRef.current?.resetFilters()}
             />
           }
-          summary={
-            <p className="px-3 py-1 text-xs text-muted-foreground" data-testid="product-report-list-summary">
-              {productListTotal} product{productListTotal === 1 ? "" : "s"} · Stock value{" "}
-              <span className="text-foreground">{taka(productListSums.stockValue)}</span> · Sold{" "}
-              <span className="text-foreground">{qty(productListSums.soldQty)}</span> · Sales{" "}
-              <span className="text-foreground">{taka(productListSums.salesRevenue)}</span> · Profit{" "}
-              <span
-                className={cn(
-                  productListSums.profit < 0
-                    ? "text-destructive"
-                    : productListSums.profit > 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-foreground",
-                )}
-              >
-                {taka(productListSums.profit)}
-              </span>
-            </p>
-          }
+          className="min-h-0 flex-1"
         />
         <ProductDrawer
           open={openProductId != null}
@@ -1064,16 +961,24 @@ function InventoryReportBody() {
   }
 
   if (slug === "on-hand") {
-    const rows = (onHand?.data ?? []).filter((r) =>
-      matchesSearch([r.sku, r.name, r.warehouse_name], search),
-    );
+    const rows = onHand?.data ?? [];
     const m = onHand?.meta;
     return (
       <InventoryReportGrid<ApiOnHandLine>
         storageKey="on-hand"
         rows={rows}
         columns={ON_HAND_COLUMNS}
-        loading={loading && rows.length === 0}
+        loading={onHandLoading && rows.length === 0}
+        serverPaging={{
+          total: m?.count ?? 0,
+          page: onHandPage,
+          pageSize: onHandPageSize,
+          onPageChange: setOnHandPage,
+          onPageSizeChange: (size) => {
+            setOnHandPageSize(size);
+            setOnHandPage(0);
+          },
+        }}
         emptyTitle="No stock lines match your filters"
         emptyHint="Change warehouse or status, or clear search"
         mobileLine={(r) => ({
@@ -1084,8 +989,8 @@ function InventoryReportBody() {
         toolbar={
           <InventoryReportToolbar
             title={meta.label}
-            onRefresh={() => void load()}
-            loading={loading}
+            onRefresh={() => void loadOnHand()}
+            loading={onHandLoading}
             extraFilters={
               <>
                 {searchInputEl}
@@ -1100,7 +1005,21 @@ function InventoryReportBody() {
                 />
               </>
             }
-            onExport={() =>
+            onExport={async () => {
+              // the grid only holds one page — the export asks the server for every matching line
+              let all: ApiOnHandLine[];
+              try {
+                all = (
+                  await fetchOnHandReport({
+                    warehouseId: warehouseId === "all" ? undefined : warehouseId,
+                    status: status === "all" ? undefined : status,
+                    search: onHandSearch || undefined,
+                  })
+                ).data;
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Export failed");
+                return;
+              }
               downloadCsv(
                 `stock-on-hand-${todayIso()}.csv`,
                 [
@@ -1115,7 +1034,7 @@ function InventoryReportBody() {
                   "Value",
                   "Status",
                 ],
-                rows.map((r) => [
+                all.map((r) => [
                   r.name,
                   r.sku,
                   r.warehouse_name ?? "",
@@ -1127,8 +1046,8 @@ function InventoryReportBody() {
                   r.stock_value,
                   r.status,
                 ]),
-              )
-            }
+              );
+            }}
           />
         }
         summary={
@@ -1334,65 +1253,45 @@ function InventoryReportBody() {
     );
   }
 
-  const rows = (movements?.data ?? []).filter((r) =>
-    matchesSearch([r.sku, r.name, r.warehouse_name, r.movement_label, r.reference], search),
-  );
+  const rows = movements?.data ?? [];
   const byType = movements?.by_type ?? [];
   const mm = movements?.meta;
 
   return (
-    <InventoryReportGrid<ApiMovementSummaryLine>
-      storageKey="movements"
+    <MovementReportGrid
+      ref={movementGridRef}
       rows={rows}
-      columns={MOVEMENT_COLUMNS}
-      loading={loading && rows.length === 0}
-      emptyTitle="No movements in this period"
-      emptyHint="Widen the date range or pick another warehouse"
-      mobileLine={(r) => ({
-        title: r.name || r.sku || r.movement_label,
-        meta: `${r.moved_on ?? r.created_at.slice(0, 10)} · ${r.movement_label}`,
-        value: String(r.quantity),
-      })}
-      toolbar={
-        <InventoryReportToolbar
+      warehouses={warehouses}
+      loading={movementLoading && rows.length === 0}
+      serverPaging={{
+        total: mm?.total ?? 0,
+        page: movementPage,
+        pageSize: movementPageSize,
+        onPageChange: setMovementPage,
+        onPageSizeChange: (size) => {
+          setMovementPageSize(size);
+          setMovementPage(0);
+        },
+      }}
+      onFiltersChange={setMovementFilters}
+      onFilterCountChange={setMovementFilterCount}
+      headerLeftActions={
+        <InventoryGridHeader
           title={meta.label}
-          showDates
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          onDateFrom={setDateFrom}
-          onDateTo={setDateTo}
-          onRefresh={() => void load()}
-          loading={loading}
-          extraFilters={
-            <>
-              {searchInputEl}
-              {warehouseFilter}
-            </>
-          }
-          onExport={() =>
-            downloadCsv(
-              `stock-movements-${dateFrom}-${dateTo}.csv`,
-              ["Date", "Type", "Name", "SKU", "Warehouse", "Qty", "Before", "After", "Reference"],
-              rows.map((r) => [
-                r.moved_on ?? "",
-                r.movement_label,
-                r.name ?? "",
-                r.sku ?? "",
-                r.warehouse_name ?? "",
-                r.quantity,
-                r.qty_before,
-                r.qty_after,
-                r.reference ?? "",
-              ]),
-            )
-          }
+          loading={movementLoading}
+          filterCount={movementFilterCount}
+          onRefresh={() => void loadMovements()}
+          onOpenFilters={() => movementGridRef.current?.openFilters()}
+          onOpenColumns={() => movementGridRef.current?.openColumns()}
+          onResetFilters={() => movementGridRef.current?.resetFilters()}
+          onExport={() => void exportMovements()}
         />
       }
       summary={
         mm ? (
           <div className="space-y-2">
             <div className="grid grid-cols-2 sm:grid-cols-4">
-              <ReportStat label="Lines" value={qty(mm.count)} />
+              <ReportStat label="Movements" value={qty(mm.total)} />
               <ReportStat label="Qty in" value={qty(mm.qty_in)} />
               <ReportStat label="Qty out" value={qty(mm.qty_out)} />
               <ReportStat
@@ -1414,14 +1313,10 @@ function InventoryReportBody() {
                 ))}
               </div>
             ) : null}
-            {mm.total > mm.count ? (
-              <p className="text-[11px] text-muted-foreground">
-                Showing {qty(mm.count)} of {qty(mm.total)} movements in this period.
-              </p>
-            ) : null}
           </div>
-        ) : null
+        ) : undefined
       }
+      className="min-h-0 flex-1"
     />
   );
 }

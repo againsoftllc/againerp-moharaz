@@ -59,8 +59,10 @@ from app.services.core.module_settings import require_payment_account_if_set
 from app.services.finance import dashboard_period_service
 from app.services.finance.constants import account_normal_balance
 from app.services.finance.partner_trading_service import partner_trading
+from app.services.finance.cheque_report_service import cheque_register
 from app.services.finance.finance_reports import FinanceReportService
 from app.services.finance.master_service import bank_label
+from app.services.core.access_scope import assert_payment_account, pick_payment_account, user_payment_account_ids
 from app.services.finance.finance_service import FinanceService
 from app.services.finance.posting import money
 
@@ -475,9 +477,10 @@ def settle_receivable(
     receivable_id: str,
     payload: FinanceSettlementRequest,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("finance", "write")),
+    user: AuthUser = Depends(require_permission("finance", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> FinanceReceivableListResponse:
+    payload.payment_account_id = pick_payment_account(db, user, payload.payment_account_id)
     require_payment_account_if_set(db, company_id, payload.payment_account_id)
     service = FinanceService(db)
     receivable = service.get_receivable(receivable_id, company_id=company_id)
@@ -500,11 +503,14 @@ def settle_receivable(
 @router.get("/payment-accounts", response_model=FinancePaymentAccountListResponse)
 def list_payment_accounts(
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("finance", "read")),
+    user: AuthUser = Depends(require_permission("finance", "read")),
     company_id: str = Depends(get_current_company_id),
 ) -> FinancePaymentAccountListResponse:
     service = FinanceService(db)
     rows = service.list_payment_accounts_with_balance(company_id)
+    allowed = user_payment_account_ids(db, user.id)
+    if allowed:  # a member limited to some cash / bank accounts sees only those
+        rows = [r for r in rows if r["id"] in allowed]
     db.commit()
     return FinancePaymentAccountListResponse(data=[FinancePaymentAccountRead(**r) for r in rows])
 
@@ -537,9 +543,11 @@ def create_payment_account(
 def transfer_payment_accounts(
     payload: FinancePaymentAccountTransferRequest,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("finance", "write")),
+    user: AuthUser = Depends(require_permission("finance", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> FinancePaymentListResponse:
+    assert_payment_account(db, user, payload.from_account_id)
+    assert_payment_account(db, user, payload.to_account_id)
     service = FinanceService(db)
     outbound, inbound = service.transfer_between_payment_accounts(
         company_id=company_id,
@@ -590,9 +598,10 @@ def settle_payable(
     payable_id: str,
     payload: FinanceSettlementRequest,
     db: Session = Depends(get_db),
-    _: AuthUser = Depends(require_permission("finance", "write")),
+    user: AuthUser = Depends(require_permission("finance", "write")),
     company_id: str = Depends(get_current_company_id),
 ) -> FinancePayableListResponse:
+    payload.payment_account_id = pick_payment_account(db, user, payload.payment_account_id)
     require_payment_account_if_set(db, company_id, payload.payment_account_id)
     service = FinanceService(db)
     payable = service.get_payable(payable_id, company_id=company_id)
@@ -877,6 +886,38 @@ def report_partner_ledger(
             partner_id=partner_id,
         )
     )
+
+
+@router.get("/reports/cheque-register", response_model=FinanceReportResponse)
+def report_cheque_register(
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("finance", "read")),
+    company_id: str = Depends(get_current_company_id),
+    view: str = Query(default="status", pattern="^(status|in_hand|issued|bounced|party|history)$"),
+    as_of: Optional[date] = Query(default=None),
+    date_from: Optional[date] = Query(default=None),
+    date_to: Optional[date] = Query(default=None),
+    date_basis: str = Query(default="cheque", pattern="^(cheque|recorded|treatment)$"),
+    direction: Optional[str] = Query(default=None, pattern="^(received|issued)$"),
+    status: Optional[str] = Query(default=None),
+    payment_account_id: Optional[str] = Query(default=None),
+    party_id: Optional[str] = Query(default=None),
+) -> FinanceReportResponse:
+    data = cheque_register(
+        db,
+        company_id=company_id,
+        view=view,
+        as_of=as_of,
+        date_from=date_from,
+        date_to=date_to,
+        date_basis=date_basis,
+        direction=direction,
+        status=status,
+        payment_account_id=payment_account_id,
+        party_id=party_id,
+    )
+    data["meta"]["company_id"] = company_id
+    return FinanceReportResponse(**data)
 
 
 @router.get("/reports/invoices-analysis", response_model=FinanceReportResponse)

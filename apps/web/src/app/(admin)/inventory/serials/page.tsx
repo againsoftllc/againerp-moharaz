@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { Filter, PackagePlus, RefreshCw, Settings2, ShoppingCart, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
@@ -20,6 +20,7 @@ import { SerialAssignDrawer } from "@/components/inventory/serial-assign-drawer"
 import { useApiHealth } from "@/lib/api/use-api-health";
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { useInventoryWarehouses } from "@/lib/api/use-inventory";
+import { useWarehouseAccess } from "@/lib/auth/warehouse-access";
 import {
   fetchSerials,
   sameSerialListParams,
@@ -37,7 +38,10 @@ const SerialGrid = dynamic(
 export default function SerialsPage() {
   const canWrite = useAdminCanWrite();
   const apiHealth = useApiHealth();
-  const { warehouses } = useInventoryWarehouses();
+  const { warehouses: allWarehouses } = useInventoryWarehouses();
+  const warehouseAccess = useWarehouseAccess();
+  // a member limited to some warehouses (locations) picks and filters only among theirs
+  const warehouses = useMemo(() => warehouseAccess.pickable(allWarehouses), [warehouseAccess, allWarehouses]);
   const gridRef = useRef<SerialGridHandle>(null);
   const [serials, setSerials] = useState<InventorySerial[]>([]);
   const [meta, setMeta] = useState<SerialListMeta | null>(null);

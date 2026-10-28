@@ -85,7 +85,7 @@ export function StoreList() {
         timezone: "Asia/Dhaka",
       });
       toast.success("Site created");
-      window.location.href = `/workspace/sites/${created.id}`;
+      window.location.href = `/website/configuration/sites/${created.id}`;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create site");
     } finally {
@@ -224,7 +224,7 @@ export function StoreList() {
                         </td>
                         <td className="px-4 py-3 text-right">
                           <Button variant="outline" size="sm" className="rounded-none" asChild>
-                            <Link href={`/workspace/sites/${store.id}`}>
+                            <Link href={`/website/configuration/sites/${store.id}`}>
                               <Settings2 className="mr-1.5 h-3.5 w-3.5" />
                               Settings
                             </Link>

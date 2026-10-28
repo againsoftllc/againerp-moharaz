@@ -198,8 +198,8 @@ export const ApprovalGrid = forwardRef<ApprovalGridHandle, Props>(function Appro
               </div>
             );
           }
-          // an order edit request is decided by an approver; it has no "cancel"
-          if (row.is_mine && row.status === "pending" && row.action_key !== "sales.order_edit") {
+          // an order edit request and an RMA document are decided by an approver; their own screens cancel them
+          if (row.is_mine && row.status === "pending" && row.action_key !== "sales.order_edit" && !row.id.startsWith("rma:")) {
             return (
               <div className="flex h-full items-center">
                 <Button size="sm" variant="outline" className="h-5 rounded-none px-2" disabled={busy} onClick={stop(() => onCancel(row))}>

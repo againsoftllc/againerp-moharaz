@@ -1,9 +1,10 @@
-"""RMA customer delivery (docs/RMA.md Stage E) - in-memory SQLite, stock and finance replaced by recorders.
+"""RMA customer delivery (docs/RMA.md Stage E) - in-memory SQLite, stock, finance and settlements replaced by recorders.
 
-What it proves: a delivery is the hand-over only (it never posts a payment; money is a settlement); approval takes the unit
-out of the RMA store exactly once and completes the RMA; the RMA's charges are invoiced once, unpaid, and a zero-charge
-delivery creates no receivable; approving twice cannot duplicate stock or finance postings; a rejected or sent-back delivery
-posts nothing; an older delivery that carried a payment is cleaned up on resubmit and refused on approval.
+What it proves: a delivery has a type that mirrors the supplier receipt (same unit, same product with a new serial, a different
+product, cash back) and the three unit types must match the unit the RMA holds; approval takes the unit out of the RMA store
+exactly once and completes the RMA; the customer can be charged (service charge, fine): the charges are invoiced once, what is
+collected now is posted as a settlement and the rest stays owed; a cash back pays money out through a settlement and hands
+nothing over; approving twice cannot duplicate stock or finance postings; a rejected or sent-back delivery posts nothing.
 """
 
 from __future__ import annotations
@@ -115,7 +116,24 @@ class DeliveryFlowTests(TestCase):
         Base.metadata.create_all(engine, tables=TABLES)
         self.db: Session = sessionmaker(bind=engine, expire_on_commit=False)()
         FakeStock.posted, FakeFinance.settled = [], []
+        self.settlements: list = []
+
+        def fake_create_settlement(db, ticket, data, *, user):
+            self.settlements.append(("create", data))
+            return SimpleNamespace(id=f"stl-{len(self.settlements)}", settlement_number="STL-2026-0001", data=data)
+
+        def fake_decide_settlement(db, s, *, decision, reason, user):
+            data = s.data
+            self.settlements.append(("decide", decision))
+            if data["direction"] == "in" and data["purpose"] == "parts_service":  # what the real one does: bill once, settle it
+                ticket = self.current_ticket
+                receivable = db.get(FinanceReceivable, ticket.receivable_id) if ticket.receivable_id else rma_service.raise_bill(db, ticket)
+                FakeFinance(db).settle_receivable(receivable, amount=data["amount"], payment_account_id=data["payment_account_id"])
+            return s
+
         for target, replacement in (
+            ("app.services.rma.settlement_service.create_settlement", fake_create_settlement),
+            ("app.services.rma.settlement_service.decide_settlement", fake_decide_settlement),
             ("app.services.inventory.stock_movement_service.StockMovementService", FakeStock),
             ("app.services.finance.finance_service.FinanceService", FakeFinance),
         ):
@@ -125,6 +143,9 @@ class DeliveryFlowTests(TestCase):
         self.store = InventoryWarehouse(company_id=CO, code="RMA", name="RMA Store", type="Returns / Damaged", is_rma_store=True)
         self.db.add(self.store)
         self.db.add(Item(id="item-1", company_id=CO, sku="SKU-1", name="Mouse", item_type="physical", status="active"))
+        self.db.add(Item(id="item-2", company_id=CO, sku="SKU-2", name="Keyboard", item_type="physical", status="active"))
+        self.db.add(FinancePaymentAccount(id="acct-1", company_id=CO, name="Cash box", gl_account_id="gl-1"))
+        self.current_ticket = None
         self.db.flush()
         self.db.add(CatalogProduct(id="prod-1", company_id=CO, item_id="item-1", name="Mouse", slug="mouse", sku="SKU-1", status="published"))
         self.db.add(
@@ -168,6 +189,7 @@ class DeliveryFlowTests(TestCase):
         row.tax_total = D("0")
         self.db.flush()
         FakeStock.posted.clear()
+        self.current_ticket = row
         return row
 
     def delivery(self, ticket, **changes):
@@ -186,13 +208,46 @@ class DeliveryFlowTests(TestCase):
 
     # ------------------------------------------------- hand-over only
 
-    def test_a_delivery_is_the_handover_only(self):
-        t = self.ticket(total="500")
+    def test_a_new_delivery_starts_with_the_type_that_matches_the_unit_the_rma_holds(self):
+        t = self.ticket(total="0", serial="SN-OLD")
+        self.assertEqual(delivery_service.create_delivery(self.db, t, actor="u").outcome, "same_unit")
+        # the supplier replaced it with another serial
+        t2 = self.ticket(total="0", serial="SN-OLD")
+        t2.received_serial_number = "SN-NEW"
+        self.assertEqual(delivery_service.create_delivery(self.db, t2, actor="u").outcome, "same_product")
+        # ... or with another product
+        t3 = self.ticket(total="0", serial="SN-OLD")
+        t3.received_serial_number, t3.held_item_id, t3.held_sku, t3.held_product_name = "KB-1", "item-2", "SKU-2", "Keyboard"
+        self.assertEqual(delivery_service.create_delivery(self.db, t3, actor="u").outcome, "different_product")
+        # nothing to hand over (the supplier kept the unit): cash back
+        t4 = self.ticket(total="0", serial="SN-OLD")
+        t4.custody_state = "cash_back"
+        self.assertEqual(delivery_service.create_delivery(self.db, t4, actor="u").outcome, "cash_back")
+
+    def test_a_unit_type_must_match_the_unit_the_rma_holds(self):
+        t = self.ticket(total="0", serial="SN-OLD")
+        t.received_serial_number = "SN-NEW"  # a replacement unit
+        d = self.delivery(t, outcome="same_unit")
+        with self.assertRaises(HTTPException) as ctx:
+            delivery_service.submit_delivery(self.db, d, actor="u")
+        self.assertIn("Same product, different serial", ctx.exception.detail)
+        delivery_service.update_delivery(self.db, d, {"outcome": "same_product"})
+        delivery_service.submit_delivery(self.db, d, actor="u")
+        self.assertEqual(d.status, "pending_approval")
+        with self.assertRaises(HTTPException):
+            delivery_service.update_delivery(self.db, d, {"outcome": "nonsense"})
+
+    def test_a_different_product_is_delivered_as_that_product(self):
+        t = self.ticket(total="0", serial="SN-OLD")
+        self.db.add(InventorySerial(company_id=CO, serial_number="KB-1", item_id="item-2", sku="SKU-2", status="in_service", rma_id=t.id, replaces_serial="SN-OLD", warehouse_id=self.store.id))
+        t.received_serial_number, t.held_item_id, t.held_sku, t.held_product_name = "KB-1", "item-2", "SKU-2", "Keyboard"
+        self.db.flush()
         d = self.delivery(t)
-        self.assertEqual((d.deliver_product, d.payment_state, d.amount_received, d.preset), (True, "none", D("0.00"), "without_payment"))
-        # a payment field sent by an old client is not part of the delivery any more
-        delivery_service.update_delivery(self.db, d, {"payment_state": "received", "amount_received": D("100"), "notes": "Box included"})
-        self.assertEqual((d.payment_state, d.amount_received, d.notes), ("none", D("0.00"), "Box included"))
+        self.assertEqual(d.outcome, "different_product")
+        self.approve(d)
+        self.assertEqual((t.status, t.custody_state, d.serial_delivered), ("closed", "delivered", "KB-1"))
+        payload = delivery_service.delivery_payload(self.db, d, printed_by="Staff", reprint=False)
+        self.assertEqual((payload["product_name"], payload["sku"], payload["original_product_name"], payload["outcome_label"]), ("Keyboard", "SKU-2", "Mouse", "Different product, different serial"))
 
     def test_a_zero_charge_delivery_hands_the_unit_over_with_no_receivable(self):
         t = self.ticket(total="0", serial="SN-OLD")
@@ -219,13 +274,96 @@ class DeliveryFlowTests(TestCase):
         self.assertEqual((d.amount_total, d.amount_received, d.amount_due, d.receivable_number), (D("500.00"), D("0.00"), D("500.00"), r.invoice_number))
         self.assertEqual((d.payment_id, d.payment_number), (None, None))
 
+    def test_charges_collected_now_are_posted_as_a_settlement_and_the_rest_stays_owed(self):
+        t = self.ticket(total="500", serial="SN-OLD")  # e.g. a service charge of 300 and a fine of 200
+        d = self.delivery(t, amount_received=D("200"), payment_account_id="acct-1", payment_reference="CASH-7")
+        self.approve(d)
+        kind, data = self.settlements[0]
+        self.assertEqual(
+            (kind, data["party_type"], data["direction"], data["amount"], data["purpose"], data["payment_account_id"], data["reference"]),
+            ("create", "customer", "in", D("200.00"), "parts_service", "acct-1", "CASH-7"),
+        )
+        self.assertEqual(self.settlements[1], ("decide", "approved"))
+        r = self.receivables()[0]
+        self.assertEqual((r.amount_paid, r.balance, r.status), (D("200"), D("300"), "partial"))
+        self.assertEqual((d.amount_total, d.amount_received, d.amount_due, d.payment_state), (D("500.00"), D("200.00"), D("300.00"), "received"))
+        self.assertEqual(d.collect_settlement_id, "stl-1")
+        self.assertEqual((t.status, t.custody_state), ("closed", "delivered"))
+
+    def test_the_amount_collected_must_fit_the_charges_and_have_an_account(self):
+        t = self.ticket(total="500", serial="SN-OLD")
+        d = self.delivery(t, amount_received=D("600"), payment_account_id="acct-1")
+        with self.assertRaises(HTTPException) as ctx:
+            delivery_service.submit_delivery(self.db, d, actor="u")
+        self.assertIn("more than what is owed", ctx.exception.detail)
+        delivery_service.update_delivery(self.db, d, {"amount_received": D("100"), "payment_account_id": None})
+        with self.assertRaises(HTTPException) as ctx:
+            delivery_service.submit_delivery(self.db, d, actor="u")
+        self.assertIn("account", ctx.exception.detail)
+        free = self.ticket(total="0", serial="SN-OLD")
+        nothing = self.delivery(free, amount_received=D("50"), payment_account_id="acct-1")
+        with self.assertRaises(HTTPException) as ctx:
+            delivery_service.submit_delivery(self.db, nothing, actor="u")
+        self.assertIn("nothing to collect", ctx.exception.detail)
+        with self.assertRaises(HTTPException):  # an account that does not exist
+            delivery_service.update_delivery(self.db, d, {"payment_account_id": "nope"})
+
+    # ------------------------------------------------------ cash back
+
+    def test_cash_back_pays_money_out_and_hands_nothing_over(self):
+        t = self.ticket(total="0", serial="SN-OLD")
+        d = self.delivery(t, outcome="cash_back", refund_amount=D("700"), refund_account_id="acct-1")
+        self.approve(d)
+        kind, data = self.settlements[0]
+        self.assertEqual(
+            (kind, data["party_type"], data["direction"], data["amount"], data["purpose"], data["payment_account_id"]),
+            ("create", "customer", "out", D("700.00"), "refund_settlement", "acct-1"),
+        )
+        self.assertEqual(d.refund_settlement_id, "stl-1")
+        self.assertEqual(FakeStock.posted, [])  # no unit moved
+        self.assertEqual((t.refund_amount, t.resolution_type, t.resolution_status), (D("700.00"), "refund", "completed"))
+        # the customer's unit is still in the RMA store: it has its own decision (restock, supplier, scrap), so the RMA stays open
+        self.assertEqual((t.status, t.custody_state, d.stock_posted), ("in_repair", "in_rma_store", False))
+
+    def test_cash_back_closes_the_rma_when_the_supplier_kept_the_unit(self):
+        t = self.ticket(total="0", serial="SN-OLD", status="in_repair")
+        t.status, t.custody_state = "returned_from_supplier", "cash_back"
+        d = self.delivery(t)
+        self.assertEqual(d.outcome, "cash_back")
+        delivery_service.update_delivery(self.db, d, {"refund_amount": D("1200"), "refund_account_id": "acct-1"})
+        self.approve(d)
+        self.assertEqual((t.status, FakeStock.posted), ("closed", []))
+
+    def test_cash_back_needs_an_amount_an_account_and_a_linked_customer(self):
+        t = self.ticket(total="0", serial="SN-OLD")
+        d = self.delivery(t, outcome="cash_back")
+        with self.assertRaises(HTTPException) as ctx:
+            delivery_service.submit_delivery(self.db, d, actor="u")
+        self.assertIn("amount", ctx.exception.detail)
+        delivery_service.update_delivery(self.db, d, {"refund_amount": D("100")})
+        with self.assertRaises(HTTPException) as ctx:
+            delivery_service.submit_delivery(self.db, d, actor="u")
+        self.assertIn("account", ctx.exception.detail)
+        t2 = self.ticket(total="0", serial="SN-OLD", customer_id=None)
+        d2 = self.delivery(t2, outcome="cash_back", refund_amount=D("100"), refund_account_id="acct-1")
+        with self.assertRaises(HTTPException) as ctx:
+            delivery_service.submit_delivery(self.db, d2, actor="u")
+        self.assertIn("customer", ctx.exception.detail)
+
+    def test_changing_to_a_unit_type_drops_the_refund(self):
+        t = self.ticket(total="0", serial="SN-OLD")
+        d = self.delivery(t, outcome="cash_back", refund_amount=D("100"), refund_account_id="acct-1")
+        delivery_service.update_delivery(self.db, d, {"outcome": "same_unit"})
+        self.assertEqual((d.refund_amount, d.refund_account_id, d.deliver_product), (None, None, True))
+
     def test_charges_already_paid_by_a_settlement_show_as_paid_on_the_delivery(self):
         t = self.ticket(total="500")
         r = rma_service.raise_bill(self.db, t)
         r.amount_paid, r.balance, r.status = D("500"), D("0"), "paid"
         d = self.delivery(t)
         self.approve(d)
-        self.assertEqual((len(self.receivables()), d.amount_received, d.amount_due), (1, D("500.00"), D("0.00")))
+        self.assertEqual((len(self.receivables()), d.amount_received, d.amount_due), (1, D("0.00"), D("0.00")))  # nothing is collected at this delivery
+        self.assertEqual(self.receivables()[0].status, "paid")
 
     def test_charges_with_no_customer_cannot_be_invoiced_so_the_delivery_is_refused(self):
         t = self.ticket(total="500", customer_id=None)
@@ -277,33 +415,20 @@ class DeliveryFlowTests(TestCase):
         delivery_service.cancel_delivery(self.db, draft, actor="u", reason="typo")
         self.assertEqual(draft.status, "cancelled")
 
-    # ----------------------------------------------- older deliveries
-
-    def test_an_older_draft_with_a_payment_is_cleaned_on_resubmit_and_a_pending_one_is_refused_on_approval(self):
-        t = self.ticket(total="500")
-        d = self.delivery(t)
-        d.payment_state, d.amount_received, d.deliver_product = "received", D("500"), False  # how Phase 4 left it
-        delivery_service.submit_delivery(self.db, d, actor="u")
-        self.assertEqual((d.status, d.payment_state, d.deliver_product), ("pending_approval", "none", True))
-        t2 = self.ticket(total="500")
-        legacy = self.delivery(t2)
-        legacy.status, legacy.payment_state, legacy.amount_received = "pending_approval", "received", D("500")
-        with self.assertRaises(HTTPException) as ctx:
-            delivery_service.decide_delivery(self.db, legacy, decision="approved", reason=None, user=_user())
-        self.assertIn("Settlement", ctx.exception.detail)
-        self.assertEqual((FakeStock.posted, FakeFinance.settled), ([], []))
-
     # ------------------------------------------------------- blockers
 
     def test_the_product_cannot_be_handed_over_while_it_is_with_the_supplier_or_not_ready(self):
         t = self.ticket(total="0")
         t.custody_state = "with_supplier"
         d = delivery_service.create_delivery(self.db, t, actor="u")
+        self.assertEqual(d.outcome, "cash_back")  # no unit to hand over, so it starts as cash back
+        delivery_service.update_delivery(self.db, d, {"outcome": "same_unit"})
         with self.assertRaises(HTTPException) as ctx:
             delivery_service.submit_delivery(self.db, d, actor="u")
         self.assertIn("supplier", ctx.exception.detail)
         t2 = self.ticket(total="0", status="received")
         d2 = delivery_service.create_delivery(self.db, t2, actor="u")
+        delivery_service.update_delivery(self.db, d2, {"outcome": "same_unit"})
         with self.assertRaises(HTTPException) as ctx2:
             delivery_service.submit_delivery(self.db, d2, actor="u")
         self.assertIn("Ready for delivery", ctx2.exception.detail)
@@ -352,7 +477,7 @@ class DeliveryFlowTests(TestCase):
             (payload["amount_total"], payload["amount_received"], payload["amount_due"], payload["payment_number"], payload["approved_by"]),
             ("500.00", "0.00", "500.00", None, "Dispatcher"),
         )
-        self.assertEqual((payload["serial_delivered"], payload["deliver_product"]), ("SN-OLD", True))
+        self.assertEqual((payload["serial_delivered"], payload["deliver_product"], payload["outcome_label"]), ("SN-OLD", True, "Same product, same serial"))
 
     def test_print_is_counted(self):
         t = self.ticket(total="0")

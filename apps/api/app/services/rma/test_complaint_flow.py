@@ -175,9 +175,21 @@ class ComplaintFlowTests(TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertEqual(t.status, "pending_approval")
         self.assertEqual(FakeStock.posted, [])
-        t.warehouse_id = None
-        with self.assertRaises(HTTPException):
+
+    def test_nobody_chose_a_store_so_the_only_rma_store_is_used(self):
+        t = self.ticket(warehouse_id=None)
+        complaint_service.decide(self.db, t, decision="approved", reason=None, user=_user())
+        self.assertEqual((t.warehouse_id, t.custody_state), (self.store.id, "in_rma_store"))
+        self.assertEqual(FakeStock.posted[0][:3], ("customer_return", self.store.id, 1))
+
+    def test_with_several_rma_stores_the_choice_is_not_guessed(self):
+        self.db.add(InventoryWarehouse(company_id=CO, code="RMA2", name="RMA Store 2", type="Returns / Damaged", is_rma_store=True))
+        self.db.flush()
+        t = self.ticket(warehouse_id=None)
+        with self.assertRaises(HTTPException) as ctx:
             complaint_service.decide(self.db, t, decision="approved", reason=None, user=_user())
+        self.assertIn("Choose the receiving RMA store", ctx.exception.detail)
+        self.assertEqual((t.status, FakeStock.posted), ("pending_approval", []))
 
     def test_rejection_and_send_back_post_nothing_and_need_a_reason(self):
         t = self.ticket()

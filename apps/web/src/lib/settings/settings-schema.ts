@@ -818,7 +818,7 @@ export const SETTINGS_LAYER_META: Record<
   business: {
     title: "Business Settings",
     subtitle: "Daily store configuration for owners and staff",
-    basePath: "/workspace/business",
+    basePath: "/website/settings/checkout",
   },
   workspace: {
     title: "Workspace Settings",

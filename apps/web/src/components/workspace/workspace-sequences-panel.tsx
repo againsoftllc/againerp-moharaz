@@ -26,7 +26,7 @@ const RESET_LABELS: Record<ApiSequence["reset_policy"], string> = {
   monthly: "Every month",
 };
 
-export function WorkspaceSequencesPanel() {
+export function WorkspaceSequencesPanel({ embedded = false }: { embedded?: boolean }) {
   const canWrite = useAdminCanWrite();
   const [rows, setRows] = useState<ApiSequence[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,16 +77,16 @@ export function WorkspaceSequencesPanel() {
   }
 
   return (
-    <div className="p-4">
+    <div className={embedded ? undefined : "p-4"}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="page-title">Document numbering</h1>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          {embedded ? null : <h1 className="page-title">Document numbering</h1>}
+          <p className={embedded ? "max-w-2xl text-[11px] text-muted-foreground" : "mt-1 max-w-2xl text-xs text-muted-foreground"}>
             Each document type draws from its own locked counter, so concurrent users never get the
             same number. Prefix and suffix accept {"{YYYY}"}, {"{YY}"} and {"{MM}"} tokens.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void load()}>
+        <Button variant="outline" size="sm" className="rounded-none" onClick={() => void load()}>
           <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
           Refresh
         </Button>

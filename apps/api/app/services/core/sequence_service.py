@@ -63,6 +63,11 @@ DEFAULT_SEQUENCES: Dict[str, SequenceSpec] = {
     "finance.cheque_book": SequenceSpec("Cheque book", "CBR/{YYYY}/", 5, "yearly"),
     "finance.payment.customer": SequenceSpec("Customer payment", "PAY-CUS-"),
     "finance.payment.supplier": SequenceSpec("Supplier payment", "PAY-SUP-"),
+    "finance.voucher.debit": SequenceSpec("Debit voucher", "DV-{YYYY}-", 5, "yearly"),
+    "finance.voucher.credit": SequenceSpec("Credit voucher", "CV-{YYYY}-", 5, "yearly"),
+    "finance.voucher.contra": SequenceSpec("Contra voucher", "CON-{YYYY}-", 5, "yearly"),
+    "finance.voucher.journal": SequenceSpec("Journal voucher", "JV-{YYYY}-", 5, "yearly"),
+    "finance.settlement": SequenceSpec("Party settlement", "STL-{YYYY}-", 5, "yearly"),
     # Service / CRM
     "service.job": SequenceSpec("Service job", "SJ-{YYYY}-", 4, "yearly"),
     "crm.ticket": SequenceSpec("CRM ticket", "TCK-"),

@@ -1,7 +1,8 @@
 "use client";
 
-import { WorkspaceSequencesPanel } from "@/components/workspace/workspace-sequences-panel";
+import { redirect } from "next/navigation";
 
+/** Document numbering is a tab of Company now. */
 export default function WorkspaceSequencesPage() {
-  return <WorkspaceSequencesPanel />;
+  redirect("/workspace/setup?tab=sequences");
 }

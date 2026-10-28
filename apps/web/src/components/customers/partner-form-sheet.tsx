@@ -100,6 +100,8 @@ export type PartnerFormState = {
   fiscalPosition: string;
   openingBalance: string;
   creditLimit: string;
+  rmaLocked: boolean;
+  rmaLockReason: string;
   salesLocked: boolean;
   salesLockReason: string;
   tradeMode: string;
@@ -226,6 +228,8 @@ export const EMPTY_FORM: PartnerFormState = {
   fiscalPosition: "National",
   openingBalance: "0",
   creditLimit: "",
+  rmaLocked: false,
+  rmaLockReason: "",
   salesLocked: false,
   salesLockReason: "",
   tradeMode: "both",
@@ -285,6 +289,8 @@ export function customerToPartnerForm(customer: Customer | null): PartnerFormSta
     fiscalPosition: meta?.fiscalPosition || "National",
     openingBalance: String(customer.openingBalance ?? 0),
     creditLimit: String(customer.creditLimit ?? 0),
+    rmaLocked: Boolean(customer.rmaLocked),
+    rmaLockReason: customer.rmaLockReason ?? "",
     salesLocked: Boolean(customer.salesLocked),
     salesLockReason: customer.salesLockReason ?? "",
     tradeMode: customer.tradeMode ?? "both",
@@ -393,6 +399,8 @@ export function partnerFormToPayload(
     tags: form.tags,
     openingBalance: Number(form.openingBalance.replace(/,/g, "")) || 0,
     creditLimit: Math.max(0, Number(form.creditLimit.replace(/,/g, "")) || 0),
+    rmaLocked: form.rmaLocked,
+    rmaLockReason: form.rmaLocked ? form.rmaLockReason.trim() || null : null,
     ...creditControlPayload(form),
     paymentTerms: form.defaultPaymentTerms.trim() || null,
     paymentSchedule: form.paymentSchedule.trim() || null,
@@ -487,6 +495,8 @@ export function partnerFormToMockCustomer(
     walletBalance: base?.walletBalance ?? 0,
     openingBalance: Number(form.openingBalance.replace(/,/g, "")) || 0,
     creditLimit: Math.max(0, Number(form.creditLimit.replace(/,/g, "")) || 0),
+    rmaLocked: form.rmaLocked,
+    rmaLockReason: form.rmaLocked ? form.rmaLockReason.trim() || undefined : undefined,
     ...creditControlPayload(form),
     salesLockReason: form.salesLocked ? form.salesLockReason.trim() || undefined : undefined,
     riskScore: base?.riskScore ?? 20,
@@ -1304,6 +1314,30 @@ export function PartnerFormSheet({
                     numeric
                   />
                   <CustomerCreditFields form={form} onPatch={onPatch} readOnly={readOnly} customerId={commerceCustomerId || null} />
+                  <AgainFormField label="RMA" className={ROW}>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <AgainDrawerSwitch
+                        className="ml-0"
+                        label="RMA lock"
+                        value={form.rmaLocked ? "locked" : "open"}
+                        onChange={readOnly ? undefined : (v) => onPatch("rmaLocked", v === "locked")}
+                        options={[
+                          { value: "open", label: "Open" },
+                          { value: "locked", label: "Locked" },
+                        ]}
+                      />
+                      <FieldHelpTip label="Locked: no new RMA / warranty complaint can be taken or approved for this customer." />
+                    </div>
+                  </AgainFormField>
+                  {form.rmaLocked ? (
+                    <TextRow
+                      label="RMA lock reason"
+                      value={form.rmaLockReason}
+                      onChange={(v) => onPatch("rmaLockReason", v)}
+                      readOnly={readOnly}
+                      placeholder="Why RMA is locked"
+                    />
+                  ) : null}
                   <TextRow
                     label="Tax ID"
                     value={form.taxId}

@@ -58,6 +58,22 @@ const InvoicesAnalysisDyn = dynamic(
   },
 );
 
+const SupplierStatementReportDyn = dynamic(
+  () => import("@/components/finance/supplier-statement-report").then((m) => m.SupplierStatementReport),
+  {
+    ssr: false,
+    loading: () => <ListGridOpenFallback label="Opening statement…" />,
+  },
+);
+
+const ChequeRegisterReportDyn = dynamic(
+  () => import("@/components/finance/cheque-register-report").then((m) => m.ChequeRegisterReport),
+  {
+    ssr: false,
+    loading: () => <ListGridOpenFallback label="Opening cheque reports…" />,
+  },
+);
+
 const AGED_SLUGS = ["aged-receivable", "aged-payable"] as const;
 
 function shiftYearIso(iso: string, years: number) {
@@ -307,9 +323,16 @@ function flattenOtherFinanceReport(
 }
 
 export default function FinanceReportPage() {
+  const { slug } = useParams<{ slug: string }>();
   return (
     <Suspense fallback={<p className="p-3 text-sm text-muted-foreground">Loading report…</p>}>
-      <FinanceReportBody />
+      {slug === "supplier-statement" ? (
+        <SupplierStatementReportDyn />
+      ) : slug === "cheque-register" ? (
+        <ChequeRegisterReportDyn />
+      ) : (
+        <FinanceReportBody />
+      )}
     </Suspense>
   );
 }

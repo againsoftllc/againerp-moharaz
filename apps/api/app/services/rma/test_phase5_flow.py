@@ -324,6 +324,7 @@ class TraceTests(TestCase):
 EXPECTED = {
     # tickets
     ("POST", "/rma/tickets"): ("create", ["rma_override"]),  # a lookup exception / hand-picked supplier needs the override grant
+    ("POST", "/rma/serials/generate"): ("create", []),  # only hands out unused serial numbers; nothing is saved
     ("PATCH", "/rma/tickets/{ticket_id}"): ("write", ["rma_override"]),  # protected fields (supplier, serial, customer ...) with a reason
     ("POST", "/rma/tickets/{ticket_id}/submit"): ("write", []),
     ("POST", "/rma/tickets/{ticket_id}/decision"): ("write", ["rma_approve"]),
@@ -336,7 +337,6 @@ EXPECTED = {
     ("PUT", "/rma/tickets/{ticket_id}/supplier-job"): ("write", ["rma_override"]),
     ("POST", "/rma/tickets/{ticket_id}/bill"): ("write", ["rma_payment"]),
     ("DELETE", "/rma/tickets/{ticket_id}"): ("delete", []),  # cancel: guarded (no cancel while away / delivered / documents open)
-    ("POST", "/rma/tickets/{ticket_id}/inspect"): ("write", []),
     ("POST", "/rma/tickets/{ticket_id}/resolve"): ("write", []),
     ("POST", "/rma/tickets/{ticket_id}/create-service"): ("write", []),
     ("POST", "/rma/tickets/{ticket_id}/refund"): ("write", ["rma_payment"]),
@@ -355,14 +355,14 @@ EXPECTED = {
     ("POST", "/rma/claims/{claim_id}/receipts"): ("create", []),
     ("PATCH", "/rma/receipts/{receipt_id}"): ("write", ["rma_serial_change"]),  # only when the serial changes
     ("POST", "/rma/receipts/{receipt_id}/submit"): ("write", []),
-    ("POST", "/rma/receipts/{receipt_id}/decision"): ("write", ["rma_receive_approve", "rma_serial_change"]),
+    ("POST", "/rma/receipts/{receipt_id}/decision"): ("write", ["rma_receive_approve", "rma_serial_change", "rma_settlement_approve"]),  # the last one only for a cash back
     ("POST", "/rma/receipts/{receipt_id}/cancel"): ("write", []),
     ("POST", "/rma/receipts/{receipt_id}/print"): ("read", ["rma_reprint"]),
     # customer deliveries
     ("POST", "/rma/tickets/{ticket_id}/deliveries"): ("create", []),
     ("PATCH", "/rma/deliveries/{delivery_id}"): ("write", []),
     ("POST", "/rma/deliveries/{delivery_id}/submit"): ("write", []),
-    ("POST", "/rma/deliveries/{delivery_id}/decision"): ("write", ["rma_delivery_approve"]),
+    ("POST", "/rma/deliveries/{delivery_id}/decision"): ("write", ["rma_delivery_approve", "rma_settlement_approve"]),  # the last one only when the delivery moves money
     ("POST", "/rma/deliveries/{delivery_id}/cancel"): ("write", []),
     ("POST", "/rma/deliveries/{delivery_id}/print"): ("read", ["rma_reprint"]),
     # settlements (money)
@@ -390,6 +390,8 @@ class PermissionAuditTests(TestCase):
         base = re.findall(r'require_permission\("rma",\s*"(\w+)"\)', source)
         privileged = re.findall(r'_need\(\s*db,\s*user,\s*"(\w+)"', source) + re.findall(r'rbac\.has_permission\(db,\s*user,\s*"(\w+)"', source)
         privileged += re.findall(r'_can\(db,\s*user,\s*"(\w+)"', source)
+        # a decision is also open to the plain Approve permission on RMA (docs/approval.md), checked in decision_rights
+        privileged += re.findall(r'decision_rights\.need_to_decide\(\s*db,\s*user,\s*"(\w+)"', source)
         return base, sorted(set(privileged))
 
     def test_every_mutating_rma_endpoint_is_in_the_audit_table_and_matches_it(self):

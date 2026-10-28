@@ -1,3 +1,4 @@
+import type { ApiSupplierStatement } from "@/lib/api/supplier-ledger";
 import { mergeInvoiceLayout, type WorkspaceCompany } from "@/lib/api/workspace-company";
 import { formatCompanyDate, formatCompanyDateTime } from "@/lib/localisation/company-format";
 import { findCurrency } from "@/lib/localisation/currency-options";
@@ -17,6 +18,53 @@ export type LedgerStatementRow = {
   due: number | null;
   balance: number;
   status: string;
+  /** Ledger layout: what the line is about ("Purchase Ref. No PO-12", "Cheque 1005 · City Bank"). */
+  particular?: string;
+  /** Ledger layout: the line's Dr and Cr (for a supplier, Cr = bill, Dr = payment). */
+  debit?: number;
+  credit?: number;
+  /** Opens the posting behind the line from the on-screen statement. */
+  journalEntryId?: string | null;
+};
+
+export type LedgerStatementCreditSummary = {
+  /** OnerERP's Credit Limit Summary, Cr-positive for a supplier. The ledger balance = the statement's closing. */
+  ledgerBalance?: number;
+  /** Cheques written and on the ledger as paid, not honoured yet (not treated + presented). */
+  advChequeIssued?: number;
+  notTreated?: number;
+  presented?: number;
+  /** Dishonoured cheques still open: already back on the ledger, shown but not deducted. */
+  dishonoured?: number;
+  netOutstanding: number;
+  /** Confirmed orders not delivered / received yet. */
+  unsettledOrders: number;
+  netWithOrders: number;
+  creditLimit: number;
+  availableCredit: number | null;
+  creditDays: number | null;
+  openOrdersNote?: string;
+};
+
+export type LedgerStatementTypeTotal = { type: string; count: number; debit: number; credit: number };
+
+/** A cheque the statement's party has not been paid by yet (issued) or has not paid us by yet (received). */
+export type LedgerStatementCheque = {
+  number: string;
+  date: string;
+  bank: string;
+  amount: number;
+  status: string;
+  since: string;
+  document?: string | null;
+};
+
+export const STATEMENT_CHEQUE_STATUS: Record<string, string> = {
+  issued: "Not treated",
+  received: "Not treated",
+  presented: "Presented",
+  deposited: "Deposited",
+  bounced: "Dishonoured",
 };
 
 export type LedgerStatementAgeing = {
@@ -43,6 +91,24 @@ export type LedgerStatement = {
   ageing: LedgerStatementAgeing;
   rows: LedgerStatementRow[];
   rowCountTotal: number;
+  /**
+   * "account" (default): Billed · Paid · Due columns. "ledger": the OnerERP party ledger — an Opening row,
+   * Date · Transaction Type · Particular · Transaction No. · Dr · Cr · Balance (Dr/Cr), a Total row, and the
+   * credit limit and transaction summaries below.
+   */
+  layout?: "account" | "ledger";
+  partyCode?: string;
+  partyAddress?: string;
+  /** Ledger layout: balance brought forward to the first day of the period. */
+  openingBalance?: number;
+  /** Ledger layout: the side a positive balance sits on — "Cr" for a supplier (we owe), "Dr" for a customer. */
+  positiveSide?: "Dr" | "Cr";
+  totalDebit?: number;
+  totalCredit?: number;
+  transactionSummary?: LedgerStatementTypeTotal[];
+  creditSummary?: LedgerStatementCreditSummary;
+  /** Cheques not honoured yet on the statement's last day. */
+  pendingCheques?: LedgerStatementCheque[];
 };
 
 export type LedgerPrintCompany = {
@@ -116,6 +182,13 @@ export function statementClosingValue(stmt: LedgerStatement): number {
 
 export function formatStatementMoney(value: number): string {
   return formatCurrency(value);
+}
+
+/** Ledger layout balance: "1,000.00 Cr" — the amount with the side it sits on. */
+export function formatStatementSide(value: number, positiveSide: "Dr" | "Cr" = "Dr"): string {
+  if (Math.abs(value) < 0.005) return formatStatementMoney(0);
+  const other = positiveSide === "Dr" ? "Cr" : "Dr";
+  return `${formatStatementMoney(Math.abs(value))} ${value > 0 ? positiveSide : other}`;
 }
 
 export function formatStatementDate(iso: string): string {
@@ -215,6 +288,14 @@ export function buildLedgerSpreadsheetMl(
     ),
   ];
 
+  if (stmt.partyCode || stmt.partyAddress || stmt.partyPhone) {
+    headerRows.push(
+      row(
+        `${textCell("Code", "Label")}${textCell(stmt.partyCode ?? "", "Value", 2)}${textCell("Phone", "Label")}${textCell(stmt.partyPhone ?? "", "Value", 2)}`,
+      ),
+    );
+    if (stmt.partyAddress) headerRows.push(row(`${textCell("Address", "Label")}${textCell(stmt.partyAddress, "Value", last - 1)}`));
+  }
   if (stmt.filterNote) {
     headerRows.push(row(textCell(stmt.filterNote, "Muted", last)));
   }
@@ -234,6 +315,9 @@ export function buildLedgerSpreadsheetMl(
   );
   headerRows.push(row(textCell("", undefined, last), 8));
   headerRows.push(row(textCell("TRANSACTION HISTORY", "Section", last), 22));
+  if (stmt.layout === "ledger") {
+    return wrapSpreadsheet([...headerRows, ...ledgerLayoutRows(stmt, companyName, printed, last)], colCount);
+  }
   headerRows.push(
     row(
       `${textCell("Date", "ColHead")}${textCell(debitCredit ? "Journal" : "Type", "ColHead")}${textCell("Reference", "ColHead")}${textCell(billedLabel, "ColHeadRight")}${textCell(paidLabel, "ColHeadRight")}${textCell(debitCredit ? "Due date" : "Due", "ColHeadRight")}${textCell("Balance", "ColHeadRight")}${textCell(debitCredit ? "Matching" : "Status", "ColHead")}`,
@@ -283,6 +367,83 @@ export function buildLedgerSpreadsheetMl(
     ),
   ];
 
+  return wrapSpreadsheet([...headerRows, ...bodyRows, ...footerRows], colCount);
+}
+
+/** Ledger layout body: Opening, the lines with Dr / Cr / side-marked balance, Total, then the two summaries. */
+function ledgerLayoutRows(stmt: LedgerStatement, companyName: string, printed: string, last: number): string[] {
+  const side = stmt.positiveSide ?? "Dr";
+  const out = [
+    row(
+      `${textCell("Date", "ColHead")}${textCell("Transaction Type", "ColHead")}${textCell("Particular", "ColHead")}${textCell("Transaction No.", "ColHead")}${textCell("Dr", "ColHeadRight")}${textCell("Cr", "ColHeadRight")}${textCell("Balance", "ColHeadRight")}${blankCell("ColHead")}`,
+      20,
+    ),
+    row(
+      `${blankCell("Body")}${textCell("Opening", "Body")}${textCell("Opening Balance", "Body")}${blankCell("Body")}${blankCell("Money")}${blankCell("Money")}${textCell(formatStatementSide(stmt.openingBalance ?? 0, side), "Body")}${blankCell("Body")}`,
+    ),
+    ...stmt.rows.map((line) =>
+      row(
+        `${textCell(formatStatementDate(line.date), "Body")}${textCell(line.type, "Body")}${textCell(line.particular ?? "", "Body")}${textCell(line.reference, "Mono")}${
+          (line.debit ?? 0) > 0 ? numberCell(line.debit ?? 0) : blankCell("Money")
+        }${(line.credit ?? 0) > 0 ? numberCell(line.credit ?? 0) : blankCell("Money")}${textCell(formatStatementSide(line.balance, side), "Body")}${blankCell("Body")}`,
+      ),
+    ),
+    row(
+      `${textCell("Total", "FooterLabel", 3)}${numberCell(stmt.totalDebit ?? 0, "SummaryMoney")}${numberCell(stmt.totalCredit ?? 0, "SummaryMoney")}${textCell(formatStatementSide(statementClosingValue(stmt), side), "FooterLabel")}${blankCell()}`,
+      22,
+    ),
+  ];
+  const cs = stmt.creditSummary;
+  if (cs) {
+    const line = (label: string, value: string) => row(`${textCell(label, "Label", 3)}${textCell(value, "Value", 3)}`);
+    out.push(row(textCell("", undefined, last), 8));
+    out.push(row(textCell("CREDIT LIMIT SUMMARY", "Section", last), 22));
+    if (cs.ledgerBalance != null) out.push(line("Ledger Balance", formatStatementSide(cs.ledgerBalance, side)));
+    if (cs.advChequeIssued != null) {
+      out.push(line("Adv. Cheque Issued", formatStatementMoney(cs.advChequeIssued)));
+      out.push(line("   Not Treated", formatStatementMoney(cs.notTreated ?? 0)));
+      if ((cs.presented ?? 0) > 0) out.push(line("   Presented", formatStatementMoney(cs.presented ?? 0)));
+      out.push(line("Dishonored (already back on the ledger)", formatStatementMoney(cs.dishonoured ?? 0)));
+    }
+    out.push(line("Net Outstanding", formatStatementSide(cs.netOutstanding, side)));
+    out.push(line("Unsettled Order Balance", formatStatementMoney(cs.unsettledOrders)));
+    out.push(line("Net Outstanding (Considering Unsettled Order Value)", formatStatementSide(cs.netWithOrders, side)));
+    out.push(line("Credit Limit", cs.creditLimit > 0 ? formatStatementMoney(cs.creditLimit) : "Not set"));
+    if (cs.availableCredit != null) out.push(line("Available Credit", formatStatementMoney(cs.availableCredit)));
+    out.push(line("Credit Allowed Days", cs.creditDays == null ? "—" : String(cs.creditDays)));
+  }
+  if (stmt.pendingCheques?.length) {
+    out.push(row(textCell("", undefined, last), 8));
+    out.push(row(textCell("CHEQUES NOT HONOURED YET", "Section", last), 22));
+    out.push(
+      row(
+        `${textCell("Cheque No.", "ColHead")}${textCell("Cheque Date", "ColHead")}${textCell("Bank", "ColHead", 1)}${textCell("Status", "ColHead")}${textCell("Since", "ColHead")}${textCell("Bill", "ColHead")}${textCell("Amount", "ColHeadRight")}`,
+      ),
+    );
+    for (const c of stmt.pendingCheques) {
+      out.push(
+        row(
+          `${textCell(c.number, "Mono")}${textCell(formatStatementDate(c.date), "Body")}${textCell(c.bank, "Body", 1)}${textCell(STATEMENT_CHEQUE_STATUS[c.status] ?? c.status, "Body")}${textCell(formatStatementDate(c.since), "Body")}${textCell(c.document ?? "", "Body")}${numberCell(c.amount)}`,
+        ),
+      );
+    }
+  }
+  if (stmt.transactionSummary?.length) {
+    out.push(row(textCell("", undefined, last), 8));
+    out.push(row(textCell("TRANSACTION SUMMARY", "Section", last), 22));
+    out.push(row(`${textCell("Type", "ColHead", 2)}${textCell("No.", "ColHeadRight")}${textCell("Dr", "ColHeadRight")}${textCell("Cr", "ColHeadRight")}`));
+    for (const t of stmt.transactionSummary) {
+      out.push(row(`${textCell(t.type, "Body", 2)}${textCell(String(t.count), "Body")}${numberCell(t.debit)}${numberCell(t.credit)}`));
+    }
+  }
+  out.push(row(textCell("", undefined, last), 8));
+  out.push(
+    row(textCell(`This is a computer-generated account statement from ${companyName}. Prepared ${printed}.`, "FooterNote", last)),
+  );
+  return out;
+}
+
+function wrapSpreadsheet(rows: string[], colCount: number): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <?mso-application progid="Excel.Sheet"?>
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
@@ -390,7 +551,7 @@ export function buildLedgerSpreadsheetMl(
    <Column ss:Width="100"/>
    <Column ss:Width="110"/>
    <Column ss:Width="80"/>
-   ${[...headerRows, ...bodyRows, ...footerRows].join("\n   ")}
+   ${rows.join("\n   ")}
   </Table>
   <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
    <PageSetup>
@@ -426,4 +587,84 @@ export function downloadLedgerExcel(
   a.download = statementFileName(stmt, "xls");
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** The server's supplier statement as a ledger-layout account statement (print, PDF, Excel, share). */
+export function ledgerStatementFromSupplier(st: ApiSupplierStatement): LedgerStatement {
+  const n = (v: string | number | null | undefined) => {
+    const x = Number(v ?? 0);
+    return Number.isFinite(x) ? x : 0;
+  };
+  const closing = n(st.closing_balance);
+  const cs = st.credit_summary;
+  return {
+    partyKind: "supplier",
+    layout: "ledger",
+    positiveSide: "Cr",
+    partyName: st.supplier.name,
+    partyCode: st.supplier.code,
+    partyAddress: st.supplier.address,
+    partyPhone: st.supplier.phone,
+    partyEmail: st.supplier.email,
+    periodLabel: statementPeriodLabel(st.date_from, st.date_to),
+    filterNote: st.supplier.payment_terms ? `Terms: ${st.supplier.payment_terms}` : "",
+    printedAt: new Date().toISOString(),
+    billed: n(st.total_credit),
+    paid: n(st.total_debit),
+    outstanding: Math.max(closing, 0),
+    advance: Math.max(-closing, 0),
+    overdue: 0,
+    openCount: st.lines.filter((l) => l.status === "open" || l.status === "partial").length,
+    ageing: { current: 0, days30: 0, days60: 0, days90Plus: 0 },
+    openingBalance: n(st.opening_balance),
+    totalDebit: n(st.total_debit),
+    totalCredit: n(st.total_credit),
+    rows: st.lines.map((l) => ({
+      date: l.date,
+      type: l.transaction_type,
+      particular: l.particular,
+      reference: l.transaction_no ?? "",
+      dueDate: l.due_date ?? "",
+      billed: n(l.credit),
+      paid: n(l.debit),
+      debit: n(l.debit),
+      credit: n(l.credit),
+      due: null,
+      balance: n(l.balance),
+      status: l.status ?? "",
+      journalEntryId: l.journal_entry_id,
+    })),
+    rowCountTotal: st.lines.length,
+    transactionSummary: st.transaction_summary.map((t) => ({
+      type: t.transaction_type,
+      count: t.count,
+      debit: n(t.debit),
+      credit: n(t.credit),
+    })),
+    creditSummary: {
+      ledgerBalance: n(cs.ledger_balance),
+      advChequeIssued: n(cs.adv_cheque_issued),
+      notTreated: n(cs.not_treated),
+      presented: n(cs.presented),
+      dishonoured: n(cs.dishonoured),
+      netOutstanding: n(cs.net_outstanding),
+      unsettledOrders: n(cs.unsettled_order_balance),
+      netWithOrders: n(cs.net_outstanding_with_orders),
+      creditLimit: n(cs.credit_limit),
+      availableCredit: cs.available_credit == null ? null : n(cs.available_credit),
+      creditDays: cs.credit_allowed_days,
+      openOrdersNote: cs.open_orders.length
+        ? `Open POs: ${cs.open_orders.map((o) => `${o.po_number} (${formatStatementMoney(n(o.unreceived))})`).join(", ")}`
+        : undefined,
+    },
+    pendingCheques: (st.pending_cheques ?? []).map((c) => ({
+      number: c.cheque_number,
+      date: c.cheque_date,
+      bank: c.bank_name,
+      amount: n(c.amount),
+      status: c.status,
+      since: c.status_date,
+      document: c.document_number,
+    })),
+  };
 }

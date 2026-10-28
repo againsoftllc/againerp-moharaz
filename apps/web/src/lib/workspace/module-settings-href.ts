@@ -17,7 +17,7 @@ export const MODULE_SETTINGS_HREF: Record<string, string> = {
   accounting: "/finance/settings",
   crm: "/crm/settings",
   customers: "/customers/settings",
-  workspace: "/workspace/business",
+  workspace: "/workspace/setup",
 };
 
 export function moduleSettingsHref(moduleId: string): string | undefined {

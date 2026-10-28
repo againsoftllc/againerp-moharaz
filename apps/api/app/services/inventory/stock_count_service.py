@@ -50,11 +50,14 @@ def list_counts(
     *,
     company_id: str,
     warehouse_id: Optional[str] = None,
+    warehouse_ids: Optional[list[str]] = None,
     status: Optional[str] = None,
 ) -> Sequence[InventoryStockCount]:
     query = db.query(InventoryStockCount).filter(InventoryStockCount.company_id == company_id)
     if warehouse_id:
         query = query.filter(InventoryStockCount.warehouse_id == warehouse_id)
+    if warehouse_ids is not None:  # a member limited to some warehouses
+        query = query.filter(InventoryStockCount.warehouse_id.in_(warehouse_ids))
     if status:
         query = query.filter(InventoryStockCount.status == status)
     return query.order_by(InventoryStockCount.created_at.desc()).all()

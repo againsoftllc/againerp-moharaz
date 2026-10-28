@@ -1,16 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Building2,
+  CalendarCheck,
   FileText,
-  GitBranch,
   Globe,
+  ListOrdered,
+  MapPin,
   Pencil,
   Receipt,
   Trash2,
-  Warehouse,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -18,21 +19,20 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { AgainFormField, AgainFormGroupTitle } from "@/components/again/again-form-sheet";
+import { AgainFormNotebook, type AgainNotebookTab } from "@/components/again/again-form-sheet-layout";
+import { AgainDrawerButton } from "@/components/again/again-drawer";
+import { WorkspaceSequencesPanel } from "@/components/workspace/workspace-sequences-panel";
+import { WorkspacePeriodsPanel } from "@/components/workspace/workspace-periods-panel";
+import { PartnerStatButton } from "@/components/customers/partner-customer-sections";
 import { ContentDataSkeleton } from "@/components/layout/content-data-skeleton";
 import { ListGridHeaderStart } from "@/components/shared/list-grid-header-start";
 import { FilterSelect } from "@/components/shared/filter-select";
 import { GRID_CHIP_CLASS } from "@/components/shared/grid-chip-badge";
-import {
-  createHrmBranch,
-  deleteHrmBranch,
-  listHrmBranchRecords,
-  updateHrmBranch,
-  type ApiHrmBranch,
-} from "@/lib/api/hrm-branches";
+import { listHrmBranchRecords, type ApiHrmBranch } from "@/lib/api/hrm-branches";
 import {
   DEFAULT_INVOICE_LAYOUT,
   DEFAULT_PACKING_LAYOUT,
@@ -83,7 +83,6 @@ import { hydrateCompanyFormat } from "@/lib/store/company-format-store";
 import { useAdminAuth } from "@/lib/store/admin-auth-store";
 import { useSettingsStore } from "@/lib/store/settings-store";
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
-import { invalidateWorkspaceBranchCache } from "@/lib/workspace/use-workspace-scope";
 import { cn } from "@/lib/utils";
 import { getIanaTimezones } from "@/lib/timezones";
 import { WAREHOUSE_TYPE_PRESETS } from "@/lib/inventory/warehouse-constants";
@@ -94,7 +93,6 @@ import {
   updateWarehouse,
 } from "@/lib/api/inventory";
 import type { Warehouse as WarehouseRow } from "@/lib/mock-data/inventory";
-import type { MasterRow } from "@/lib/mock-data/hrm-recruitment-setup";
 import {
   InvoiceLayoutPreviewDocument,
   InvoiceLayoutPreviewOverlay,
@@ -149,18 +147,6 @@ type CompanyForm = {
   packing_layout: PackingLayout;
   purchase_layout: PurchaseLayout;
   payment_layout: PaymentLayout;
-};
-
-type BranchForm = {
-  name: string;
-  address: string;
-  city: string;
-  state: string;
-  country: string;
-  zip_code: string;
-  phone: string;
-  email: string;
-  status: "active" | "inactive";
 };
 
 type WarehouseForm = {
@@ -220,18 +206,6 @@ const EMPTY_COMPANY: CompanyForm = {
   packing_layout: DEFAULT_PACKING_LAYOUT,
   purchase_layout: DEFAULT_PURCHASE_LAYOUT,
   payment_layout: DEFAULT_PAYMENT_LAYOUT,
-};
-
-const EMPTY_BRANCH: BranchForm = {
-  name: "",
-  address: "",
-  city: "",
-  state: "",
-  country: "Bangladesh",
-  zip_code: "",
-  phone: "",
-  email: "",
-  status: "active",
 };
 
 type MediaPickTarget =
@@ -489,20 +463,21 @@ type SetupTabId =
   | "general"
   | "tax"
   | "localization"
-  | "branches"
   | "warehouses"
-  | "invoice";
+  | "invoice"
+  | "sequences"
+  | "periods";
 
 const SETUP_TABS: { id: SetupTabId; label: string; hint: string; icon: LucideIcon }[] = [
   {
     id: "general",
-    label: "General",
+    label: "General Information",
     hint: "Company identity, contact, registered office, and bank details used on invoices and orders.",
     icon: Building2,
   },
   {
     id: "tax",
-    label: "Tax & registration",
+    label: "Tax & Registration",
     hint: "Enable tax on invoices and bills, plus BIN / VAT numbers printed on documents.",
     icon: FileText,
   },
@@ -513,22 +488,28 @@ const SETUP_TABS: { id: SetupTabId; label: string; hint: string; icon: LucideIco
     icon: Globe,
   },
   {
-    id: "branches",
-    label: "Branches",
-    hint: "Operating units under this company — offices, stores, or plants.",
-    icon: GitBranch,
-  },
-  {
     id: "warehouses",
-    label: "Warehouses",
-    hint: "Stock locations assigned to a branch (Odoo warehouse / SAP plant).",
-    icon: Warehouse,
+    label: "Business Locations",
+    hint: "Where the business keeps and sells stock — head office store, shops, warehouses, online fulfilment.",
+    icon: MapPin,
   },
   {
     id: "invoice",
     label: "Invoices",
     hint: "Invoice, packing slip (chalan), purchase order, and payment slip print layout.",
     icon: Receipt,
+  },
+  {
+    id: "sequences",
+    label: "Document Numbering",
+    hint: "Prefix, digits and next number for every document the ERP numbers — orders, payments, journals, stock moves.",
+    icon: ListOrdered,
+  },
+  {
+    id: "periods",
+    label: "Accounting Periods",
+    hint: "Close a month to lock its dates against new postings.",
+    icon: CalendarCheck,
   },
 ];
 
@@ -585,34 +566,6 @@ function companyToForm(row: WorkspaceCompany): CompanyForm {
   };
 }
 
-function branchToForm(row: ApiHrmBranch): BranchForm {
-  return {
-    name: row.name ?? "",
-    address: row.address ?? "",
-    city: row.city ?? "",
-    state: row.state ?? "",
-    country: row.country ?? "Bangladesh",
-    zip_code: row.zip_code ?? "",
-    phone: row.phone ?? "",
-    email: row.email ?? "",
-    status: row.status === "inactive" ? "inactive" : "active",
-  };
-}
-
-function branchPayload(form: BranchForm): Omit<MasterRow, "id"> {
-  return {
-    name: form.name.trim(),
-    address: form.address.trim(),
-    city: form.city.trim(),
-    state: form.state.trim(),
-    country: form.country.trim(),
-    zip_code: form.zip_code.trim(),
-    phone: form.phone.trim(),
-    email: form.email.trim(),
-    status: form.status,
-  };
-}
-
 function slugifyWarehouseCode(name: string): string {
   const slug = name
     .trim()
@@ -638,6 +591,7 @@ function warehouseToForm(row: WarehouseRow): WarehouseForm {
   };
 }
 
+/** An Odoo form row: label on the left, an underline control on the right (docs/common/formcommon.md). */
 function Field({
   label,
   className,
@@ -648,33 +602,38 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <div className={cn("block min-w-0 space-y-1", className)}>
-      <Label className="text-foreground">{label}</Label>
+    <AgainFormField label={label} className={cn("grid-cols-[9rem_minmax(0,1fr)]", className)}>
       {children}
+    </AgainFormField>
+  );
+}
+
+/** The form body of one tab: `.again-odoo-form` turns every control into an underline, and the sheet's own width picks 1 or 2 columns. */
+function TabFields({ children }: { children: ReactNode }) {
+  return (
+    <div className="again-odoo-form @container">
+      <div className="grid gap-x-10 gap-y-0 @2xl:grid-cols-2">{children}</div>
     </div>
   );
 }
 
-function TabFields({ children }: { children: ReactNode }) {
-  return <div className="grid gap-3 sm:grid-cols-2">{children}</div>;
-}
-
+/** A titled group of rows. `half` sits beside another half group; a whole group spans both columns and lays its rows in two. */
 function SetupBlock({
   title,
   hint,
+  half,
   children,
 }: {
   title: string;
   hint?: string;
+  half?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-3 sm:col-span-2">
-      <div className="border-b border-border pb-1">
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        {hint ? <p className="text-[11px] text-muted-foreground">{hint}</p> : null}
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">{children}</div>
+    <div className={cn("mb-4 min-w-0", !half && "@2xl:col-span-2")}>
+      <AgainFormGroupTitle>{title}</AgainFormGroupTitle>
+      {hint ? <p className="mb-1 text-[11px] text-muted-foreground">{hint}</p> : null}
+      <div className={cn("grid gap-x-10 gap-y-0", !half && "@2xl:grid-cols-2")}>{children}</div>
     </div>
   );
 }
@@ -684,15 +643,11 @@ export function CompanySetupPanel() {
   const canWrite = useAdminCanWrite();
   const [company, setCompany] = useState<WorkspaceCompany | null>(null);
   const [form, setForm] = useState<CompanyForm>(EMPTY_COMPANY);
+  // A location hangs off a branch in the data model; the branch is not a screen of its own, so a new location joins the active one
   const [branches, setBranches] = useState<ApiHrmBranch[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [editBranch, setEditBranch] = useState<ApiHrmBranch | null>(null);
-  const [branchForm, setBranchForm] = useState<BranchForm>(EMPTY_BRANCH);
-  const [savingBranch, setSavingBranch] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<ApiHrmBranch | null>(null);
   const [warehouseSheetOpen, setWarehouseSheetOpen] = useState(false);
   const [editWarehouse, setEditWarehouse] = useState<WarehouseRow | null>(null);
   const [warehouseForm, setWarehouseForm] = useState<WarehouseForm>(EMPTY_WAREHOUSE);
@@ -702,11 +657,27 @@ export function CompanySetupPanel() {
   const [mediaPickTarget, setMediaPickTarget] = useState<MediaPickTarget>("company_logo");
   const [listCurrencyOpen, setListCurrencyOpen] = useState(false);
   const [currencyOptions, setCurrencyOptions] = useState<CurrencyOption[]>([]);
-  const [activeTab, setActiveTab] = useState<SetupTabId>("general");
+  const searchParams = useSearchParams();
+  // ?tab=branches was merged into Business Locations
+  const requestedTab = searchParams.get("tab") === "branches" ? "warehouses" : searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState<SetupTabId>(
+    SETUP_TABS.some((t) => t.id === requestedTab) ? (requestedTab as SetupTabId) : "general",
+  );
   const [invoicePreviewOpen, setInvoicePreviewOpen] = useState(false);
   const [docKind, setDocKind] = useState<"invoice" | "packing" | "purchase" | "payment">("invoice");
   const { items: mediaItems, refetch: refetchMedia } = useCatalogMedia();
   const activeTabMeta = SETUP_TABS.find((tab) => tab.id === activeTab) ?? SETUP_TABS[0];
+  const savedSignature = company ? JSON.stringify(companyToForm(company)) : "";
+  const dirty = Boolean(company) && JSON.stringify(form) !== savedSignature;
+  const discardChanges = () => {
+    if (company) setForm(companyToForm(company));
+  };
+  const notebookTabs: AgainNotebookTab<SetupTabId>[] = SETUP_TABS.map((tab) => ({
+    id: tab.id,
+    label: tab.label,
+    badge: tab.id === "warehouses" ? warehouses.length : undefined,
+    badgeTone: "neutral" as const,
+  }));
 
   const setField = <K extends keyof CompanyForm>(key: K, value: CompanyForm[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -833,10 +804,6 @@ export function CompanySetupPanel() {
     }));
   };
 
-  const setBranchField = <K extends keyof BranchForm>(key: K, value: BranchForm[K]) => {
-    setBranchForm((current) => ({ ...current, [key]: value }));
-  };
-
   const setWarehouseField = <K extends keyof WarehouseForm>(key: K, value: WarehouseForm[K]) => {
     setWarehouseForm((current) => ({ ...current, [key]: value }));
   };
@@ -958,107 +925,23 @@ export function CompanySetupPanel() {
     }
   };
 
-  const openCreateBranch = () => {
-    setEditBranch(null);
-    setBranchForm({
-      ...EMPTY_BRANCH,
-      country: form.country || "Bangladesh",
-      city: form.city,
-      state: form.state,
-    });
-    setSheetOpen(true);
-  };
-
-  const openEditBranch = (row: ApiHrmBranch) => {
-    setEditBranch(row);
-    setBranchForm(branchToForm(row));
-    setSheetOpen(true);
-  };
-
-  const saveBranch = async () => {
-    if (!branchForm.name.trim()) {
-      toast.error("Branch name is required");
-      return;
-    }
-    setSavingBranch(true);
-    try {
-      const payload = branchPayload(branchForm);
-      if (editBranch) {
-        await updateHrmBranch(editBranch.id, payload);
-        toast.success("Branch updated");
-      } else {
-        await createHrmBranch(payload);
-        toast.success("Branch added");
-      }
-      setSheetOpen(false);
-      invalidateWorkspaceBranchCache();
-      const [companyRow, branchRows, warehouseRows] = await Promise.all([
-        fetchWorkspaceCompany(),
-        listHrmBranchRecords(),
-        listWarehouses(),
-      ]);
-      setCompany(companyRow);
-      setBranches(branchRows);
-      setWarehouses(warehouseRows);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save branch");
-    } finally {
-      setSavingBranch(false);
-    }
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      await deleteHrmBranch(deleteTarget.id);
-      toast.success(`${deleteTarget.name} deleted`);
-      setDeleteTarget(null);
-      invalidateWorkspaceBranchCache();
-      const [companyRow, branchRows, warehouseRows] = await Promise.all([
-        fetchWorkspaceCompany(),
-        listHrmBranchRecords(),
-        listWarehouses(),
-      ]);
-      setCompany(companyRow);
-      setBranches(branchRows);
-      setWarehouses(warehouseRows);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
-    }
-  };
-
-  const applyWarehouseBranch = (branchId: string) => {
-    const branch = branches.find((row) => row.id === branchId);
-    setWarehouseForm((current) => ({
-      ...current,
-      branchId,
-      name: current.name.trim()
-        ? current.name
-        : branch
-          ? `${branch.name} Warehouse`
-          : current.name,
-      address: current.address.trim() ? current.address : (branch?.address ?? ""),
-      city: current.city.trim() ? current.city : (branch?.city ?? ""),
-      country: current.country.trim() ? current.country : (branch?.country || "Bangladesh"),
-      mobile: current.mobile.trim() ? current.mobile : (branch?.phone ?? ""),
-    }));
-  };
-
   const openCreateWarehouse = () => {
-    if (!branches.length) {
-      toast.error("Add a branch first, then assign a warehouse to it");
+    // join the branch of the default location (the head office), else the first active one
+    const homeId = warehouses.find((row) => row.isDefault)?.branchId;
+    const first =
+      branches.find((row) => row.id === homeId) ?? branches.find((row) => row.status === "active") ?? branches[0];
+    if (!first) {
+      toast.error("The company has no head office yet — save the company first");
       return;
     }
-    const first = branches.find((row) => row.status === "active") ?? branches[0];
     setEditWarehouse(null);
     setWarehouseForm({
       ...EMPTY_WAREHOUSE,
       branchId: first.id,
-      name: `${first.name} Warehouse`,
-      address: first.address ?? "",
-      city: first.city ?? "",
-      country: first.country || form.country || "Bangladesh",
-      mobile: first.phone ?? "",
+      address: form.street,
+      city: form.city,
+      country: form.country || "Bangladesh",
+      mobile: form.phone,
       isDefault: warehouses.length === 0,
     });
     setWarehouseSheetOpen(true);
@@ -1072,11 +955,11 @@ export function CompanySetupPanel() {
 
   const saveWarehouse = async () => {
     if (!warehouseForm.name.trim()) {
-      toast.error("Warehouse name is required");
+      toast.error("Location name is required");
       return;
     }
     if (!warehouseForm.branchId) {
-      toast.error("Assign this warehouse to a branch");
+      toast.error("The company has no head office yet — save the company first");
       return;
     }
     setSavingWarehouse(true);
@@ -1095,7 +978,7 @@ export function CompanySetupPanel() {
       };
       if (editWarehouse) {
         await updateWarehouse(editWarehouse.id, payload);
-        toast.success("Warehouse updated");
+        toast.success("Location updated");
       } else {
         const base = payload.code;
         let saved = false;
@@ -1115,14 +998,14 @@ export function CompanySetupPanel() {
           }
         }
         if (!saved) {
-          throw lastErr instanceof Error ? lastErr : new Error("Could not save warehouse");
+          throw lastErr instanceof Error ? lastErr : new Error("Could not save location");
         }
-        toast.success("Warehouse added");
+        toast.success("Location added");
       }
       setWarehouseSheetOpen(false);
       setWarehouses(await listWarehouses());
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not save warehouse");
+      toast.error(err instanceof Error ? err.message : "Could not save location");
     } finally {
       setSavingWarehouse(false);
     }
@@ -1147,154 +1030,92 @@ export function CompanySetupPanel() {
   return (
     <>
     <div className="-m-3 flex min-h-0 w-[calc(100%+1.5rem)] max-w-none flex-1 flex-col overflow-hidden bg-background lg:-m-4 lg:w-[calc(100%+2rem)]">
-      <div className="flex min-w-0 shrink-0 items-center gap-1.5 border-b border-border py-1 pl-2 pr-2">
+      {/* control bar — Odoo: record actions on top, the form below */}
+      <div className="flex min-w-0 shrink-0 items-center gap-1.5 border-b border-border bg-background py-1 pl-2 pr-2">
         <ListGridHeaderStart title="Company">
           {canWrite ? (
-            <Button size="sm" className="h-7 rounded-none" disabled={saving} onClick={() => void saveCompany()}>
-              {saving ? "Saving…" : "Save"}
-            </Button>
+            <>
+              <AgainDrawerButton variant="primary" disabled={saving || !dirty} aria-busy={saving} onClick={() => void saveCompany()}>
+                {saving ? "Saving…" : "Save"}
+              </AgainDrawerButton>
+              <AgainDrawerButton disabled={saving || !dirty} onClick={discardChanges}>
+                Discard
+              </AgainDrawerButton>
+            </>
           ) : null}
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 rounded-none"
-            onClick={() => router.push("/dashboard")}
-          >
-            Continue
-          </Button>
+          {dirty ? <span className="ml-1 text-[11px] text-amber-700 dark:text-amber-400">Unsaved changes</span> : null}
         </ListGridHeaderStart>
-        {company ? (
-          <p className="ml-auto hidden text-[11px] text-muted-foreground sm:block">
-            {company.status} · {company.slug}
-          </p>
-        ) : null}
+        <div className="ml-auto flex items-center gap-2">
+          {company ? (
+            <span className="hidden text-[11px] text-muted-foreground sm:block">
+              {company.status} · {company.slug}
+            </span>
+          ) : null}
+          <AgainDrawerButton onClick={() => router.push("/dashboard")}>Continue</AgainDrawerButton>
+        </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
-        <nav
-          className="flex shrink-0 overflow-x-auto border-b border-border bg-card p-2 text-xs text-foreground md:w-52 md:flex-col md:overflow-y-auto md:border-b-0 md:border-r"
-          aria-label="Company setup sections"
-        >
-          <div className="flex min-w-0 gap-0.5 md:flex-1 md:flex-col md:space-y-1 md:gap-0">
-            {SETUP_TABS.map((tab) => {
-              const Icon = tab.icon;
-              const selected = tab.id === activeTab;
-              const count =
-                tab.id === "branches" ? branches.length : tab.id === "warehouses" ? warehouses.length : null;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  aria-current={selected ? "page" : undefined}
-                  className={cn(
-                    "flex w-full min-w-0 items-center gap-2 rounded-none px-2 py-1.5 text-left text-xs font-medium transition-colors",
-                    selected
-                      ? "border-l-2 border-primary bg-primary/10 pl-[calc(0.5rem-2px)] text-foreground"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  <span className="truncate">{tab.label}</span>
-                  {count != null ? (
-                    <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">{count}</span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        </nav>
-
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3">
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold">{activeTabMeta.label}</h2>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{activeTabMeta.hint}</p>
+      <div className="min-h-0 flex-1 overflow-y-auto bg-[#eceff3] p-3 dark:bg-muted/20 sm:p-4">
+        <div className="mx-auto w-full max-w-5xl border border-border bg-card shadow-sm">
+          {/* title band: the company name is the record's title, the logo sits top right, stat boxes jump to a tab */}
+          <div className="again-odoo-form @container flex flex-wrap items-start gap-4 px-4 py-4 sm:px-6">
+            <div className="min-w-0 flex-1 basis-72">
+              <input
+                value={form.name}
+                onChange={(e) => setField("name", e.target.value)}
+                disabled={!canWrite}
+                placeholder="Company name"
+                aria-label="Company name"
+                className="w-full min-w-0 bg-transparent py-0.5 text-[20px] font-bold leading-tight tracking-tight text-foreground outline-none"
+              />
+              <input
+                value={form.legal_name}
+                onChange={(e) => setField("legal_name", e.target.value)}
+                disabled={!canWrite}
+                placeholder="Legal name, as registered"
+                aria-label="Legal name"
+                className="mt-0.5 w-full min-w-0 bg-transparent py-0.5 text-[13px] text-muted-foreground outline-none"
+              />
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <PartnerStatButton value={warehouses.length} label="Business locations" tone="purple" onClick={() => setActiveTab("warehouses")} />
+                <PartnerStatButton value={form.currency_code || "—"} label="Currency" tone="brand" onClick={() => setActiveTab("localization")} />
+                <PartnerStatButton
+                  value={form.tax_enabled ? `${Number(form.invoice_tax_rate) || 0}%` : "Off"}
+                  label="Tax"
+                  onClick={() => setActiveTab("tax")}
+                />
+              </div>
             </div>
-            {activeTab === "branches" && canWrite ? (
-              <Button size="sm" className="h-7 rounded-none" onClick={openCreateBranch}>
-                New
-              </Button>
-            ) : null}
-            {activeTab === "warehouses" && canWrite ? (
-              <Button size="sm" className="h-7 rounded-none" onClick={openCreateWarehouse}>
-                New
-              </Button>
-            ) : null}
-            {activeTab === "invoice" ? (
-              <InvoicePreviewButton onClick={() => setInvoicePreviewOpen(true)} />
-            ) : null}
+            <MediaPickTile
+              url={form.logo_url}
+              disabled={!canWrite}
+              alt="Company logo"
+              onChange={(next) => setField("logo_url", next)}
+              onPick={() => openMediaPicker("company_logo")}
+            />
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-4xl p-4">
+          <AgainFormNotebook tabs={notebookTabs} active={activeTab} onChange={setActiveTab}>
+            <div>
+              {activeTab === "sequences" || activeTab === "periods" ? null : (
+                <p className="mb-3 text-[11px] text-muted-foreground">{activeTabMeta.hint}</p>
+              )}
+              {activeTab === "warehouses" && canWrite ? (
+                <div className="mb-2 flex justify-end">
+                  <AgainDrawerButton variant="primary" onClick={openCreateWarehouse}>
+                    New location
+                  </AgainDrawerButton>
+                </div>
+              ) : null}
+              {activeTab === "invoice" ? (
+                <div className="mb-2 flex justify-end">
+                  <InvoicePreviewButton onClick={() => setInvoicePreviewOpen(true)} />
+                </div>
+              ) : null}
               {activeTab === "general" ? (
                 <TabFields>
-                  <Field label="Logo" className="sm:col-span-2">
-                    <MediaPickTile
-                      url={form.logo_url}
-                      disabled={!canWrite}
-                      alt="Company logo"
-                      onChange={(next) => setField("logo_url", next)}
-                      onPick={() => openMediaPicker("company_logo")}
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      Same media library as product images. Add from the library, or drop a file to upload.
-                    </p>
-                  </Field>
-                  <Field label="Company name">
-                    <Input
-                      value={form.name}
-                      onChange={(e) => setField("name", e.target.value)}
-                      disabled={!canWrite}
-                      placeholder="AgainERP"
-                    />
-                  </Field>
-                  <Field label="Legal name">
-                    <Input
-                      value={form.legal_name}
-                      onChange={(e) => setField("legal_name", e.target.value)}
-                      disabled={!canWrite}
-                      placeholder="Again Technologies Ltd."
-                    />
-                  </Field>
-                  <Field label="Email">
-                    <Input
-                      type="email"
-                      value={form.email}
-                      onChange={(e) => setField("email", e.target.value)}
-                      disabled={!canWrite}
-                      placeholder="info@company.com"
-                    />
-                  </Field>
-                  <Field label="Phone">
-                    <Input
-                      value={form.phone}
-                      onChange={(e) => setField("phone", e.target.value)}
-                      disabled={!canWrite}
-                      placeholder="+880 1XXX-XXXXXX"
-                    />
-                  </Field>
-                  <Field label="Mobile">
-                    <Input
-                      value={form.mobile}
-                      onChange={(e) => setField("mobile", e.target.value)}
-                      disabled={!canWrite}
-                    />
-                  </Field>
-                  <Field label="Website">
-                    <Input
-                      value={form.website}
-                      onChange={(e) => setField("website", e.target.value)}
-                      disabled={!canWrite}
-                      placeholder="https://www.company.com"
-                    />
-                  </Field>
-                  <SetupBlock
-                    title="Address"
-                    hint="Registered office. Copied onto documents and the Head Office branch."
-                  >
-                    <Field label="Street" className="sm:col-span-2">
+                  <SetupBlock title="Address" hint="Registered office. Copied onto documents." half>
+                    <Field label="Street">
                       <Input
                         value={form.street}
                         onChange={(e) => setField("street", e.target.value)}
@@ -1302,12 +1123,8 @@ export function CompanySetupPanel() {
                         placeholder="House / road / area"
                       />
                     </Field>
-                    <Field label="Street 2" className="sm:col-span-2">
-                      <Input
-                        value={form.street2}
-                        onChange={(e) => setField("street2", e.target.value)}
-                        disabled={!canWrite}
-                      />
+                    <Field label="Street 2">
+                      <Input value={form.street2} onChange={(e) => setField("street2", e.target.value)} disabled={!canWrite} />
                     </Field>
                     <Field label="City">
                       <Input value={form.city} onChange={(e) => setField("city", e.target.value)} disabled={!canWrite} />
@@ -1316,51 +1133,54 @@ export function CompanySetupPanel() {
                       <Input value={form.state} onChange={(e) => setField("state", e.target.value)} disabled={!canWrite} />
                     </Field>
                     <Field label="ZIP / post code">
-                      <Input
-                        value={form.zip_code}
-                        onChange={(e) => setField("zip_code", e.target.value)}
-                        disabled={!canWrite}
-                      />
+                      <Input value={form.zip_code} onChange={(e) => setField("zip_code", e.target.value)} disabled={!canWrite} />
                     </Field>
                     <Field label="Country">
+                      <Input value={form.country} onChange={(e) => setField("country", e.target.value)} disabled={!canWrite} />
+                    </Field>
+                  </SetupBlock>
+                  <SetupBlock title="Contact" hint="Printed on invoices and orders." half>
+                    <Field label="Email">
                       <Input
-                        value={form.country}
-                        onChange={(e) => setField("country", e.target.value)}
+                        type="email"
+                        value={form.email}
+                        onChange={(e) => setField("email", e.target.value)}
                         disabled={!canWrite}
+                        placeholder="info@company.com"
+                      />
+                    </Field>
+                    <Field label="Phone">
+                      <Input
+                        value={form.phone}
+                        onChange={(e) => setField("phone", e.target.value)}
+                        disabled={!canWrite}
+                        placeholder="+880 1XXX-XXXXXX"
+                      />
+                    </Field>
+                    <Field label="Mobile">
+                      <Input value={form.mobile} onChange={(e) => setField("mobile", e.target.value)} disabled={!canWrite} />
+                    </Field>
+                    <Field label="Website">
+                      <Input
+                        value={form.website}
+                        onChange={(e) => setField("website", e.target.value)}
+                        disabled={!canWrite}
+                        placeholder="https://www.company.com"
                       />
                     </Field>
                   </SetupBlock>
-                  <SetupBlock
-                    title="Bank"
-                    hint="Shown on invoices and statements so customers can pay you."
-                  >
+                  <SetupBlock title="Bank" hint="Shown on invoices and statements so customers can pay you.">
                     <Field label="Bank name">
-                      <Input
-                        value={form.bank_name}
-                        onChange={(e) => setField("bank_name", e.target.value)}
-                        disabled={!canWrite}
-                      />
+                      <Input value={form.bank_name} onChange={(e) => setField("bank_name", e.target.value)} disabled={!canWrite} />
                     </Field>
                     <Field label="Account number">
-                      <Input
-                        value={form.bank_account}
-                        onChange={(e) => setField("bank_account", e.target.value)}
-                        disabled={!canWrite}
-                      />
+                      <Input value={form.bank_account} onChange={(e) => setField("bank_account", e.target.value)} disabled={!canWrite} />
                     </Field>
                     <Field label="Bank branch">
-                      <Input
-                        value={form.bank_branch}
-                        onChange={(e) => setField("bank_branch", e.target.value)}
-                        disabled={!canWrite}
-                      />
+                      <Input value={form.bank_branch} onChange={(e) => setField("bank_branch", e.target.value)} disabled={!canWrite} />
                     </Field>
                     <Field label="Routing no.">
-                      <Input
-                        value={form.bank_routing}
-                        onChange={(e) => setField("bank_routing", e.target.value)}
-                        disabled={!canWrite}
-                      />
+                      <Input value={form.bank_routing} onChange={(e) => setField("bank_routing", e.target.value)} disabled={!canWrite} />
                     </Field>
                   </SetupBlock>
                 </TabFields>
@@ -1368,168 +1188,176 @@ export function CompanySetupPanel() {
 
               {activeTab === "tax" ? (
                 <TabFields>
-                  <label className="flex items-center gap-2 text-sm sm:col-span-2">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded-none border-border"
-                      checked={form.tax_enabled}
-                      disabled={!canWrite}
-                      onChange={(e) => setField("tax_enabled", e.target.checked)}
-                    />
-                    Enable tax on invoices and bills
-                  </label>
-                  <Field label="Default tax rate (%)">
-                    <Input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.01"
-                      value={form.invoice_tax_rate}
-                      onChange={(e) => setField("invoice_tax_rate", e.target.value)}
-                      disabled={!canWrite || !form.tax_enabled}
-                    />
-                  </Field>
-                  <label className="flex items-center gap-2 self-end text-sm">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded-none border-border"
-                      checked={form.invoice_prices_include_tax}
-                      disabled={!canWrite || !form.tax_enabled}
-                      onChange={(e) => setField("invoice_prices_include_tax", e.target.checked)}
-                    />
-                    Selling prices include tax
-                  </label>
-                  <p className="text-[11px] text-muted-foreground sm:col-span-2">
-                    {form.tax_enabled
-                      ? "Tax amount and rate print on invoices and vendor bills. Turn off any document’s Tax checkbox in Invoices setup to hide it on that form only."
-                      : "Tax columns and totals stay hidden on invoices and bills until this is enabled."}
-                  </p>
-                  <Field label="BIN / Tax ID">
-                    <Input
-                      value={form.tax_id}
-                      onChange={(e) => setField("tax_id", e.target.value)}
-                      disabled={!canWrite}
-                      placeholder="001234567-0000"
-                    />
-                  </Field>
-                  <Field label="VAT registration no.">
-                    <Input
-                      value={form.vat_number}
-                      onChange={(e) => setField("vat_number", e.target.value)}
-                      disabled={!canWrite}
-                    />
-                  </Field>
-                  <Field label="Company registration no." className="sm:col-span-2">
-                    <Input
-                      value={form.registration_no}
-                      onChange={(e) => setField("registration_no", e.target.value)}
-                      disabled={!canWrite}
-                      placeholder="RJSC / trade license"
-                    />
-                  </Field>
+                  <SetupBlock title="Tax" half>
+                    <Field label="Tax on documents">
+                      <label className="flex min-h-[28px] items-center gap-2 text-[13px]">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 accent-[#00a09d]"
+                          checked={form.tax_enabled}
+                          disabled={!canWrite}
+                          onChange={(e) => setField("tax_enabled", e.target.checked)}
+                        />
+                        Enable tax on invoices and bills
+                      </label>
+                    </Field>
+                    <Field label="Default tax rate (%)">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.01"
+                        value={form.invoice_tax_rate}
+                        onChange={(e) => setField("invoice_tax_rate", e.target.value)}
+                        disabled={!canWrite || !form.tax_enabled}
+                      />
+                    </Field>
+                    <Field label="Prices">
+                      <label className="flex min-h-[28px] items-center gap-2 text-[13px]">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 accent-[#00a09d]"
+                          checked={form.invoice_prices_include_tax}
+                          disabled={!canWrite || !form.tax_enabled}
+                          onChange={(e) => setField("invoice_prices_include_tax", e.target.checked)}
+                        />
+                        Selling prices include tax
+                      </label>
+                    </Field>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {form.tax_enabled
+                        ? "Tax amount and rate print on invoices and vendor bills. Turn off any document’s Tax checkbox in Invoices to hide it on that form only."
+                        : "Tax columns and totals stay hidden on invoices and bills until this is enabled."}
+                    </p>
+                  </SetupBlock>
+                  <SetupBlock title="Registration" hint="Printed on documents." half>
+                    <Field label="BIN / Tax ID">
+                      <Input
+                        value={form.tax_id}
+                        onChange={(e) => setField("tax_id", e.target.value)}
+                        disabled={!canWrite}
+                        placeholder="001234567-0000"
+                      />
+                    </Field>
+                    <Field label="VAT registration no.">
+                      <Input value={form.vat_number} onChange={(e) => setField("vat_number", e.target.value)} disabled={!canWrite} />
+                    </Field>
+                    <Field label="Company registration no.">
+                      <Input
+                        value={form.registration_no}
+                        onChange={(e) => setField("registration_no", e.target.value)}
+                        disabled={!canWrite}
+                        placeholder="RJSC / trade license"
+                      />
+                    </Field>
+                  </SetupBlock>
                 </TabFields>
               ) : null}
 
               {activeTab === "localization" ? (
                 <TabFields>
-                  <Field label="Currency">
-                    <CurrencyCombobox
-                      options={currencyOptions}
-                      value={form.currency_code}
-                      onChange={(next) => setField("currency_code", next)}
-                      onList={canWrite ? () => setListCurrencyOpen(true) : undefined}
-                      disabled={!canWrite}
-                      className="w-full"
-                    />
-                  </Field>
-                  <Field label="Timezone">
-                    <FilterSelect
-                      value={form.timezone}
-                      onChange={(next) => setField("timezone", next)}
-                      options={
-                        form.timezone && !TIMEZONE_OPTIONS.some((item) => item.value === form.timezone)
-                          ? [{ value: form.timezone, label: form.timezone }, ...TIMEZONE_OPTIONS]
-                          : TIMEZONE_OPTIONS
-                      }
-                      disabled={!canWrite}
-                      placeholder="Select timezone"
-                      searchPlaceholder="Search city or GMT…"
-                      width="w-full"
-                      className="h-8 w-full"
-                      ariaLabel="Timezone"
-                    />
-                  </Field>
-                  <Field label="Fiscal year starts">
-                    <Select
-                      value={form.fiscal_year_start_month}
-                      onChange={(e) => setField("fiscal_year_start_month", e.target.value)}
-                      disabled={!canWrite}
-                      className="w-full"
-                    >
-                      {FY_MONTHS.map((label, index) => (
-                        <option key={label} value={String(index + 1)}>
-                          {label}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Field label="Date format">
-                    <Select
-                      value={form.date_format}
-                      onChange={(e) => setField("date_format", e.target.value)}
-                      disabled={!canWrite}
-                      className="w-full"
-                    >
-                      {DATE_FORMAT_OPTIONS.map((item) => (
-                        <option key={item.value} value={item.value}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Field label="Time format">
-                    <Select
-                      value={form.time_format}
-                      onChange={(e) => setField("time_format", e.target.value)}
-                      disabled={!canWrite}
-                      className="w-full"
-                    >
-                      {TIME_FORMAT_OPTIONS.map((item) => (
-                        <option key={item.value} value={item.value}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Field label="Decimal places">
-                    <Select
-                      value={form.decimal_places}
-                      onChange={(e) => setField("decimal_places", e.target.value)}
-                      disabled={!canWrite}
-                      className="w-full"
-                    >
-                      {DECIMAL_PLACE_OPTIONS.map((n) => (
-                        <option key={n} value={String(n)}>
-                          {n === 0 ? "0 — 1000000" : `${n} — ${"0".repeat(n)} after the point`}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <Field label="Number grouping" className="sm:col-span-2">
-                    <Select
-                      value={form.number_grouping}
-                      onChange={(e) => setField("number_grouping", e.target.value)}
-                      disabled={!canWrite}
-                      className="w-full"
-                    >
-                      {NUMBER_GROUPING_OPTIONS.map((item) => (
-                        <option key={item.value} value={item.value}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <p className="sm:col-span-2 border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                  <SetupBlock title="Currency & time" hint="What amounts and dates are counted in." half>
+                    <Field label="Currency">
+                      <CurrencyCombobox
+                        options={currencyOptions}
+                        value={form.currency_code}
+                        onChange={(next) => setField("currency_code", next)}
+                        onList={canWrite ? () => setListCurrencyOpen(true) : undefined}
+                        disabled={!canWrite}
+                        className="w-full"
+                      />
+                    </Field>
+                    <Field label="Timezone">
+                      <FilterSelect
+                        value={form.timezone}
+                        onChange={(next) => setField("timezone", next)}
+                        options={
+                          form.timezone && !TIMEZONE_OPTIONS.some((item) => item.value === form.timezone)
+                            ? [{ value: form.timezone, label: form.timezone }, ...TIMEZONE_OPTIONS]
+                            : TIMEZONE_OPTIONS
+                        }
+                        disabled={!canWrite}
+                        placeholder="Select timezone"
+                        searchPlaceholder="Search city or GMT…"
+                        width="w-full"
+                        className="h-8 w-full"
+                        ariaLabel="Timezone"
+                      />
+                    </Field>
+                    <Field label="Fiscal year starts">
+                      <Select
+                        value={form.fiscal_year_start_month}
+                        onChange={(e) => setField("fiscal_year_start_month", e.target.value)}
+                        disabled={!canWrite}
+                        className="w-full"
+                      >
+                        {FY_MONTHS.map((label, index) => (
+                          <option key={label} value={String(index + 1)}>
+                            {label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </SetupBlock>
+                  <SetupBlock title="Formats" hint="How dates, times and numbers are written." half>
+                    <Field label="Date format">
+                      <Select
+                        value={form.date_format}
+                        onChange={(e) => setField("date_format", e.target.value)}
+                        disabled={!canWrite}
+                        className="w-full"
+                      >
+                        {DATE_FORMAT_OPTIONS.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Time format">
+                      <Select
+                        value={form.time_format}
+                        onChange={(e) => setField("time_format", e.target.value)}
+                        disabled={!canWrite}
+                        className="w-full"
+                      >
+                        {TIME_FORMAT_OPTIONS.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Decimal places">
+                      <Select
+                        value={form.decimal_places}
+                        onChange={(e) => setField("decimal_places", e.target.value)}
+                        disabled={!canWrite}
+                        className="w-full"
+                      >
+                        {DECIMAL_PLACE_OPTIONS.map((n) => (
+                          <option key={n} value={String(n)}>
+                            {n === 0 ? "0 — 1000000" : `${n} — ${"0".repeat(n)} after the point`}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Number grouping">
+                      <Select
+                        value={form.number_grouping}
+                        onChange={(e) => setField("number_grouping", e.target.value)}
+                        disabled={!canWrite}
+                        className="w-full"
+                      >
+                        {NUMBER_GROUPING_OPTIONS.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </SetupBlock>
+                  <p className="border border-border bg-muted/40 px-3 py-2 text-[13px] text-foreground @2xl:col-span-2">
                     Preview:{" "}
                     {(() => {
                       const settings = normalizeCompanyFormat({
@@ -1547,93 +1375,16 @@ export function CompanySetupPanel() {
                 </TabFields>
               ) : null}
 
-              {activeTab === "branches" ? (
-                <div className="overflow-x-auto border border-border">
-                  <table className="w-full min-w-[640px] border-collapse text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/40 text-left text-[11px] text-muted-foreground">
-                        <th className="px-3 py-2 font-medium">Branch</th>
-                        <th className="px-3 py-2 font-medium">City</th>
-                        <th className="px-3 py-2 font-medium">Phone</th>
-                        <th className="px-3 py-2 font-medium">Email</th>
-                        <th className="px-3 py-2 font-medium">Status</th>
-                        {canWrite ? <th className="px-3 py-2 font-medium">Actions</th> : null}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {branches.length === 0 ? (
-                        <tr>
-                          <td className="px-3 py-6 text-muted-foreground" colSpan={canWrite ? 6 : 5}>
-                            No branches yet. Head Office is created when you register the company.
-                          </td>
-                        </tr>
-                      ) : (
-                        branches.map((row) => (
-                          <tr key={row.id} className="border-b border-border last:border-b-0">
-                            <td className="px-3 py-2">
-                              <p className="font-medium">{row.name}</p>
-                              {row.address ? (
-                                <p className="truncate text-[11px] text-muted-foreground">{row.address}</p>
-                              ) : null}
-                            </td>
-                            <td className="px-3 py-2 text-muted-foreground">{row.city || "—"}</td>
-                            <td className="px-3 py-2 tabular-nums text-muted-foreground">{row.phone || "—"}</td>
-                            <td className="px-3 py-2 text-muted-foreground">{row.email || "—"}</td>
-                            <td className="px-3 py-2">
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  GRID_CHIP_CLASS,
-                                  row.status === "active"
-                                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                                    : "text-muted-foreground",
-                                )}
-                              >
-                                {row.status === "active" ? "Active" : "Inactive"}
-                              </Badge>
-                            </td>
-                            {canWrite ? (
-                              <td className="px-3 py-2">
-                                <div className="flex items-center gap-1">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 rounded-none"
-                                    aria-label={`Edit ${row.name}`}
-                                    onClick={() => openEditBranch(row)}
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 rounded-none text-destructive"
-                                    aria-label={`Delete ${row.name}`}
-                                    onClick={() => setDeleteTarget(row)}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </div>
-                              </td>
-                            ) : null}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
+              {activeTab === "sequences" ? <WorkspaceSequencesPanel embedded /> : null}
+              {activeTab === "periods" ? <WorkspacePeriodsPanel embedded /> : null}
 
               {activeTab === "warehouses" ? (
                 <div className="overflow-x-auto border border-border">
                   <table className="w-full min-w-[720px] border-collapse text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/40 text-left text-[11px] text-muted-foreground">
-                        <th className="px-3 py-2 font-medium">Warehouse</th>
+                        <th className="px-3 py-2 font-medium">Location</th>
                         <th className="px-3 py-2 font-medium">Code</th>
-                        <th className="px-3 py-2 font-medium">Branch</th>
                         <th className="px-3 py-2 font-medium">City</th>
                         <th className="px-3 py-2 font-medium">Type</th>
                         <th className="px-3 py-2 font-medium">Default</th>
@@ -1644,8 +1395,8 @@ export function CompanySetupPanel() {
                     <tbody>
                       {warehouses.length === 0 ? (
                         <tr>
-                          <td className="px-3 py-6 text-muted-foreground" colSpan={canWrite ? 8 : 7}>
-                            No warehouses yet. New companies get a default warehouse on the Head Office branch.
+                          <td className="px-3 py-6 text-muted-foreground" colSpan={canWrite ? 7 : 6}>
+                            No business locations yet. Click New to add the first one.
                           </td>
                         </tr>
                       ) : (
@@ -1658,7 +1409,6 @@ export function CompanySetupPanel() {
                               ) : null}
                             </td>
                             <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{row.code}</td>
-                            <td className="px-3 py-2 text-muted-foreground">{row.branchName || "—"}</td>
                             <td className="px-3 py-2 text-muted-foreground">{row.city || "—"}</td>
                             <td className="px-3 py-2 text-muted-foreground">{row.type || "—"}</td>
                             <td className="px-3 py-2">
@@ -1719,7 +1469,7 @@ export function CompanySetupPanel() {
 
               {activeTab === "invoice" ? (
                 <TabFields>
-                  <div className="flex flex-wrap sm:col-span-2">
+                  <div className="flex flex-wrap @2xl:col-span-2">
                     <button
                       type="button"
                       className={cn(
@@ -1832,7 +1582,7 @@ export function CompanySetupPanel() {
                     </Field>
                   </SetupBlock>
                   <SetupBlock title="Show on invoice" hint="Turn off anything you do not want printed.">
-                    <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
+                    <div className="grid gap-2 @2xl:col-span-2 @2xl:grid-cols-2">
                       {INVOICE_SHOW_FLAGS.map((item) => (
                         <label key={item.key} className="flex items-center gap-2 text-sm">
                           <input
@@ -1918,7 +1668,7 @@ export function CompanySetupPanel() {
                     </div>
                   </SetupBlock>
                   <SetupBlock title="Footer" hint="Notes printed under the totals.">
-                    <Field label="Footer text" className="sm:col-span-2">
+                    <Field label="Footer text" className="@2xl:col-span-2">
                       <Textarea
                         value={form.invoice_footer}
                         onChange={(e) => setField("invoice_footer", e.target.value)}
@@ -1929,7 +1679,7 @@ export function CompanySetupPanel() {
                     </Field>
                   </SetupBlock>
                   <SetupBlock title="Preview" hint="Sample invoice using the options above.">
-                    <div className="max-h-[560px] overflow-auto border border-border bg-[#ececec] p-3 sm:col-span-2">
+                    <div className="max-h-[560px] overflow-auto border border-border bg-[#ececec] p-3 @2xl:col-span-2">
                       <InvoiceLayoutPreviewDocument
                         company={invoicePreviewCompany(form)}
                         layout={form.invoice_layout}
@@ -2001,7 +1751,7 @@ export function CompanySetupPanel() {
                     </Field>
                   </SetupBlock>
                   <SetupBlock title="Show on packing slip" hint="No prices — Ordered vs Delivered qty, like Odoo Delivery Slip.">
-                    <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
+                    <div className="grid gap-2 @2xl:col-span-2 @2xl:grid-cols-2">
                       {PACKING_SHOW_FLAGS.map((item) => (
                         <label key={item.key} className="flex items-center gap-2 text-sm">
                           <input
@@ -2121,7 +1871,7 @@ export function CompanySetupPanel() {
                     </div>
                   </SetupBlock>
                   <SetupBlock title="Footer" hint="Notes printed under the lines.">
-                    <Field label="Footer text" className="sm:col-span-2">
+                    <Field label="Footer text" className="@2xl:col-span-2">
                       <Textarea
                         value={form.packing_layout.footer}
                         onChange={(e) => setPacking("footer", e.target.value)}
@@ -2132,7 +1882,7 @@ export function CompanySetupPanel() {
                     </Field>
                   </SetupBlock>
                   <SetupBlock title="Preview" hint="Sample packing slip — quantities only, no prices.">
-                    <div className="max-h-[560px] overflow-auto border border-border bg-[#ececec] p-3 sm:col-span-2">
+                    <div className="max-h-[560px] overflow-auto border border-border bg-[#ececec] p-3 @2xl:col-span-2">
                       <InvoiceLayoutPreviewDocument
                         company={invoicePreviewCompany(form)}
                         layout={form.invoice_layout}
@@ -2206,7 +1956,7 @@ export function CompanySetupPanel() {
                     </Field>
                   </SetupBlock>
                   <SetupBlock title="Show on purchase order" hint="Odoo PO — vendor, costs, and payment terms. Turn off anything you do not want printed.">
-                    <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
+                    <div className="grid gap-2 @2xl:col-span-2 @2xl:grid-cols-2">
                       {PURCHASE_SHOW_FLAGS.map((item) => (
                         <label key={item.key} className="flex items-center gap-2 text-sm">
                           <input
@@ -2326,7 +2076,7 @@ export function CompanySetupPanel() {
                     </div>
                   </SetupBlock>
                   <SetupBlock title="Footer" hint="Notes printed under the totals.">
-                    <Field label="Footer text" className="sm:col-span-2">
+                    <Field label="Footer text" className="@2xl:col-span-2">
                       <Textarea
                         value={form.purchase_layout.footer}
                         onChange={(e) => setPurchase("footer", e.target.value)}
@@ -2337,7 +2087,7 @@ export function CompanySetupPanel() {
                     </Field>
                   </SetupBlock>
                   <SetupBlock title="Preview" hint="Sample purchase order using the options above.">
-                    <div className="max-h-[560px] overflow-auto border border-border bg-[#ececec] p-3 sm:col-span-2">
+                    <div className="max-h-[560px] overflow-auto border border-border bg-[#ececec] p-3 @2xl:col-span-2">
                       <PurchaseOrderPrintDocument
                         data={samplePurchasePrintPayload(
                           invoicePreviewCompany(form),
@@ -2412,7 +2162,7 @@ export function CompanySetupPanel() {
                     </Field>
                   </SetupBlock>
                   <SetupBlock title="Show on payment slip" hint="Odoo payment receipt — date, partner, method, amount, and allocated invoices.">
-                    <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
+                    <div className="grid gap-2 @2xl:col-span-2 @2xl:grid-cols-2">
                       {PAYMENT_SHOW_FLAGS.map((item) => (
                         <label key={item.key} className="flex items-center gap-2 text-sm">
                           <input
@@ -2532,7 +2282,7 @@ export function CompanySetupPanel() {
                     </div>
                   </SetupBlock>
                   <SetupBlock title="Footer" hint="Notes printed under the slip.">
-                    <Field label="Footer text" className="sm:col-span-2">
+                    <Field label="Footer text" className="@2xl:col-span-2">
                       <Textarea
                         value={form.payment_layout.footer}
                         onChange={(e) => setPayment("footer", e.target.value)}
@@ -2543,7 +2293,7 @@ export function CompanySetupPanel() {
                     </Field>
                   </SetupBlock>
                   <SetupBlock title="Preview" hint="Sample payment slip using the options above.">
-                    <div className="max-h-[560px] overflow-auto border border-border bg-[#ececec] p-3 sm:col-span-2">
+                    <div className="max-h-[560px] overflow-auto border border-border bg-[#ececec] p-3 @2xl:col-span-2">
                       <PaymentSlipPrintDocument
                         data={samplePaymentPrintPayload(
                           invoicePreviewCompany(form),
@@ -2559,76 +2309,14 @@ export function CompanySetupPanel() {
                 </TabFields>
               ) : null}
             </div>
-          </div>
+          </AgainFormNotebook>
         </div>
       </div>
-
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent
-          side="right"
-          title={editBranch ? "Edit branch" : "New branch"}
-          resizable
-          closeButton="inside"
-          className="w-[360px] min-w-[160px] max-w-[720px] gap-0 rounded-none p-0"
-        >
-          <div className="flex items-center gap-2 border-b border-border px-3 py-2 pr-10">
-            <Button size="sm" className="h-7 rounded-none" disabled={savingBranch} onClick={() => void saveBranch()}>
-              {savingBranch ? "Saving…" : "Save"}
-            </Button>
-            <h2 className="text-sm font-semibold">{editBranch ? "Edit branch" : "New branch"}</h2>
-          </div>
-          <div className="space-y-3 overflow-y-auto p-3">
-            <Field label="Branch name">
-              <Input
-                value={branchForm.name}
-                onChange={(e) => setBranchField("name", e.target.value)}
-                placeholder="Dhaka Head Office"
-              />
-            </Field>
-            <Field label="Address">
-              <Input
-                value={branchForm.address}
-                onChange={(e) => setBranchField("address", e.target.value)}
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="City">
-                <Input value={branchForm.city} onChange={(e) => setBranchField("city", e.target.value)} />
-              </Field>
-              <Field label="State">
-                <Input value={branchForm.state} onChange={(e) => setBranchField("state", e.target.value)} />
-              </Field>
-              <Field label="Country">
-                <Input value={branchForm.country} onChange={(e) => setBranchField("country", e.target.value)} />
-              </Field>
-              <Field label="ZIP">
-                <Input value={branchForm.zip_code} onChange={(e) => setBranchField("zip_code", e.target.value)} />
-              </Field>
-              <Field label="Phone">
-                <Input value={branchForm.phone} onChange={(e) => setBranchField("phone", e.target.value)} />
-              </Field>
-              <Field label="Email">
-                <Input value={branchForm.email} onChange={(e) => setBranchField("email", e.target.value)} />
-              </Field>
-            </div>
-            <Field label="Status">
-              <Select
-                value={branchForm.status}
-                onChange={(e) => setBranchField("status", e.target.value === "inactive" ? "inactive" : "active")}
-                className="w-full"
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </Select>
-            </Field>
-          </div>
-        </SheetContent>
-      </Sheet>
 
       <Sheet open={warehouseSheetOpen} onOpenChange={setWarehouseSheetOpen}>
         <SheetContent
           side="right"
-          title={editWarehouse ? "Edit warehouse" : "New warehouse"}
+          title={editWarehouse ? "Edit location" : "New location"}
           resizable
           closeButton="inside"
           className="w-[360px] min-w-[160px] max-w-[720px] gap-0 rounded-none p-0"
@@ -2642,14 +2330,14 @@ export function CompanySetupPanel() {
             >
               {savingWarehouse ? "Saving…" : "Save"}
             </Button>
-            <h2 className="text-sm font-semibold">{editWarehouse ? "Edit warehouse" : "New warehouse"}</h2>
+            <h2 className="text-sm font-semibold">{editWarehouse ? "Edit location" : "New location"}</h2>
           </div>
-          <div className="space-y-3 overflow-y-auto p-3">
-            <Field label="Warehouse name">
+          <div className="again-odoo-form @container overflow-y-auto p-3">
+            <Field label="Location name">
               <Input
                 value={warehouseForm.name}
                 onChange={(e) => setWarehouseField("name", e.target.value)}
-                placeholder="Head Office Warehouse"
+                placeholder="Dhaka Showroom"
               />
             </Field>
             <Field label="Short code">
@@ -2657,18 +2345,6 @@ export function CompanySetupPanel() {
                 value={warehouseForm.code}
                 onChange={(e) => setWarehouseField("code", e.target.value.toUpperCase())}
                 placeholder="WH"
-              />
-            </Field>
-            <Field label="Branch">
-              <FilterSelect
-                value={warehouseForm.branchId}
-                onChange={applyWarehouseBranch}
-                options={branches.map((row) => ({ value: row.id, label: row.name }))}
-                placeholder="Select branch"
-                searchPlaceholder="Search branch…"
-                width="w-full"
-                className="h-8 w-full"
-                ariaLabel="Branch"
               />
             </Field>
             <Field label="Type">
@@ -2693,7 +2369,7 @@ export function CompanySetupPanel() {
                 onChange={(e) => setWarehouseField("address", e.target.value)}
               />
             </Field>
-            <div className="grid grid-cols-2 gap-2">
+            <div>
               <Field label="City">
                 <Input
                   value={warehouseForm.city}
@@ -2706,7 +2382,7 @@ export function CompanySetupPanel() {
                   onChange={(e) => setWarehouseField("country", e.target.value)}
                 />
               </Field>
-              <Field label="Phone" className="col-span-2">
+              <Field label="Phone">
                 <Input
                   value={warehouseForm.mobile}
                   onChange={(e) => setWarehouseField("mobile", e.target.value)}
@@ -2730,31 +2406,11 @@ export function CompanySetupPanel() {
                 checked={warehouseForm.isDefault}
                 onChange={(e) => setWarehouseField("isDefault", e.target.checked)}
               />
-              Default warehouse
+              Default location
             </label>
           </div>
         </SheetContent>
       </Sheet>
-
-      <Dialog.Root open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(400px,90vw)] -translate-x-1/2 -translate-y-1/2 rounded-none border border-border bg-background p-6 shadow-xl">
-            <Dialog.Title className="text-base font-semibold">Delete branch?</Dialog.Title>
-            <Dialog.Description className="mt-2 text-sm text-muted-foreground">
-              {`"${deleteTarget?.name}" will be removed. Departments linked to this branch may block delete.`}
-            </Dialog.Description>
-            <div className="mt-6 flex justify-end gap-2">
-              <Button variant="outline" size="sm" className="rounded-none" onClick={() => setDeleteTarget(null)}>
-                Cancel
-              </Button>
-              <Button size="sm" variant="destructive" className="rounded-none" onClick={() => void confirmDelete()}>
-                Delete
-              </Button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
 
       <Dialog.Root
         open={!!deleteWarehouseTarget}
@@ -2763,9 +2419,9 @@ export function CompanySetupPanel() {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
           <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(400px,90vw)] -translate-x-1/2 -translate-y-1/2 rounded-none border border-border bg-background p-6 shadow-xl">
-            <Dialog.Title className="text-base font-semibold">Delete warehouse?</Dialog.Title>
+            <Dialog.Title className="text-base font-semibold">Delete location?</Dialog.Title>
             <Dialog.Description className="mt-2 text-sm text-muted-foreground">
-              {`"${deleteWarehouseTarget?.name}" will be removed. The last warehouse cannot be deleted, and stock must be moved first.`}
+              {`"${deleteWarehouseTarget?.name}" will be removed. The last location cannot be deleted, and its stock must be moved first.`}
             </Dialog.Description>
             <div className="mt-6 flex justify-end gap-2">
               <Button

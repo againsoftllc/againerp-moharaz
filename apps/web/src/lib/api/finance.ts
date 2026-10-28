@@ -462,7 +462,7 @@ export async function fetchFinanceReport(
 
 export type ChequeDirection = "received" | "issued";
 export type ChequeStatus = "received" | "issued" | "deposited" | "presented" | "cleared" | "bounced" | "cancelled";
-export type ChequeAction = "deposit" | "present" | "clear" | "bounce" | "cancel";
+export type ChequeAction = "deposit" | "present" | "clear" | "bounce" | "cancel" | "represent" | "close";
 
 export type ApiFinanceCheque = {
   id: string;
@@ -484,6 +484,9 @@ export type ApiFinanceCheque = {
   bank_charge: string;
   notes: string | null;
   available_actions: ChequeAction[];
+  /** Date of the last treatment (deposit, honour, dishonour…). */
+  last_action_date: string | null;
+  bounce_count: number;
   created_at: string;
   updated_at: string;
 };
@@ -505,10 +508,22 @@ export type ApiFinanceChequeDetail = ApiFinanceCheque & {
   journal_entries: ApiFinanceJournalEntry[];
 };
 
-export async function fetchFinanceCheques(params?: { direction?: string; status?: string; limit?: number }) {
+export async function fetchFinanceCheques(params?: {
+  direction?: string;
+  status?: string;
+  payment_account_id?: string;
+  date_from?: string;
+  date_to?: string;
+  q?: string;
+  limit?: number;
+}) {
   const q = new URLSearchParams();
   if (params?.direction && params.direction !== "all") q.set("direction", params.direction);
   if (params?.status && params.status !== "all") q.set("status", params.status);
+  if (params?.payment_account_id && params.payment_account_id !== "all") q.set("payment_account_id", params.payment_account_id);
+  if (params?.date_from) q.set("date_from", params.date_from);
+  if (params?.date_to) q.set("date_to", params.date_to);
+  if (params?.q?.trim()) q.set("q", params.q.trim());
   if (params?.limit) q.set("limit", String(params.limit));
   const s = q.toString();
   return apiFetch<{ data: ApiFinanceCheque[]; meta: ApiListMeta }>(`${BASE}/cheques${s ? `?${s}` : ""}`);
@@ -548,6 +563,28 @@ export async function applyFinanceChequeAction(
   },
 ) {
   return apiFetch<{ data: ApiFinanceChequeDetail }>(`${BASE}/cheques/${id}/actions`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export type ApiChequeBulkResult = {
+  id: string;
+  cheque_number: string | null;
+  ok: boolean;
+  status: ChequeStatus | null;
+  error: string | null;
+};
+
+/** Cheque Treatment: one action for many cheques — each comes back with its own result. */
+export async function bulkFinanceChequeAction(input: {
+  cheque_ids: string[];
+  action: ChequeAction;
+  action_date?: string;
+  payment_account_id?: string;
+  note?: string;
+}) {
+  return apiFetch<{ data: ApiChequeBulkResult[]; succeeded: number; failed: number }>(`${BASE}/cheques/bulk-actions`, {
     method: "POST",
     body: JSON.stringify(input),
   });

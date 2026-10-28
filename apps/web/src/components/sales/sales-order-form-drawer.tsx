@@ -6782,7 +6782,10 @@ export function SalesOrderFormDrawer({
                               disabled={readOnly}
                               options={[
                                 { value: "", label: "Automatic" },
-                                ...warehouses.map((w) => ({ value: w.id, label: `${w.code} \u2014 ${w.name}` })),
+                                // a member limited to some warehouses receives returns only into theirs
+                                ...warehouseAccess
+                                  .pickable(warehouses, returnWarehouseId)
+                                  .map((w) => ({ value: w.id, label: `${w.code} \u2014 ${w.name}` })),
                               ]}
                             />
                           </AgainFormField>

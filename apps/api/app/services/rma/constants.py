@@ -7,6 +7,9 @@ Authorization-first states (`draft` → `awaiting_return`) are additive.
 from __future__ import annotations
 
 RMA_TYPES: tuple[str, ...] = ("customer", "warranty", "supplier")
+# Where the sale behind a complaint is known from (OnerERP Against System / Previous / Unknown Sales)
+SALE_SOURCES: tuple[str, ...] = ("system", "previous", "unknown")
+SALE_SOURCE_LABELS: dict[str, str] = {"system": "System sale", "previous": "Previous sale", "unknown": "Unknown sale"}
 
 RMA_STATUSES: tuple[str, ...] = (
     "draft",
@@ -124,12 +127,26 @@ RECEIPT_STATUS_LABELS: dict[str, str] = {
     "cancelled": "Cancelled",
 }
 RECEIPT_OPEN_STATUSES = ("draft", "pending_approval", "correction_requested")
+# What the supplier sent back for a dispatched claim. The type drives the whole receipt: which fields it asks for, what is
+# validated, and what approving it posts (docs/RMA.md Stage D).
 RECEIPT_OUTCOMES: dict[str, str] = {
-    "replacement": "Replacement",
-    "repaired": "Original unit repaired",
-    "returned_unrepaired": "Returned unrepaired",
-    "other": "Other",
+    "same_unit": "Same product, same serial",
+    "same_product": "Same product, different serial",
+    "different_product": "Different product, different serial",
+    "cash_back": "Cash back",
 }
+# Outcomes where a unit comes back into the RMA store.
+RECEIPT_UNIT_OUTCOMES = frozenset({"same_unit", "same_product", "different_product"})
+
+# What the customer gets on a delivery. Mirrors what came back from the supplier (RECEIPT_OUTCOMES): the three unit types
+# must match the unit the RMA actually holds; cash back returns money and hands over nothing (docs/RMA.md Stage E).
+DELIVERY_OUTCOMES: dict[str, str] = {
+    "same_unit": "Same product, same serial",
+    "same_product": "Same product, different serial",
+    "different_product": "Different product, different serial",
+    "cash_back": "Cash back",
+}
+DELIVERY_UNIT_OUTCOMES = frozenset({"same_unit", "same_product", "different_product"})
 
 # Customer delivery / payment (docs/RMA.md Stage E, section 5): two concepts, five presets.
 DELIVERY_STATUSES: tuple[str, ...] = (
@@ -188,19 +205,21 @@ SETTLEMENT_CHARGE_PURPOSES = frozenset({"parts_service", "repair_labour"})
 SETTLEMENT_BLOCKED_STATUSES = frozenset({"draft", "pending_approval", "correction_requested", "rejected", "cancelled"})
 
 # Plain-language stock states (docs/RMA.md §3).
-CUSTODY_STATES = ("in_rma_store", "with_supplier", "replacement_received", "delivered")
+CUSTODY_STATES = ("in_rma_store", "with_supplier", "replacement_received", "delivered", "cash_back")
 CUSTODY_LABELS: dict[str, str] = {
     "in_rma_store": "In RMA Store",
     "with_supplier": "With Supplier",
     "replacement_received": "Replacement Received",
     "delivered": "Delivered to Customer",
+    # the supplier kept the unit and paid cash instead: nothing comes back
+    "cash_back": "Cash Back (unit kept by supplier)",
 }
 
 SUPPLIER_STATUSES = frozenset({"sent_to_supplier", "at_supplier"})
 OPEN_STATUSES = tuple(s for s in RMA_STATUSES if s not in _TERMINAL and s != "delivered")
 
 WARRANTY_STATUSES = frozenset({"in_warranty", "out_of_warranty", "unknown"})
-WARRANTY_SOURCES = frozenset({"order", "serial", "sales", "manual", "unknown"})
+WARRANTY_SOURCES = frozenset({"order", "serial", "sales", "manual", "previous_sale", "unknown"})
 
 # Status vs resolution stay separate. Legacy `repair`/`replace` remain readable.
 RESOLUTION_TYPES = frozenset({
@@ -218,11 +237,8 @@ RESOLUTION_TYPES = frozenset({
 })
 RESOLUTION_STATUSES = frozenset({"pending", "processing", "completed"})
 
-PHYSICAL_CONDITIONS = frozenset({"new", "like_new", "used", "damaged", "heavily_damaged"})
-FUNCTIONAL_RESULTS = frozenset({"passed", "failed", "partial"})
-QC_RESULTS = frozenset({"resellable", "repairable", "scrap", "supplier_return"})
-
-CHARGE_KINDS = frozenset({"part", "labour", "misc"})
+# What a customer can be charged for on the delivery: a service charge, parts, labour, a fine (penalty), or anything else.
+CHARGE_KINDS = frozenset({"part", "labour", "misc", "service", "fine"})
 
 SUPPLIER_JOB_STATUSES = frozenset(
     {"draft", "dispatched", "acknowledged", "in_progress", "completed", "returned", "rejected"}

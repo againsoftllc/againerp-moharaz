@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ChevronDown, Factory, Paperclip, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, Paperclip, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,17 +30,12 @@ import {
   AgainUnderlineTextarea,
 } from "@/components/again/again-form-sheet";
 import {
-  BillDrawer,
-  ChargeDrawer,
-  InspectionDrawer,
   RefundDrawer,
   ReplacementDrawer,
   ResolveDrawer,
   RestockDrawer,
   ServiceFromRmaDrawer,
   StatusDrawer,
-  SupplierJobDrawer,
-  WarrantyDrawer,
 } from "@/components/rma/rma-drawers";
 import { RmaApprovalDrawer } from "@/components/rma/rma-approval-drawer";
 import { RmaSupplierOverrideDrawer } from "@/components/rma/rma-supplier-override-drawer";
@@ -56,8 +51,8 @@ import {
 } from "@/lib/api/rma-claims";
 import { RmaReceiptDrawer } from "@/components/rma/rma-receipt-drawer";
 import { RmaDeliveryDrawer } from "@/components/rma/rma-delivery-drawer";
-import { RmaSettlementDrawer } from "@/components/rma/rma-settlement-drawer";
 import {
+  DELIVERY_OUTCOME_LABEL,
   DELIVERY_STATUS_LABEL,
   DELIVERY_STATUS_TONE,
   createRmaDelivery,
@@ -66,17 +61,6 @@ import {
   type RmaDelivery,
   type RmaDeliverySummary,
 } from "@/lib/api/rma-deliveries";
-import {
-  DIRECTION_LABEL,
-  PARTY_TYPE_LABEL,
-  PURPOSE_LABEL,
-  SETTLEMENT_STATUS_LABEL,
-  SETTLEMENT_STATUS_TONE,
-  fetchRmaSettlementSummary,
-  fetchRmaSettlements,
-  type RmaSettlement,
-  type RmaSettlementSummary,
-} from "@/lib/api/rma-settlements";
 import {
   RECEIPT_OUTCOME_LABEL,
   RECEIPT_STATUS_LABEL,
@@ -92,17 +76,17 @@ import {
   fetchRmaStockEvents,
   fetchRmaStores,
   fetchRmaTicket,
-  recheckWarranty,
-  removeRmaCharge,
   scrapRmaTicket,
   submitRmaForApproval,
+  decideRmaComplaint,
   updateRmaTicket,
   CUSTODY_LABEL,
-  RESOLUTION_LABEL,
   RMA_STATUS_LABEL,
   RMA_STATUS_TONE,
+  SALE_SOURCE_LABEL,
   WARRANTY_LABEL,
   WARRANTY_TONE,
+  warrantyDaysText,
   type RmaHistoryEntry,
   type RmaPrior,
   type RmaStockEvent,
@@ -288,7 +272,9 @@ export function RmaDetailDrawer({
 }) {
   const router = useRouter();
   const canWrite = useAdminCanWrite();
-  const canApprove = usePermission("rma_approve", "write");
+  // the Approve permission on RMA (Workspace › Roles) decides every RMA document, as it does in the other modules
+  const holdsRmaApprove = usePermission("rma", "approve");
+  const canApprove = usePermission("rma_approve", "write") || holdsRmaApprove;
   const canOverride = usePermission("rma_override", "write");
   const canReprint = usePermission("rma_reprint", "write");
   const canRecordSettlement = usePermission("rma_payment", "write");
@@ -306,10 +292,6 @@ export function RmaDetailDrawer({
   const [deliveryOpenId, setDeliveryOpenId] = useState<string | null>(null);
   const [deliveryDrawerOpen, setDeliveryDrawerOpen] = useState(false);
   const [creatingDelivery, setCreatingDelivery] = useState(false);
-  const [settlements, setSettlements] = useState<RmaSettlement[]>([]);
-  const [settlementSummary, setSettlementSummary] = useState<RmaSettlementSummary | null>(null);
-  const [settlementOpenId, setSettlementOpenId] = useState<string | null>(null);
-  const [settlementDrawerOpen, setSettlementDrawerOpen] = useState(false);
   const [receiptOpenId, setReceiptOpenId] = useState<string | null>(null);
   const [receiptDrawerOpen, setReceiptDrawerOpen] = useState(false);
   const [creatingReceipt, setCreatingReceipt] = useState<string | null>(null);
@@ -331,12 +313,7 @@ export function RmaDetailDrawer({
 
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
-  const [warrantyOpen, setWarrantyOpen] = useState(false);
-  const [chargeOpen, setChargeOpen] = useState(false);
-  const [supplierOpen, setSupplierOpen] = useState(false);
   const [supplierOverrideOpen, setSupplierOverrideOpen] = useState(false);
-  const [billOpen, setBillOpen] = useState(false);
-  const [inspectOpen, setInspectOpen] = useState(false);
   const [resolveOpen, setResolveOpen] = useState(false);
   const [serviceOpen, setServiceOpen] = useState(false);
   const [serviceJob, setServiceJob] = useState<RmaServiceJob | null>(null);
@@ -366,9 +343,7 @@ export function RmaDetailDrawer({
       setClaims(cl);
       void fetchRmaDeliveries(ticketId).then(setDeliveries).catch(() => setDeliveries([]));
       void fetchRmaDeliverySummary(ticketId).then(setDeliverySummary).catch(() => setDeliverySummary(null));
-      void fetchRmaSettlements(ticketId).then(setSettlements).catch(() => setSettlements([]));
       void fetchRmaServiceJob(ticketId).then(setServiceJob).catch(() => setServiceJob(null));
-      void fetchRmaSettlementSummary(ticketId).then(setSettlementSummary).catch(() => setSettlementSummary(null));
       const dispatched = cl.filter((c) => c.status === "dispatched");
       setReceipts((await Promise.all(dispatched.map((c) => fetchRmaReceipts(c.id).catch(() => [])))).flat());
       setPrior(pr);
@@ -464,15 +439,19 @@ export function RmaDetailDrawer({
         if (form[key]) changes[key] = form[key];
       } else changes[key] = form[key];
     });
-    if (!Object.keys(changes).length) return;
+    // Saving a draft complaint finalizes it, as in Sales: an approver's is approved, anyone else's is sent for approval
+    const finalizes = ticket.status === "draft" || ticket.status === "correction_requested";
+    if (!Object.keys(changes).length && !finalizes) return;
     setSaving(true);
     try {
-      const next = await updateRmaTicket(ticket.id, changes);
+      let next = Object.keys(changes).length ? await updateRmaTicket(ticket.id, changes) : ticket;
+      if (finalizes) next = await (canApprove ? decideRmaComplaint(ticket.id, "approved") : submitRmaForApproval(ticket.id));
       setTicket(next);
       setForm(toForm(next));
       clearDraft();
-      toast.success("Saved");
+      toast.success(!finalizes ? "Saved" : canApprove ? "Complaint approved" : "Sent for approval");
       onChanged?.();
+      if (finalizes) refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not save");
     } finally {
@@ -531,7 +510,6 @@ export function RmaDetailDrawer({
   );
   const storeName = stores.find((s) => s.id === ticket?.warehouse_id)?.name;
   const stockLocked = Boolean(ticket?.custody_state) || events.some((e) => e.event_key === "intake" && !e.reversed);
-  const billed = ticket?.bill_status === "billed";
   const showStock = events.length > 0 || Boolean(ticket?.custody_state);
   const openClaim = claims.find((c) => CLAIM_OPEN.includes(c.status));
   const canRaiseClaim = Boolean(
@@ -546,16 +524,16 @@ export function RmaDetailDrawer({
       !openDeliveryDoc &&
       !["draft", "pending_approval", "correction_requested"].includes(ticket.status) &&
       deliverySummary &&
-      deliverySummary.can_deliver_product,
+      // the unit can go back, or there is no unit and the customer can still be paid cash back
+      (deliverySummary.can_deliver_product || deliverySummary.can_cash_back),
   );
-  const canStartSettlement = Boolean(ticket && canWrite && canRecordSettlement && settlementSummary?.can_settle);
-  const showDeliveryTab = deliveries.length > 0 || settlements.length > 0 || canStartDelivery || Boolean(settlementSummary?.can_settle);
+  const showDeliveryTab = deliveries.length > 0 || canStartDelivery;
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "overview", label: "Overview" },
     { id: "complaint", label: "Complaint & Diagnosis" },
     ...(showClaimTab ? [{ id: "claim" as const, label: "Supplier Claim" }] : []),
-    ...(showDeliveryTab ? [{ id: "delivery" as const, label: "Delivery & Settlement" }] : []),
+    ...(showDeliveryTab ? [{ id: "delivery" as const, label: "Delivery" }] : []),
     ...(showStock ? [{ id: "stock" as const, label: "Stock Movements" }] : []),
     { id: "files", label: "Attachments" },
     { id: "activity", label: "Activity" },
@@ -599,8 +577,8 @@ export function RmaDetailDrawer({
             ) : (
               <>
                 {(status === "draft" || status === "correction_requested") && (
-                  <AgainDrawerButton variant="primary" onClick={() => void run(() => submitRmaForApproval(ticket.id), "Sent for approval")}>
-                    Send for approval
+                  <AgainDrawerButton variant="primary" onClick={() => void save()} disabled={saving}>
+                    {saving ? "Saving…" : "Save"}
                   </AgainDrawerButton>
                 )}
                 {status === "pending_approval" && (
@@ -611,11 +589,6 @@ export function RmaDetailDrawer({
                 {(status === "approved" || status === "awaiting_return") && (
                   <AgainDrawerButton variant="primary" onClick={() => void run(() => changeRmaStatus(ticket.id, "received", "Unit received into the RMA store"), "Unit received")}>
                     Mark received
-                  </AgainDrawerButton>
-                )}
-                {inHouse && (
-                  <AgainDrawerButton variant="primary" onClick={() => setInspectOpen(true)}>
-                    Inspect
                   </AgainDrawerButton>
                 )}
                 <AgainDrawerButton onClick={() => void printReceipt()} disabled={(ticket.receipt_print_count ?? 0) > 0 && !canReprint} title={(ticket.receipt_print_count ?? 0) > 0 && !canReprint ? "Reprinting needs the RMA reprint permission" : undefined}>
@@ -629,7 +602,7 @@ export function RmaDetailDrawer({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="min-w-[12rem]">
                     {showClaimTab && <DropdownMenuItem onClick={() => setTab("claim")}>Supplier claim…</DropdownMenuItem>}
-                    {showDeliveryTab && <DropdownMenuItem onClick={() => setTab("delivery")}>Delivery &amp; settlement…</DropdownMenuItem>}
+                    {showDeliveryTab && <DropdownMenuItem onClick={() => setTab("delivery")}>Delivery to customer…</DropdownMenuItem>}
                     <DropdownMenuItem onClick={() => setResolveOpen(true)}>Resolution</DropdownMenuItem>
                     {inHouse && !ticket.service_job_id && <DropdownMenuItem onClick={() => setServiceOpen(true)}>Create service job</DropdownMenuItem>}
                     {ticket.service_job_id && <DropdownMenuItem onClick={() => router.push(`/service/jobs?job=${ticket.service_job_id}`)}>Open job card</DropdownMenuItem>}
@@ -668,6 +641,7 @@ export function RmaDetailDrawer({
                   </Badge>
                   <Badge variant="outline" className={cn("rounded-none text-[10px]", WARRANTY_TONE[ticket.warranty_status])}>
                     {WARRANTY_LABEL[ticket.warranty_status]}
+                    {warrantyDaysText(ticket.warranty_days_left) ? ` · ${warrantyDaysText(ticket.warranty_days_left)}` : ""}
                   </Badge>
                   {ticket.custody_state ? (
                     <Badge variant="outline" className="rounded-none border-[#00a09d]/40 bg-[#00a09d]/10 text-[10px] text-[#00a09d]">
@@ -763,7 +737,6 @@ export function RmaDetailDrawer({
                         const claim = claims[0];
                         const receipt = receipts[0];
                         const delivery = deliveries.find((d) => d.status === "approved") ?? deliveries[0];
-                        const approvedMoney = settlements.filter((st) => st.status === "approved");
                         const stageDone = (id: string) => {
                           const idx = RMA_STAGES.findIndex((s) => s.id === id);
                           const cur = RMA_STAGES.findIndex((s) => s.id === stageOfStatus(ticket.status));
@@ -822,7 +795,9 @@ export function RmaDetailDrawer({
                                   <Fact label="Receipt" value={`${receipt.receipt_number} · ${RECEIPT_STATUS_LABEL[receipt.status]}`} />
                                   <Fact label="Received" value={receipt.received_date ? `${receipt.received_date}${receipt.received_by ? ` by ${receipt.received_by}` : ""}` : null} />
                                   <Fact label="Serial" value={receipt.received_serial && receipt.received_serial !== receipt.sent_serial ? `${receipt.sent_serial ?? "—"} → ${receipt.received_serial}` : receipt.received_serial ?? receipt.sent_serial} />
-                                  <Fact label="Outcome" value={receipt.outcome ? receipt.outcome.replace(/_/g, " ") : null} />
+                                  <Fact label="Outcome" value={RECEIPT_OUTCOME_LABEL[receipt.outcome] ?? null} />
+                                  {receipt.outcome === "different_product" ? <Fact label="Product" value={`${receipt.received_product_name ?? ""} (${receipt.received_sku ?? ""})`} /> : null}
+                                  {receipt.outcome === "cash_back" ? <Fact label="Cash back" value={formatCurrency(Number(receipt.refund_amount ?? 0))} /> : null}
                                   <Fact label="Approved by" value={receipt.decision === "approved" ? receipt.decided_by_name : null} />
                                 </>
                               ) : (
@@ -834,6 +809,8 @@ export function RmaDetailDrawer({
                               {delivery ? (
                                 <>
                                   <Fact label="Delivery" value={`${delivery.delivery_number} · ${DELIVERY_STATUS_LABEL[delivery.status]}`} />
+                                  <Fact label="Type" value={DELIVERY_OUTCOME_LABEL[delivery.outcome] ?? null} />
+                                  {delivery.outcome === "cash_back" ? <Fact label="Cash back" value={formatCurrency(Number(delivery.refund_amount ?? 0))} /> : null}
                                   <Fact label="Handed to" value={delivery.stock_posted ? `${delivery.delivered_to ?? ticket.customer_name}${delivery.delivery_date ? ` · ${delivery.delivery_date}` : ""}` : delivery.delivered_to} />
                                   <Fact label="Serial" value={delivery.serial_delivered} />
                                   <Fact label="Approved by" value={delivery.decision === "approved" ? delivery.decided_by_name : null} />
@@ -843,12 +820,6 @@ export function RmaDetailDrawer({
                               )}
                               {deliverySummary && Number(deliverySummary.total) > 0 ? (
                                 <Fact label="Charges" value={`${formatCurrency(Number(deliverySummary.total))} · paid ${formatCurrency(Number(deliverySummary.paid))} · owed ${formatCurrency(Number(deliverySummary.outstanding))}`} />
-                              ) : null}
-                              {approvedMoney.length > 0 ? (
-                                <Fact
-                                  label="Settlements"
-                                  value={`${approvedMoney.length} approved · in ${formatCurrency(Number(settlementSummary?.money_in ?? 0))} · out ${formatCurrency(Number(settlementSummary?.money_out ?? 0))}`}
-                                />
                               ) : null}
                             </Card>
                           </>
@@ -860,7 +831,12 @@ export function RmaDetailDrawer({
                     <Section title="Unit">
                       <Fact label="SKU" value={ticket.sku} />
                       <Fact label="Product" value={ticket.product_name} />
-                      <Fact label="Serial" value={ticket.serial_number} />
+                      <Fact
+                        label="Serial"
+                        value={ticket.serial_number}
+                        note={ticket.serial_generated ? "generated by the RMA — the unit had no serial" : undefined}
+                      />
+                      {ticket.held_sku ? <Fact label="Holding now" value={`${ticket.held_product_name ?? ""} (${ticket.held_sku}) — the supplier sent a different product`} /> : null}
                       {ticket.received_serial_number && ticket.received_serial_number !== ticket.serial_number ? (
                         <Fact label="Received serial" value={ticket.received_serial_number} note="the supplier's replacement — the original serial is kept" />
                       ) : null}
@@ -872,7 +848,12 @@ export function RmaDetailDrawer({
                       <Fact label="Customer" value={ticket.customer_name} />
                       <Fact label="Phone" value={ticket.customer_phone} />
                       <Fact label="Email" value={ticket.customer_email} />
-                      <Fact label="Invoice / order" value={ticket.order_number} />
+                      <Fact label="Sale type" value={SALE_SOURCE_LABEL[ticket.sale_source ?? "system"]} />
+                      <Fact
+                        label="Invoice / order"
+                        value={ticket.order_number ?? ticket.previous_invoice_no}
+                        note={!ticket.order_number && ticket.previous_invoice_no ? "old invoice, before this ERP" : undefined}
+                      />
                       <Fact label="Sold on" value={ticket.purchased_at} />
                     </Section>
                     <Section title="Handling">
@@ -908,7 +889,7 @@ export function RmaDetailDrawer({
                     >
                       <Fact label="Supplier" value={ticket.supplier_name} />
                       <Fact label="Purchase receipt" value={ticket.purchase_receipt_no} />
-                      <Fact label="Vendor invoice" value={ticket.vendor_invoice_no} />
+                      {ticket.vendor_invoice_no ? <Fact label="Vendor invoice" value={ticket.vendor_invoice_no} /> : null}
                       <Fact
                         label="Source"
                         value={
@@ -922,24 +903,21 @@ export function RmaDetailDrawer({
                       />
                     </Section>
                   </div>
-                  <Section
-                    title="Warranty"
-                    action={
-                      canWrite ? (
-                        <div className="flex gap-1">
-                          <Button variant="outline" size="sm" className="h-6 rounded-none text-[11px]" onClick={() => void run(() => recheckWarranty(ticket.id), "Warranty rechecked from the order")}>
-                            Recheck
-                          </Button>
-                          <Button size="sm" className="h-6 rounded-none text-[11px]" disabled={!canOverride} title={canOverride ? undefined : "Overriding the warranty needs the RMA override permission"} onClick={() => setWarrantyOpen(true)}>
-                            <ShieldCheck className="mr-1 h-3 w-3" /> Set by hand
-                          </Button>
-                        </div>
-                      ) : null
-                    }
-                  >
+                  <Section title="Warranty">
                     <Fact label="Verdict" value={WARRANTY_LABEL[ticket.warranty_status]} />
-                    <Fact label="Decided by" value={ticket.warranty_source === "manual" ? "An agent, by hand" : ticket.warranty_source === "serial" ? "Serial registry + product terms" : "Order + product terms"} />
-                    <Fact label="Expires" value={ticket.warranty_expires_on} />
+                    <Fact
+                      label="Decided by"
+                      value={
+                        ticket.warranty_source === "manual"
+                          ? "An agent, by hand"
+                          : ticket.warranty_source === "serial"
+                            ? "Serial registry + product terms"
+                            : ticket.warranty_source === "previous_sale"
+                              ? "Previous sale date + product terms"
+                              : "Order + product terms"
+                      }
+                    />
+                    <Fact label="Expires" value={ticket.warranty_expires_on} note={warrantyDaysText(ticket.warranty_days_left) || undefined} />
                     <Fact label="Note" value={ticket.warranty_note} />
                   </Section>
                   {ticket.complaint_decision ? (
@@ -1024,109 +1002,6 @@ export function RmaDetailDrawer({
                       <p className="text-[11px] text-muted-foreground">The unit is already stocked in this RMA store, so the store is locked.</p>
                     ) : null}
                   </Section>
-
-                  <div className="grid gap-x-8 gap-y-4 @xl:grid-cols-2">
-                    <Section title="Inspection">
-                      <Fact label="Physical" value={ticket.physical_condition} />
-                      <Fact label="Functional" value={ticket.functional_result} />
-                      <Fact label="QC" value={ticket.qc_result} />
-                      <Fact label="Inspector" value={ticket.inspected_by} />
-                      <Fact label="Notes" value={ticket.inspection_notes} />
-                    </Section>
-                    <Section title="Resolution">
-                      <Fact label="Type" value={ticket.resolution_type ? RESOLUTION_LABEL[ticket.resolution_type] ?? ticket.resolution_type : null} />
-                      <Fact label="Status" value={ticket.resolution_status} />
-                      <Fact label="Refund" value={ticket.refund_id ? formatCurrency(Number(ticket.refund_amount ?? 0)) : null} />
-                      <Fact label="Replacement SKU" value={ticket.replacement_sku} />
-                      <Fact label="Courier" value={ticket.courier} />
-                      <Fact label="Tracking" value={ticket.tracking_number} />
-                    </Section>
-                  </div>
-
-                  <Section
-                    title="Supplier job"
-                    action={
-                      canWrite && !closed ? (
-                        <Button size="sm" className="h-6 rounded-none text-[11px]" onClick={() => setSupplierOpen(true)}>
-                          <Factory className="mr-1 h-3 w-3" />
-                          {ticket.supplier_job ? "Update" : "Send out"}
-                        </Button>
-                      ) : null
-                    }
-                  >
-                    {ticket.supplier_job ? (
-                      <>
-                        <Fact label="Supplier" value={ticket.supplier_job.supplier_name} />
-                        <Fact label="Job status" value={ticket.supplier_job.status} />
-                        <Fact label="Their ref" value={ticket.supplier_job.supplier_reference} />
-                        <Fact label="Dispatched" value={ticket.supplier_job.dispatched_at} />
-                        <Fact label="Expected back" value={ticket.supplier_job.expected_return_date} />
-                        <Fact label="Returned" value={ticket.supplier_job.returned_at} />
-                      </>
-                    ) : (
-                      <p className="py-2 text-[12px] text-muted-foreground">Not sent to a supplier yet.</p>
-                    )}
-                  </Section>
-
-                  <Section
-                    title={`Charges · ${formatCurrency(Number(ticket.total))}${billed ? " · billed" : ""}`}
-                    action={
-                      canWrite && !billed && !closed ? (
-                        <div className="flex gap-1">
-                          <Button size="sm" className="h-6 rounded-none text-[11px]" onClick={() => setChargeOpen(true)}>
-                            <Plus className="mr-1 h-3 w-3" /> Add charge
-                          </Button>
-                          {Number(ticket.total) > 0 && (
-                            <Button size="sm" variant="outline" className="h-6 rounded-none text-[11px]" onClick={() => setBillOpen(true)}>
-                              Bill customer
-                            </Button>
-                          )}
-                        </div>
-                      ) : null
-                    }
-                  >
-                    {ticket.charges.length === 0 ? (
-                      <p className="py-2 text-[12px] text-muted-foreground">No parts or labour recorded yet.</p>
-                    ) : (
-                      <div className="overflow-x-auto bg-background">
-                        <table className="w-full min-w-[520px] border-collapse text-[12px]">
-                          <thead className="text-left text-muted-foreground">
-                            <tr className="border-b border-border">
-                              <th className="px-2 py-1.5 font-medium">Type</th>
-                              <th className="px-2 py-1.5 font-medium">Description</th>
-                              <th className="px-2 py-1.5 text-right font-medium">Qty</th>
-                              <th className="px-2 py-1.5 text-right font-medium">Unit</th>
-                              <th className="px-2 py-1.5 text-right font-medium">Total</th>
-                              <th className="w-8 px-2 py-1.5" />
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {ticket.charges.map((c) => (
-                              <tr key={c.id} className="border-b border-border/60">
-                                <td className="px-2 py-1.5 capitalize">{c.kind}</td>
-                                <td className="px-2 py-1.5">{c.description}</td>
-                                <td className="px-2 py-1.5 text-right tabular-nums">{Number(c.quantity)}</td>
-                                <td className="px-2 py-1.5 text-right tabular-nums">{formatCurrency(Number(c.unit_price))}</td>
-                                <td className="px-2 py-1.5 text-right tabular-nums">{formatCurrency(Number(c.line_total))}</td>
-                                <td className="px-2 py-1.5 text-right">
-                                  {canWrite && !billed && (
-                                    <button
-                                      type="button"
-                                      aria-label="Remove charge"
-                                      className="text-muted-foreground hover:text-destructive"
-                                      onClick={() => void run(() => removeRmaCharge(ticket.id, c.id), "Charge removed")}
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </button>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </Section>
                 </div>
               )}
 
@@ -1153,7 +1028,6 @@ export function RmaDetailDrawer({
                               {CLAIM_STATUS_LABEL[c.status]}
                             </Badge>
                             <span className="text-muted-foreground">{c.supplier_name}</span>
-                            {c.supplier_reference ? <span className="text-muted-foreground">· ref {c.supplier_reference}</span> : null}
                             {c.dispatch_date ? <span className="ml-auto text-muted-foreground">dispatched {c.dispatch_date}</span> : null}
                           </button>
                           {c.status === "dispatched" ? (
@@ -1296,7 +1170,7 @@ export function RmaDetailDrawer({
                     ) : null}
                     {deliveries.length === 0 ? (
                       <p className="py-2 text-[12px] text-muted-foreground">
-                        No delivery yet. A delivery hands the unit back to the customer; it does not take money (use the settlement below). Nothing is posted until it is approved.
+                        No delivery yet. A delivery gives the customer their unit back (the same unit, a replacement, or a different product) or pays cash back, and it is where the customer is charged: a service charge, parts, a fine. Nothing is posted until it is approved.
                       </p>
                     ) : (
                       <ul className="divide-y divide-border/60 bg-background">
@@ -1314,8 +1188,10 @@ export function RmaDetailDrawer({
                               <Badge variant="outline" className={cn("rounded-none text-[10px]", DELIVERY_STATUS_TONE[d.status])}>
                                 {DELIVERY_STATUS_LABEL[d.status]}
                               </Badge>
-                              {d.delivered_to ? <span className="text-muted-foreground">to {d.delivered_to}</span> : null}
-                              {d.payment_number ? <span className="text-muted-foreground">· payment {d.payment_number}</span> : null}
+                              <span className="text-muted-foreground">{DELIVERY_OUTCOME_LABEL[d.outcome] ?? d.outcome}</span>
+                              {d.outcome === "cash_back" && d.refund_amount != null ? <span className="text-muted-foreground">· {formatCurrency(Number(d.refund_amount))} back</span> : null}
+                              {Number(d.amount_total) > 0 ? <span className="text-muted-foreground">· charges {formatCurrency(Number(d.amount_total))}</span> : null}
+                              {d.delivered_to ? <span className="text-muted-foreground">· to {d.delivered_to}</span> : null}
                               {d.stock_posted ? <span className="ml-auto text-muted-foreground">handed over</span> : null}
                             </button>
                           </li>
@@ -1344,119 +1220,11 @@ export function RmaDetailDrawer({
                       </AgainDrawerButton>
                     ) : openDeliveryDoc ? (
                       <p className="mt-2 text-[12px] text-muted-foreground">{openDeliveryDoc.delivery_number} is still open — finish or cancel it before starting another.</p>
-                    ) : deliverySummary && !deliverySummary.can_deliver_product && deliverySummary.deliver_blocker && !closed ? (
+                    ) : deliverySummary && !deliverySummary.can_deliver_product && !deliverySummary.can_cash_back && deliverySummary.deliver_blocker && !closed ? (
                       <p className="mt-2 text-[12px] text-muted-foreground">Nothing to deliver yet: {deliverySummary.deliver_blocker}</p>
                     ) : null}
                   </Section>
 
-                  <Section title="Settlement (money in / money out)">
-                    {settlementSummary ? (
-                      <div className="mb-3 grid gap-x-6 gap-y-1 text-[13px] @md:grid-cols-4">
-                        <div>
-                          <p className="text-[11px] text-muted-foreground">Money in (+)</p>
-                          <p className="font-medium tabular-nums">{formatCurrency(Number(settlementSummary.money_in))}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] text-muted-foreground">Money out (-)</p>
-                          <p className="font-medium tabular-nums">{formatCurrency(Number(settlementSummary.money_out))}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] text-muted-foreground">Net</p>
-                          <p className="font-medium tabular-nums">{formatCurrency(Number(settlementSummary.net))}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] text-muted-foreground">RMA charges owed</p>
-                          <p className="font-medium tabular-nums">{formatCurrency(Number(settlementSummary.outstanding))}</p>
-                        </div>
-                      </div>
-                    ) : null}
-                    {settlements.length === 0 ? (
-                      <p className="py-2 text-[12px] text-muted-foreground">
-                        No settlement yet. Record money received from, or paid to, a customer, dealer, supplier or other party for this RMA. Nothing reaches the accounts until it is approved.
-                      </p>
-                    ) : (
-                      <div className="overflow-x-auto bg-background">
-                        <table className="w-full min-w-[640px] text-left text-[12px]">
-                          <thead className="border-b border-border/80 text-[11px] uppercase tracking-wide text-muted-foreground">
-                            <tr>
-                              <th className="px-3 py-1.5 font-medium">Date</th>
-                              <th className="px-3 py-1.5 font-medium">Party</th>
-                              <th className="px-3 py-1.5 font-medium">Direction</th>
-                              <th className="px-3 py-1.5 text-right font-medium">Amount</th>
-                              <th className="px-3 py-1.5 font-medium">Purpose</th>
-                              <th className="px-3 py-1.5 font-medium">Status</th>
-                              <th className="px-3 py-1.5 font-medium">Finance record</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-border/60">
-                            {settlements.map((st) => (
-                              <tr
-                                key={st.id}
-                                tabIndex={0}
-                                role="button"
-                                className="cursor-pointer align-top hover:bg-muted/40"
-                                onClick={() => {
-                                  setSettlementOpenId(st.id);
-                                  setSettlementDrawerOpen(true);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    setSettlementOpenId(st.id);
-                                    setSettlementDrawerOpen(true);
-                                  }
-                                }}
-                              >
-                                <td className="whitespace-nowrap px-3 py-1.5">{st.transaction_date ?? st.created_at.slice(0, 10)}</td>
-                                <td className="px-3 py-1.5">
-                                  <span className="block max-w-[160px] truncate">{st.party_name}</span>
-                                  <span className="text-[11px] text-muted-foreground">{PARTY_TYPE_LABEL[st.party_type]}</span>
-                                </td>
-                                <td className={cn("whitespace-nowrap px-3 py-1.5", st.direction === "out" ? "text-red-600 dark:text-red-400" : "text-[#00a09d]")}>
-                                  {DIRECTION_LABEL[st.direction]}
-                                </td>
-                                <td className="whitespace-nowrap px-3 py-1.5 text-right font-medium tabular-nums">{formatCurrency(Number(st.amount))}</td>
-                                <td className="px-3 py-1.5">
-                                  <span className="block">
-                                    {PURPOSE_LABEL[st.purpose]}
-                                    {st.reverses_id ? <span className="ml-1.5 border border-sky-500/40 bg-sky-500/10 px-1 text-[10px] text-sky-700 dark:text-sky-300">Reversal</span> : null}
-                                    {st.reversed_by_id ? <span className="ml-1.5 border border-muted-foreground/40 bg-muted px-1 text-[10px] text-muted-foreground">Reversed</span> : null}
-                                  </span>
-                                  {st.purpose_note ? (
-                                    <span className="block max-w-[200px] truncate text-[11px] text-muted-foreground" title={st.purpose_note}>
-                                      {st.purpose_note}
-                                    </span>
-                                  ) : null}
-                                </td>
-                                <td className="px-3 py-1.5">
-                                  <Badge variant="outline" className={cn("rounded-none text-[10px]", SETTLEMENT_STATUS_TONE[st.status])}>
-                                    {SETTLEMENT_STATUS_LABEL[st.status]}
-                                  </Badge>
-                                </td>
-                                <td className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                                  {st.payment_number ?? "—"}
-                                  {st.receivable_number ? <span className="block">{st.receivable_number}</span> : null}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                    {canStartSettlement ? (
-                      <AgainDrawerButton
-                        className="mt-3"
-                        variant="primary"
-                        onClick={() => {
-                          setSettlementOpenId(null);
-                          setSettlementDrawerOpen(true);
-                        }}
-                      >
-                        New settlement
-                      </AgainDrawerButton>
-                    ) : settlementSummary && !settlementSummary.can_settle && settlementSummary.blocker ? (
-                      <p className="mt-2 text-[12px] text-muted-foreground">{settlementSummary.blocker}</p>
-                    ) : null}
-                  </Section>
                 </>
               )}
 
@@ -1591,18 +1359,12 @@ export function RmaDetailDrawer({
 
       {ticket ? (
         <>
-          <RmaSettlementDrawer key={`settlement:${settlementOpenId}:${settlementDrawerOpen}`} open={settlementDrawerOpen} onOpenChange={setSettlementDrawerOpen} settlementId={settlementOpenId} ticket={ticket} onDone={refresh} />
           <RmaDeliveryDrawer key={`delivery:${deliveryOpenId}:${deliveryDrawerOpen}`} open={deliveryDrawerOpen} onOpenChange={setDeliveryDrawerOpen} deliveryId={deliveryOpenId} ticket={ticket} onDone={refresh} />
           <RmaReceiptDrawer key={`receipt:${receiptOpenId}:${receiptDrawerOpen}`} open={receiptDrawerOpen} onOpenChange={setReceiptDrawerOpen} receiptId={receiptOpenId} ticket={ticket} onDone={refresh} />
           <RmaSupplierClaimDrawer key={`claim:${claimOpenId}:${claimDrawerOpen}`} open={claimDrawerOpen} onOpenChange={setClaimDrawerOpen} claimId={claimOpenId} ticket={ticket} onDone={refresh} />
           <RmaApprovalDrawer key={`approval:${approvalOpen}:${ticket.status}`} open={approvalOpen} onOpenChange={setApprovalOpen} ticket={ticket} onDone={refresh} />
           <RmaSupplierOverrideDrawer key={`supplier-override:${supplierOverrideOpen}`} open={supplierOverrideOpen} onOpenChange={setSupplierOverrideOpen} ticket={ticket} onDone={refresh} />
           <StatusDrawer key={`status:${statusOpen}:${ticket.status}`} open={statusOpen} onOpenChange={setStatusOpen} ticket={ticket} onDone={refresh} />
-          <WarrantyDrawer key={`warranty:${warrantyOpen}`} open={warrantyOpen} onOpenChange={setWarrantyOpen} ticket={ticket} onDone={refresh} />
-          <ChargeDrawer key={`charge:${chargeOpen}`} open={chargeOpen} onOpenChange={setChargeOpen} ticket={ticket} onDone={refresh} />
-          <SupplierJobDrawer key={`supplier:${supplierOpen}`} open={supplierOpen} onOpenChange={setSupplierOpen} ticket={ticket} onDone={refresh} />
-          <BillDrawer key={`bill:${billOpen}`} open={billOpen} onOpenChange={setBillOpen} ticket={ticket} onDone={refresh} />
-          <InspectionDrawer key={`inspect:${inspectOpen}`} open={inspectOpen} onOpenChange={setInspectOpen} ticket={ticket} onDone={refresh} />
           <ResolveDrawer key={`resolve:${resolveOpen}`} open={resolveOpen} onOpenChange={setResolveOpen} ticket={ticket} onDone={refresh} />
           <ServiceFromRmaDrawer key={`service:${serviceOpen}`} open={serviceOpen} onOpenChange={setServiceOpen} ticket={ticket} onDone={refresh} />
           <RefundDrawer key={`refund:${refundOpen}`} open={refundOpen} onOpenChange={setRefundOpen} ticket={ticket} onDone={refresh} />

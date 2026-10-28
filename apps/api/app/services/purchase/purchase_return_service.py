@@ -61,8 +61,11 @@ class PurchaseReturnService:
         status: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
+        warehouse_ids: Optional[list[str]] = None,
     ) -> tuple[list[PurchaseReturn], int]:
         query = self._db.query(PurchaseReturn).filter(PurchaseReturn.company_id == company_id)
+        if warehouse_ids is not None:  # a member limited to some warehouses sees only their purchase returns
+            query = query.filter(PurchaseReturn.warehouse_id.in_(warehouse_ids))
         if purchase_order_id:
             query = query.filter(PurchaseReturn.purchase_order_id == purchase_order_id)
         if status:

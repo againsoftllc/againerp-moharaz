@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -21,6 +23,8 @@ from app.schemas.rma.delivery import (
     RmaDeliveryUpdate,
 )
 from app.services import rbac
+from app.services.core.approval_service import assert_can_approve
+from app.services.rma import decision_rights
 from app.services.rma import delivery_service, rma_service
 
 router = APIRouter(prefix="/rma", tags=["rma-deliveries"])
@@ -125,8 +129,14 @@ def decide_delivery(
     company_id: str = Depends(get_current_company_id),
 ) -> RmaDeliveryResponse:
     """Approve (takes the unit out of the RMA store, invoices any charges once, completes the RMA), reject, or send back."""
-    _need(db, user, "rma_delivery_approve", "approve or reject customer deliveries")
+    decision_rights.need_to_decide(db, user, "rma_delivery_approve", "approve or reject customer deliveries")
     d = _delivery(db, delivery_id, company_id)
+    if payload.decision == "approved":
+        # A delivery that collects money or pays a cash back posts to Finance, so it needs what a settlement needs.
+        money = max(Decimal(str(d.amount_received or 0)), Decimal(str(d.refund_amount or 0)))
+        if money > 0:
+            decision_rights.need_to_decide(db, user, "rma_settlement_approve", "approve a delivery that moves money (it posts to Finance)")
+            assert_can_approve(db, company_id, user, "finance.payment", money, what="RMA delivery")
     delivery_service.decide_delivery(db, d, decision=payload.decision, reason=payload.reason, user=user)
     db.commit()
     db.refresh(d)
