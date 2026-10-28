@@ -8,6 +8,8 @@ import {
   fetchCustomerCases,
   type CreateCustomerInput,
   type UpdateCustomerInput,
+  fetchCustomerCreditPosition,
+  type CustomerCreditPosition,
 } from "@/lib/api/commerce-customers";
 import { useCustomerFeatureFlags } from "@/lib/customers/use-customer-settings";
 import { normalizeBdPhone, phonesMatch } from "@/lib/customers/phone";
@@ -52,6 +54,7 @@ import { PartnerPurchasesPanel } from "@/components/customers/partner-purchases-
 import { PartnerCatalogPanel } from "@/components/customers/partner-catalog-panel";
 import { PartnerDocumentsPanel } from "@/components/customers/partner-documents-panel";
 import { FieldHelpTip } from "@/components/sales/field-help-tip";
+import { AgainDrawerSwitch } from "@/components/again/again-drawer";
 import { useMentionableUsers } from "@/lib/api/use-mentionable-users";
 import { toast } from "sonner";
 
@@ -97,6 +100,14 @@ export type PartnerFormState = {
   fiscalPosition: string;
   openingBalance: string;
   creditLimit: string;
+  salesLocked: boolean;
+  salesLockReason: string;
+  tradeMode: string;
+  creditDays: string;
+  conditionalLimit: string;
+  conditionalValidTill: string;
+  securityMoney: string;
+  openingDate: string;
   defaultPaymentTerms: string;
   paymentSchedule: string;
   notes: string;
@@ -215,6 +226,14 @@ export const EMPTY_FORM: PartnerFormState = {
   fiscalPosition: "National",
   openingBalance: "0",
   creditLimit: "",
+  salesLocked: false,
+  salesLockReason: "",
+  tradeMode: "both",
+  creditDays: "",
+  conditionalLimit: "",
+  conditionalValidTill: "",
+  securityMoney: "",
+  openingDate: "",
   defaultPaymentTerms: "",
   paymentSchedule: "",
   notes: "",
@@ -266,6 +285,14 @@ export function customerToPartnerForm(customer: Customer | null): PartnerFormSta
     fiscalPosition: meta?.fiscalPosition || "National",
     openingBalance: String(customer.openingBalance ?? 0),
     creditLimit: String(customer.creditLimit ?? 0),
+    salesLocked: Boolean(customer.salesLocked),
+    salesLockReason: customer.salesLockReason ?? "",
+    tradeMode: customer.tradeMode ?? "both",
+    creditDays: customer.creditDays != null ? String(customer.creditDays) : "",
+    conditionalLimit: customer.conditionalLimit ? String(customer.conditionalLimit) : "",
+    conditionalValidTill: customer.conditionalValidTill ?? "",
+    securityMoney: customer.securityMoney ? String(customer.securityMoney) : "",
+    openingDate: customer.openingDate ?? "",
     defaultPaymentTerms: customer.paymentTerms ?? "",
     paymentSchedule: customer.paymentSchedule ?? "",
     notes: customer.notes ?? "",
@@ -366,6 +393,7 @@ export function partnerFormToPayload(
     tags: form.tags,
     openingBalance: Number(form.openingBalance.replace(/,/g, "")) || 0,
     creditLimit: Math.max(0, Number(form.creditLimit.replace(/,/g, "")) || 0),
+    ...creditControlPayload(form),
     paymentTerms: form.defaultPaymentTerms.trim() || null,
     paymentSchedule: form.paymentSchedule.trim() || null,
     addresses: [
@@ -459,6 +487,8 @@ export function partnerFormToMockCustomer(
     walletBalance: base?.walletBalance ?? 0,
     openingBalance: Number(form.openingBalance.replace(/,/g, "")) || 0,
     creditLimit: Math.max(0, Number(form.creditLimit.replace(/,/g, "")) || 0),
+    ...creditControlPayload(form),
+    salesLockReason: form.salesLocked ? form.salesLockReason.trim() || undefined : undefined,
     riskScore: base?.riskScore ?? 20,
     riskLevel: base?.riskLevel ?? "low",
     addresses: payload.addresses ?? [],
@@ -1273,6 +1303,7 @@ export function PartnerFormSheet({
                     placeholder="Blank = no limit"
                     numeric
                   />
+                  <CustomerCreditFields form={form} onPatch={onPatch} readOnly={readOnly} customerId={commerceCustomerId || null} />
                   <TextRow
                     label="Tax ID"
                     value={form.taxId}
@@ -1680,6 +1711,138 @@ const WHATSAPP_BTN =
 const LINK_BTN = "text-[13px] font-normal text-[#00a09d] hover:text-[#00c4bf] hover:underline";
 
 /** The value of a field in a read-only drawer: plain text where the input would be. */
+const num = (value: string) => Math.max(0, Number(value.replace(/,/g, "")) || 0);
+
+/** The credit-control fields of the form as the customer API takes them (services/customer/credit_control.py). */
+function creditControlPayload(form: PartnerFormState) {
+  const days = form.creditDays.trim();
+  return {
+    salesLocked: form.salesLocked,
+    salesLockReason: form.salesLocked ? form.salesLockReason.trim() || null : null,
+    tradeMode: (form.tradeMode || "both") as "both" | "credit" | "cash",
+    creditDays: days ? Math.round(num(days)) : null,
+    conditionalLimit: num(form.conditionalLimit),
+    conditionalValidTill: form.conditionalValidTill || null,
+    securityMoney: num(form.securityMoney),
+    openingDate: form.openingDate || null,
+  };
+}
+
+const TRADE_MODE_LABEL: Record<string, string> = { both: "Cash & credit", credit: "Credit", cash: "Cash only" };
+
+/** Profile → Accounting: sales lock, cash / credit, credit days, conditional limit and the customer's credit position. */
+function CustomerCreditFields({
+  form,
+  onPatch,
+  readOnly,
+  customerId,
+}: {
+  form: PartnerFormState;
+  onPatch: <K extends keyof PartnerFormState>(key: K, value: PartnerFormState[K]) => void;
+  readOnly?: boolean;
+  customerId: string | null;
+}) {
+  const [position, setPosition] = useState<CustomerCreditPosition | null>(null);
+  useEffect(() => {
+    if (!customerId) return;
+    let cancelled = false;
+    fetchCustomerCreditPosition(customerId)
+      .then((p) => !cancelled && setPosition(p))
+      .catch(() => !cancelled && setPosition(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId]);
+
+  const limit = Number(position?.effective_limit ?? 0);
+  return (
+    <>
+      {position ? (
+        <AgainFormField label="Credit position" className={ROW}>
+          <ReadValue>
+            <span className="tabular-nums">
+              {Number(position.ledger_balance) >= 0
+                ? `Owes ${formatCurrency(Number(position.ledger_balance))}`
+                : `Advance ${formatCurrency(-Number(position.ledger_balance))}`}
+              {Number(position.unsettled_orders) ? ` · open orders ${formatCurrency(Number(position.unsettled_orders))}` : ""}
+              {limit > 0
+                ? ` · limit ${formatCurrency(limit)} · available ${formatCurrency(Math.max(Number(position.available ?? 0), 0))}`
+                : " · no limit"}
+            </span>
+          </ReadValue>
+        </AgainFormField>
+      ) : null}
+      <AgainFormField label="Sells on" className={ROW}>
+        {readOnly ? (
+          <ReadValue>{TRADE_MODE_LABEL[form.tradeMode] ?? "Cash & credit"}</ReadValue>
+        ) : (
+          <div className="flex min-w-0 items-center gap-1">
+            <select value={form.tradeMode || "both"} onChange={(e) => onPatch("tradeMode", e.target.value)} className={FIELD_INPUT}>
+              <option value="both">Cash &amp; credit</option>
+              <option value="credit">Credit</option>
+              <option value="cash">Cash only</option>
+            </select>
+            <FieldHelpTip label="Cash only: an order must be paid in full before it can be confirmed." />
+          </div>
+        )}
+      </AgainFormField>
+      <TextRow label="Credit days" value={form.creditDays} onChange={(v) => onPatch("creditDays", v)} readOnly={readOnly} placeholder="e.g. 30" numeric />
+      <TextRow
+        label="Conditional limit"
+        value={form.conditionalLimit}
+        onChange={(v) => onPatch("conditionalLimit", v)}
+        readOnly={readOnly}
+        placeholder="Higher limit for a while"
+        numeric
+      />
+      <AgainFormField label="Valid till" className={ROW}>
+        {readOnly ? (
+          <ReadValue>{form.conditionalValidTill || "—"}</ReadValue>
+        ) : (
+          <input
+            type="date"
+            value={form.conditionalValidTill}
+            onChange={(e) => onPatch("conditionalValidTill", e.target.value)}
+            className={FIELD_INPUT}
+          />
+        )}
+      </AgainFormField>
+      <TextRow label="Security money" value={form.securityMoney} onChange={(v) => onPatch("securityMoney", v)} readOnly={readOnly} placeholder="0" numeric />
+      <AgainFormField label="Opening date" className={ROW}>
+        {readOnly ? (
+          <ReadValue>{form.openingDate || "—"}</ReadValue>
+        ) : (
+          <input type="date" value={form.openingDate} onChange={(e) => onPatch("openingDate", e.target.value)} className={FIELD_INPUT} />
+        )}
+      </AgainFormField>
+      <AgainFormField label="Sales" className={ROW}>
+        <div className="flex min-w-0 items-center gap-2">
+          <AgainDrawerSwitch
+            className="ml-0"
+            label="Sales lock"
+            value={form.salesLocked ? "locked" : "open"}
+            onChange={readOnly ? undefined : (v) => onPatch("salesLocked", v === "locked")}
+            options={[
+              { value: "open", label: "Open" },
+              { value: "locked", label: "Locked" },
+            ]}
+          />
+          <FieldHelpTip label="Locked: no sales order can be confirmed for this customer, not even a paid counter sale." />
+        </div>
+      </AgainFormField>
+      {form.salesLocked ? (
+        <TextRow
+          label="Sales lock reason"
+          value={form.salesLockReason}
+          onChange={(v) => onPatch("salesLockReason", v)}
+          readOnly={readOnly}
+          placeholder="Why sales are locked"
+        />
+      ) : null}
+    </>
+  );
+}
+
 function ReadValue({ children }: { children: React.ReactNode }) {
   return <p className="flex min-h-[28px] items-center gap-1 px-1 text-[13px] leading-[1.3]">{children}</p>;
 }

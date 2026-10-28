@@ -173,6 +173,15 @@ export type Customer = {
   openingBalance: number;
   /** Maximum receivable credit allowed (BDT). 0 = no credit. */
   creditLimit: number;
+  /** Credit control at sale (OnerERP IsLocked, TransactionType, CreditAllowedDays, ConditionalLimit, SecurityMoney). */
+  salesLocked?: boolean;
+  salesLockReason?: string;
+  tradeMode?: "both" | "credit" | "cash";
+  creditDays?: number | null;
+  conditionalLimit?: number;
+  conditionalValidTill?: string | null;
+  securityMoney?: number;
+  openingDate?: string | null;
   paymentTerms?: string;
   paymentSchedule?: string;
   riskScore: number;

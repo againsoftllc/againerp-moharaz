@@ -21,6 +21,7 @@ import { ProductLedgerPanel } from "./product-ledger-panel";
 import { ProductOverviewPanel } from "./product-overview-panel";
 import { ProductPriceHistoryPanel } from "./product-price-history-panel";
 import { ProductPurchasePanel } from "./product-purchase-panel";
+import { ProductRelationsPanel } from "./product-relations-panel";
 import { ProductRmaPanel } from "./product-rma-panel";
 import { ProductSalesPanel } from "./product-sales-panel";
 import { ProductSerialPanel } from "./product-serial-panel";
@@ -34,7 +35,8 @@ export type ProductDrawerTab =
   | "ledger"
   | "serial"
   | "rma"
-  | "price";
+  | "price"
+  | "related";
 
 const STATUS_LABEL: Record<ProductStatus, string> = {
   draft: "Draft",
@@ -103,6 +105,7 @@ function ProductDrawerBody({
   const canPurchase = usePermission("purchase");
   const canRma = usePermission("rma");
   const canCatalog = usePermission("catalog");
+  const canCatalogWrite = usePermission("catalog", "write");
 
   useEffect(() => {
     let cancelled = false;
@@ -151,6 +154,7 @@ function ProductDrawerBody({
       ["serial", "Serial / IMEI", canInventory && serialTracked],
       ["rma", "Warranty / RMA", canRma && (serialTracked || hasWarranty)],
       ["price", "Price History", canCatalog],
+      ["related", "Related / Spare", canCatalog],
     ];
     return all.filter(([, , show]) => show).map(([id, label]) => ({ id, label }));
   }, [canInventory, canSales, canPurchase, canRma, canCatalog, serialTracked, hasWarranty]);
@@ -164,6 +168,9 @@ function ProductDrawerBody({
     if (!product) return null;
     if (tab === "overview") {
       return <ProductOverviewPanel product={product} report={report} reportLoading={reportLoading} />;
+    }
+    if (tab === "related") {
+      return <ProductRelationsPanel productId={product.id} canWrite={canCatalogWrite} />;
     }
     if (!itemId) {
       return (

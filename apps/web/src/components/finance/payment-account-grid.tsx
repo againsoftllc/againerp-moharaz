@@ -65,6 +65,7 @@ type Props = {
   onSetDefault: (account: ApiFinancePaymentAccount) => void;
   onToggleActive: (account: ApiFinancePaymentAccount) => void;
   onTransfer?: (account: ApiFinancePaymentAccount) => void;
+  onEdit?: (account: ApiFinancePaymentAccount) => void;
 };
 
 export const PaymentAccountGrid = forwardRef<PaymentAccountGridHandle, Props>(function PaymentAccountGrid(
@@ -79,6 +80,7 @@ export const PaymentAccountGrid = forwardRef<PaymentAccountGridHandle, Props>(fu
     onSetDefault,
     onToggleActive,
     onTransfer,
+    onEdit,
   },
   ref,
 ) {
@@ -128,6 +130,7 @@ export const PaymentAccountGrid = forwardRef<PaymentAccountGridHandle, Props>(fu
               <RowActionsTrigger disabled={busy} />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
+              {onEdit ? <DropdownMenuItem onClick={() => onEdit(account)}>Edit</DropdownMenuItem> : null}
               {onTransfer && account.is_active ? (
                 <DropdownMenuItem onClick={() => onTransfer(account)}>Transfer funds</DropdownMenuItem>
               ) : null}
@@ -144,7 +147,7 @@ export const PaymentAccountGrid = forwardRef<PaymentAccountGridHandle, Props>(fu
         </div>
       );
     },
-    [busyId, canWrite, onSetDefault, onToggleActive, onTransfer],
+    [busyId, canWrite, onSetDefault, onToggleActive, onTransfer, onEdit],
   );
 
   const columns = useMemo<FinanceAgListGridColumn<ApiFinancePaymentAccount>[]>(

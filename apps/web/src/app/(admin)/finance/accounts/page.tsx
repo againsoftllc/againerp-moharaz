@@ -54,6 +54,7 @@ export default function FinanceAccountsPage() {
   const [name, setName] = useState("");
   const [accountType, setAccountType] = useState("asset");
   const [parentId, setParentId] = useState("");
+  const [postable, setPostable] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -113,6 +114,7 @@ export default function FinanceAccountsPage() {
     setName("");
     setAccountType("asset");
     setParentId("");
+    setPostable(true);
     setOpen(true);
   }
 
@@ -122,6 +124,7 @@ export default function FinanceAccountsPage() {
     setName(row.name);
     setAccountType(row.account_type);
     setParentId(row.parent_id ?? "");
+    setPostable(row.is_postable !== false);
     setOpen(true);
   }
 
@@ -134,6 +137,7 @@ export default function FinanceAccountsPage() {
           name: name.trim(),
           account_type: editing.is_system ? undefined : accountType,
           parent_id: parentId || null,
+          is_postable: editing.is_system ? undefined : postable,
         });
         toast.success("Account updated");
       } else {
@@ -143,6 +147,7 @@ export default function FinanceAccountsPage() {
           name: name.trim(),
           account_type: accountType,
           parent_id: parentId || null,
+          is_postable: postable,
         });
         toast.success("Account created");
       }
@@ -261,6 +266,23 @@ export default function FinanceAccountsPage() {
                 searchThreshold={6}
               />
             </div>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1 h-3.5 w-3.5 accent-[#00a09d]"
+                checked={!postable}
+                disabled={Boolean(editing?.is_system)}
+                onChange={(e) => setPostable(!e.target.checked)}
+              />
+              <span>
+                <span className="block font-medium">Group account (no direct postings)</span>
+                <span className="block text-[11px] text-muted-foreground">
+                  {editing?.is_system
+                    ? "System accounts stay postable: the ERP posts to them."
+                    : "Like OnerERP's control and subsidiary levels: journals and vouchers must use one of its accounts."}
+                </span>
+              </span>
+            </label>
           </div>
           <div className="mt-5 flex justify-end gap-2 border-t border-input pt-4">
             <Button variant="outline" size="sm" className="rounded-none" onClick={() => setOpen(false)} disabled={saving}>

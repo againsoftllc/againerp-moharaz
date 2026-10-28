@@ -72,6 +72,13 @@ export const FINANCE_NAV_MENUS: FinanceNavMenu[] = [
       },
       {
         kind: "item",
+        id: "banks",
+        label: "Banks & branches",
+        href: "/finance/banks",
+        description: "Bank master with branches and routing numbers, used by your bank accounts.",
+      },
+      {
+        kind: "item",
         id: "cheque-books",
         label: "Cheque books",
         href: "/finance/cheque-books",
@@ -97,6 +104,13 @@ export const FINANCE_NAV_MENUS: FinanceNavMenu[] = [
         label: "Chart of accounts",
         href: "/finance/accounts",
         description: "GL account master — codes, types, and balances.",
+      },
+      {
+        kind: "item",
+        id: "opening-balances",
+        label: "Opening balances",
+        href: "/finance/opening-balances",
+        description: "What each account held on the go-live date; finalized once, then locked.",
       },
       {
         kind: "item",

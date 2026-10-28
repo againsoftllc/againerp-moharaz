@@ -35,6 +35,7 @@ from app.models.pos import (
 from app.models.sales import SalesOrder, SalesOrderLine
 from app.services.inventory.constants import MOVEMENT_POS_RETURN
 from app.services.inventory.inventory_settings_service import allow_negative_stock
+from app.services.inventory import product_master
 from app.services.inventory.serial_service import clean_serial, find_by_number, set_status as set_serial_status
 from app.services.inventory.stock_movement_service import MovementInput, StockMovementService
 from app.services.pos.constants import (
@@ -541,6 +542,7 @@ class PosService:
         if cart.status != "active":
             raise HTTPException(status_code=400, detail="Cart is not active")
         item = self._sales._require_item(data.item_id)
+        product_master.require_sellable(self._db, item)
         serial = self._normalize_serial(data.serial_number)
         track_serial = self._tracks_serial(item.id)
         if track_serial and not serial:
@@ -623,7 +625,7 @@ class PosService:
             discount_amount=data.discount_amount,
             line_total=line_total,
             serial_number=serial,
-            warranty_text=product.warranty if product else None,
+            warranty_text=warranty_rules.product_warranty_text(product),
         )
         self._db.add(line)
         self._recalc_cart(cart)
@@ -1636,7 +1638,8 @@ class PosService:
             return
         if not self._tracks_stock(item.id):
             return
-        if allow_negative_stock(self._db, company_id):
+        # the company allows negative stock, or this product may be sold past its stock
+        if product_master.allows_negative(self._db, item.id, company_id):
             return
         _on_hand, available = self._stock_available(item.id, warehouse_id)
         if requested > available:
@@ -1649,7 +1652,7 @@ class PosService:
         product = self._catalog_for_item(item)
         on_hand, available = self._stock_available(item.id, warehouse_id)
         track_serial = self._tracks_serial(item.id)
-        warranty = product.warranty if product else None
+        warranty = warranty_rules.product_warranty_text(product)
         verdict = warranty_rules.evaluate(warranty_text=warranty, purchased_on=date.today())
         return {
             "item_id": item.id,
@@ -1849,7 +1852,7 @@ class PosService:
             received_at=row.received_at,
         )
         verdict = warranty_rules.evaluate(
-            warranty_text=product.warranty if product else None,
+            warranty_text=warranty_rules.product_warranty_text(product),
             purchased_on=purchased_on,
         )
         row.status = "sold"

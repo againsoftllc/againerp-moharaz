@@ -101,6 +101,16 @@ class CommerceCustomer(Base):
     wallet_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     credit_limit: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    # Credit control at sale (services/customer/credit_control.py; OnerERP IsLocked, TransactionType, CreditAllowedDays,
+    # ConditionalLimit + ValidTill, SecurityMoney, OpeningDate). Columns added by ensure_customer_credit_columns.
+    sales_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sales_lock_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    trade_mode: Mapped[str] = mapped_column(String(10), nullable=False, default="both")
+    credit_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    conditional_limit: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    conditional_valid_till: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    security_money: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    opening_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     payment_terms: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     payment_schedule: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     risk_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

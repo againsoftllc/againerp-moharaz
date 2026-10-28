@@ -32,6 +32,7 @@ SOURCE_TYPES = (
     "cheque_clearance",
     "cheque_reversal",
     "cheque_bank_charge",
+    "opening_balance",
 )
 
 SOURCE_TYPE_LABELS = {
@@ -63,6 +64,7 @@ SOURCE_TYPE_LABELS = {
     "cheque_clearance": "Cheque cleared",
     "cheque_reversal": "Cheque reversal",
     "cheque_bank_charge": "Cheque bank charge",
+    "opening_balance": "Opening balances",
 }
 
 OUTPUT_TAX_CODE = "2210"

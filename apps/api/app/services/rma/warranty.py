@@ -65,6 +65,18 @@ def parse_warranty_days(text: Optional[str]) -> Optional[int]:
     return int(amount * _UNIT_DAYS[unit])
 
 
+def product_warranty_text(product) -> Optional[str]:
+    """The warranty to measure: the product's structured days (or lifetime) when set, else its free text."""
+    if product is None:
+        return None
+    if getattr(product, "lifetime_warranty", False):
+        return UNLIMITED
+    days = getattr(product, "warranty_days", None)
+    if days is not None:
+        return "no warranty" if int(days) == 0 else f"{int(days)} days"
+    return product.warranty
+
+
 def evaluate(
     *,
     warranty_text: Optional[str],

@@ -79,6 +79,9 @@ from app.routers import (
     finance_cheque_books,
     finance_allocation,
     finance_periods,
+    finance_masters,
+    sales_pricing,
+    product_masters,
     core_sequences,
     approval_limits,
     approvals,
@@ -328,6 +331,15 @@ def _bootstrap() -> None:
         from app.models.sms_gateway_plugin import SmsGatewayPlugin  # noqa: F401 — SMS gateway plugin table
 
         Base.metadata.create_all(bind=engine)
+        from app.services.customer.credit_control import ensure_customer_credit_columns
+
+        ensure_customer_credit_columns()  # before anything below reads commerce_customers through the ORM
+        from app.services.finance.master_service import ensure_finance_master_columns
+
+        ensure_finance_master_columns()  # likewise for finance_accounts / finance_payment_accounts
+        from app.services.inventory.product_master import ensure_product_master_columns
+
+        ensure_product_master_columns()  # likewise for catalog_products (Part C product master fields)
         from scripts.ensure_tenant_seed_data import ensure_tenant_seed_data
         from scripts.ensure_super_admin_bootstrap import ensure_super_admin_bootstrap
         from scripts.ensure_company_columns import ensure_company_columns
@@ -820,6 +832,7 @@ app.include_router(digital_files.router, dependencies=require_admin)
 app.include_router(commerce_orders.router, prefix="/api/v1/commerce", dependencies=require_admin)
 app.include_router(dropship.router, prefix="/api/v1/commerce", dependencies=require_admin)
 app.include_router(commerce_inventory.router, prefix="/api/v1/commerce", dependencies=require_admin)
+app.include_router(product_masters.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(inventory_warehouses.router, prefix="/api/v1/inventory", dependencies=require_admin)
 app.include_router(inventory_settings.router, prefix="/api/v1/inventory", dependencies=require_admin)
 app.include_router(inventory_locations.router, prefix="/api/v1/inventory", dependencies=require_admin)
@@ -863,6 +876,7 @@ app.include_router(approvals.router, prefix="/api/v1")
 app.include_router(ai_gateway.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(ai_billing.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(finance_expenses.router, prefix="/api/v1", dependencies=require_admin)
+app.include_router(finance_masters.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(crm.router, prefix="/api/v1", dependencies=require_admin)
 # Supplier portal carries its own session auth — must NOT take the admin dependency.
 app.include_router(portal.router, prefix="/api/v1")
@@ -994,6 +1008,7 @@ app.include_router(
 )
 app.include_router(media.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(ecommerce_items.router, prefix="/api/v1/ecommerce", dependencies=require_admin)
+app.include_router(sales_pricing.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(sales.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(sales_invoices.router, prefix="/api/v1", dependencies=require_admin)
 app.include_router(public_invoices.router, prefix="/api/v1")

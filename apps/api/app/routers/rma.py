@@ -60,6 +60,8 @@ from app.services import rbac
 from app.services.rma import complaint_service, queue_service, rma_service
 from app.services.rma.rma_service import TicketIntake
 
+from app.services.rma.warranty import product_warranty_text as warranty_text_of
+
 router = APIRouter(prefix="/rma", tags=["rma"])
 
 
@@ -132,7 +134,7 @@ def warranty_lookup(
             customer_email=order.customer_email if order else None,
             sku=sku or (item.sku if item else None),
             product_name=product.name if product else None,
-            warranty_text=product.warranty if product else None,
+            warranty_text=warranty_text_of(product),
             warranty_status=verdict.status,
             warranty_expires_on=verdict.expires_on,
             warranty_note=verdict.note,

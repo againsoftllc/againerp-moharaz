@@ -1,6 +1,16 @@
+import { toast } from "sonner";
+import { fetchUnitTypes, saveUnitTypes } from "@/lib/api/product-masters";
+
+/**
+ * Unit types are a company master on the server (`/inventory/unit-types`, INV-08). This module keeps a localStorage copy so
+ * the product form can read the list synchronously: `syncUnitTypes()` refreshes it from the server, and every change below
+ * is sent back to the server.
+ */
 export type UnitTypeOption = {
   value: string;
   label: string;
+  /** decimals a quantity in this unit may carry (OnerERP FractionalLength) */
+  fractionLength?: number;
 };
 
 export const UNIT_TYPE_OPTIONS: UnitTypeOption[] = [
@@ -23,6 +33,8 @@ const STORAGE = "againerp:inventory-unit-types";
 type Stored = {
   units: UnitTypeOption[];
   defaultValue: string;
+  /** the list came from the server: use it as it is (no built-ins merged back in) */
+  server?: boolean;
 };
 
 function slugifyCode(name: string): string {
@@ -43,7 +55,7 @@ function dedupeUnits(items: UnitTypeOption[]): UnitTypeOption[] {
     if (!value || !label) continue;
     if (seen.has(value)) continue;
     seen.add(value);
-    out.push({ value, label });
+    out.push({ value, label, ...(raw.fractionLength != null ? { fractionLength: raw.fractionLength } : {}) });
   }
   return out;
 }
@@ -67,13 +79,13 @@ function readStore(): Stored {
         )
       : [];
     const fallback = emptyStore();
-    const merged = dedupeUnits([...fallback.units, ...units]);
+    const merged = parsed.server && units.length ? units : dedupeUnits([...fallback.units, ...units]);
     const defaultValue =
       typeof parsed.defaultValue === "string" &&
       merged.some((u) => u.value === parsed.defaultValue.trim().toLowerCase())
         ? parsed.defaultValue.trim().toLowerCase()
         : DEFAULT_UNIT_TYPE;
-    return { units: merged, defaultValue };
+    return { units: merged, defaultValue, server: Boolean(parsed.server) };
   } catch {
     return emptyStore();
   }
@@ -85,7 +97,57 @@ function writeStore(next: Stored) {
   const defaultValue = units.some((u) => u.value === next.defaultValue)
     ? next.defaultValue
     : (units[0]?.value ?? DEFAULT_UNIT_TYPE);
-  localStorage.setItem(STORAGE, JSON.stringify({ units, defaultValue }));
+  localStorage.setItem(STORAGE, JSON.stringify({ units, defaultValue, server: readStore().server }));
+  pushUnitTypes();
+}
+
+/** Send the cached list to the server; a refusal (e.g. a unit still used by products) is shown and the cache reloaded. */
+function pushUnitTypes() {
+  const store = readStore();
+  void saveUnitTypes(
+    store.units.map((u) => ({ code: u.value, name: u.label, fraction_length: u.fractionLength ?? 0, is_default: u.value === store.defaultValue })),
+  ).catch((err) => {
+    toast.error(err instanceof Error ? err.message : "Could not save unit types");
+    void syncUnitTypes();
+  });
+}
+
+let syncing: Promise<UnitTypeOption[]> | null = null;
+
+/** Load the company's unit types into the local copy. Units only this browser had (before the server master) are sent up once. */
+export function syncUnitTypes(): Promise<UnitTypeOption[]> {
+  if (typeof window === "undefined") return Promise.resolve(UNIT_TYPE_OPTIONS);
+  syncing ??= (async () => {
+    try {
+      let rows = await fetchUnitTypes();
+      const local = readStore();
+      if (!local.server) {
+        const known = new Set(rows.map((u) => u.code));
+        const builtIn = new Set(UNIT_TYPE_OPTIONS.map((u) => u.value));
+        const extra = local.units.filter((u) => !known.has(u.value) && !builtIn.has(u.value));
+        if (extra.length) {
+          rows = await saveUnitTypes([
+            ...rows.map(({ code, name, fraction_length, is_default }) => ({ code, name, fraction_length, is_default })),
+            ...extra.map((u) => ({ code: u.value, name: u.label, fraction_length: 0, is_default: false })),
+          ]).catch(() => rows);
+        }
+      }
+      localStorage.setItem(
+        STORAGE,
+        JSON.stringify({
+          units: rows.map((u) => ({ value: u.code, label: u.name, fractionLength: u.fraction_length })),
+          defaultValue: rows.find((u) => u.is_default)?.code ?? DEFAULT_UNIT_TYPE,
+          server: true,
+        }),
+      );
+    } catch {
+      /* offline or no access: keep the local copy */
+    } finally {
+      syncing = null;
+    }
+    return readUnitTypes();
+  })();
+  return syncing;
 }
 
 export function readUnitTypes(): UnitTypeOption[] {

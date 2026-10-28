@@ -226,7 +226,17 @@ export function ProductOverviewPanel({
               value: product.productType ? PRODUCT_TYPE_LABEL[product.productType] ?? product.productType : "—",
             },
             { label: "Barcode type", value: product.barcodeType || "—" },
-            { label: "Warranty", value: product.warranty || "—" },
+            {
+              label: "Warranty",
+              value: product.lifetimeWarranty
+                ? "Lifetime"
+                : product.warrantyDays != null
+                  ? `${product.warrantyDays} days`
+                  : product.warranty || "—",
+            },
+            { label: "Service warranty", value: product.serviceWarrantyDays != null ? `${product.serviceWarrantyDays} days` : "—" },
+            { label: "Return within", value: product.returnDays != null ? `${product.returnDays} days` : "—" },
+            { label: "HS code", value: product.hsCode || "—" },
             { label: "Origin", value: product.origin || "—" },
             { label: "Weight", value: product.weight || "—" },
           ]}
@@ -239,6 +249,7 @@ export function ProductOverviewPanel({
             { label: "Tracking", value: trackingLabel },
             { label: "Alert quantity", value: formatQuantity(product.alertQuantity ?? 0), numeric: true },
             { label: "Not for selling", value: product.notForSelling ? "Yes" : "No" },
+            { label: "Negative sales", value: product.allowNegativeSales ? "Allowed" : "No" },
             {
               label: "Business locations",
               value: locationNames.length > 0 ? locationNames.join(", ") : "—",

@@ -54,6 +54,12 @@ export type ApiCatalogProduct = {
   barcode?: string | null;
   barcode_type?: string | null;
   not_for_selling?: boolean;
+  allow_negative_sales?: boolean;
+  warranty_days?: number | null;
+  lifetime_warranty?: boolean;
+  service_warranty_days?: number | null;
+  return_days?: number | null;
+  hs_code?: string | null;
   weight?: string | null;
   tax_rate?: number | null;
   tax_type?: string;
@@ -288,6 +294,12 @@ export function apiProductToProduct(row: ApiCatalogProduct): Product {
     barcode: row.barcode ?? null,
     barcodeType: row.barcode_type ?? "C128",
     notForSelling: row.not_for_selling ?? false,
+    allowNegativeSales: row.allow_negative_sales ?? false,
+    warrantyDays: row.warranty_days ?? null,
+    lifetimeWarranty: row.lifetime_warranty ?? false,
+    serviceWarrantyDays: row.service_warranty_days ?? null,
+    returnDays: row.return_days ?? null,
+    hsCode: row.hs_code ?? null,
     weight: row.weight ?? null,
     taxRate: row.tax_rate ?? null,
     taxType: row.tax_type ?? "exclusive",
@@ -354,6 +366,12 @@ export function apiProductDetailToProduct(row: ApiProductDetail): ProductDetail 
     barcode: row.barcode ?? null,
     barcodeType: row.barcode_type ?? "C128",
     notForSelling: row.not_for_selling ?? false,
+    allowNegativeSales: row.allow_negative_sales ?? false,
+    warrantyDays: row.warranty_days ?? null,
+    lifetimeWarranty: row.lifetime_warranty ?? false,
+    serviceWarrantyDays: row.service_warranty_days ?? null,
+    returnDays: row.return_days ?? null,
+    hsCode: row.hs_code ?? null,
     weight: row.weight ?? null,
     taxRate: row.tax_rate ?? null,
     taxType: row.tax_type ?? "exclusive",
@@ -407,6 +425,12 @@ export type CreateCatalogProductInput = {
   barcode?: string | null;
   barcode_type?: string;
   not_for_selling?: boolean;
+  allow_negative_sales?: boolean;
+  warranty_days?: number | null;
+  lifetime_warranty?: boolean;
+  service_warranty_days?: number | null;
+  return_days?: number | null;
+  hs_code?: string | null;
   weight?: string | null;
   tax_rate?: number | null;
   tax_type?: string;
@@ -516,6 +540,9 @@ function productPayload(input: CreateCatalogProductInput | UpdateCatalogProductI
   if (input.barcode !== undefined) payload.barcode = input.barcode;
   if (input.barcode_type !== undefined) payload.barcode_type = input.barcode_type;
   if (input.not_for_selling !== undefined) payload.not_for_selling = input.not_for_selling;
+  for (const key of ["allow_negative_sales", "warranty_days", "lifetime_warranty", "service_warranty_days", "return_days", "hs_code"] as const) {
+    if (input[key] !== undefined) payload[key] = input[key];
+  }
   if (input.weight !== undefined) payload.weight = input.weight;
   if (input.tax_rate !== undefined) payload.tax_rate = input.tax_rate;
   if (input.tax_type !== undefined) payload.tax_type = input.tax_type;

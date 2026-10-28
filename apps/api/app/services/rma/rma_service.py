@@ -205,7 +205,7 @@ def warranty_for(
     if order is not None:
         purchased = order.created_at.date() if order.created_at else None
     verdict = warranty_rules.evaluate(
-        warranty_text=product.warranty if product else None, purchased_on=purchased
+        warranty_text=warranty_rules.product_warranty_text(product), purchased_on=purchased
     )
     return verdict, purchased
 

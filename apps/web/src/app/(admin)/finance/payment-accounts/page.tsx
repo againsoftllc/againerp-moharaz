@@ -13,7 +13,6 @@ import { ListGridOpenFallback } from "@/components/shared/list-grid-open-fallbac
 import { useAdminCanWrite } from "@/lib/hooks/use-admin-can-write";
 import { useApiHealth } from "@/lib/api/use-api-health";
 import {
-  createPaymentAccount,
   fetchPaymentAccounts,
   transferPaymentAccounts,
   updatePaymentAccount,
@@ -43,6 +42,7 @@ export default function FinancePaymentAccountsPage() {
   const [error, setError] = useState<string | null>(null);
   const [filterCount, setFilterCount] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editAccount, setEditAccount] = useState<ApiFinancePaymentAccount | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferFromId, setTransferFromId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -125,7 +125,7 @@ export default function FinancePaymentAccountsPage() {
             <ArrowLeftRight className="mr-1.5 h-3.5 w-3.5" />
             Transfer
           </Button>
-          <Button size="sm" className="h-[26px] rounded-none" onClick={() => setDrawerOpen(true)}>
+          <Button size="sm" className="h-[26px] rounded-none" onClick={() => { setEditAccount(null); setDrawerOpen(true); }}>
             <Plus className="mr-1.5 h-3.5 w-3.5" />
             New account
           </Button>
@@ -155,14 +155,19 @@ export default function FinancePaymentAccountsPage() {
           setTransferFromId(account.id);
           setTransferOpen(true);
         }}
+        onEdit={(account) => {
+          setEditAccount(account);
+          setDrawerOpen(true);
+        }}
       />
       <PaymentAccountDrawer
         open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        onCreate={async (input) => {
-          await createPaymentAccount(input);
-          await load();
+        account={editAccount}
+        onOpenChange={(next) => {
+          setDrawerOpen(next);
+          if (!next) setEditAccount(null);
         }}
+        onSaved={load}
       />
       <PaymentAccountTransferDrawer
         open={transferOpen}

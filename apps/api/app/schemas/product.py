@@ -43,6 +43,14 @@ class ProductBase(BaseModel):
     barcode: Optional[str] = Field(default=None, max_length=100)
     barcode_type: str = Field(default="C128", pattern="^(C128|C39|EAN13|EAN8|UPCA|UPCE)$")
     not_for_selling: bool = Field(default=False)
+    # OnerERP IsAllowNegativeSales: may be sold past its stock even when the company keeps stock from going negative
+    allow_negative_sales: bool = Field(default=False)
+    # structured warranty / return; when set they win over the free-text `warranty`
+    warranty_days: Optional[int] = Field(default=None, ge=0, le=36500)
+    lifetime_warranty: bool = Field(default=False)
+    service_warranty_days: Optional[int] = Field(default=None, ge=0, le=36500)
+    return_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    hs_code: Optional[str] = Field(default=None, max_length=20)
     weight: Optional[str] = Field(default=None, max_length=50)
     tax_rate: Optional[Decimal] = Field(default=None, ge=0, le=100)
     tax_type: str = Field(default="exclusive", pattern="^(inclusive|exclusive)$")
@@ -111,6 +119,12 @@ class ProductUpdate(BaseModel):
     barcode: Optional[str] = Field(default=None, max_length=100)
     barcode_type: Optional[str] = Field(default=None, pattern="^(C128|C39|EAN13|EAN8|UPCA|UPCE)?$")
     not_for_selling: Optional[bool] = None
+    allow_negative_sales: Optional[bool] = None
+    warranty_days: Optional[int] = Field(default=None, ge=0, le=36500)
+    lifetime_warranty: Optional[bool] = None
+    service_warranty_days: Optional[int] = Field(default=None, ge=0, le=36500)
+    return_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    hs_code: Optional[str] = Field(default=None, max_length=20)
     weight: Optional[str] = Field(default=None, max_length=50)
     tax_rate: Optional[Decimal] = Field(default=None, ge=0, le=100)
     tax_type: Optional[str] = Field(default=None, pattern="^(inclusive|exclusive)?$")

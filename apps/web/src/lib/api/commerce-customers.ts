@@ -77,6 +77,14 @@ export type ApiCustomer = {
   wallet_balance: string;
   opening_balance?: string | number;
   credit_limit?: string | number;
+  sales_locked?: boolean;
+  sales_lock_reason?: string | null;
+  trade_mode?: "both" | "credit" | "cash";
+  credit_days?: number | null;
+  conditional_limit?: string | number;
+  conditional_valid_till?: string | null;
+  security_money?: string | number;
+  opening_date?: string | null;
   payment_terms?: string | null;
   payment_schedule?: string | null;
   risk_score: number;
@@ -206,6 +214,14 @@ export function apiCustomerToCustomer(row: ApiCustomer): CustomerListRow {
     walletBalance: Number(row.wallet_balance),
     openingBalance: Number(row.opening_balance ?? 0),
     creditLimit: Number(row.credit_limit ?? 0),
+    salesLocked: Boolean(row.sales_locked),
+    salesLockReason: row.sales_lock_reason ?? undefined,
+    tradeMode: row.trade_mode ?? "both",
+    creditDays: row.credit_days ?? null,
+    conditionalLimit: Number(row.conditional_limit ?? 0),
+    conditionalValidTill: row.conditional_valid_till ?? null,
+    securityMoney: Number(row.security_money ?? 0),
+    openingDate: row.opening_date ?? null,
     paymentTerms: row.payment_terms ?? undefined,
     paymentSchedule: row.payment_schedule ?? undefined,
     riskScore: row.risk_score,
@@ -295,6 +311,14 @@ export type UpdateCustomerInput = {
   timeline?: Customer["timeline"];
   openingBalance?: number;
   creditLimit?: number;
+  salesLocked?: boolean;
+  salesLockReason?: string | null;
+  tradeMode?: "both" | "credit" | "cash";
+  creditDays?: number | null;
+  conditionalLimit?: number;
+  conditionalValidTill?: string | null;
+  securityMoney?: number;
+  openingDate?: string | null;
   paymentTerms?: string | null;
   paymentSchedule?: string | null;
 };
@@ -338,6 +362,14 @@ export function customerUpdateToApiPayload(input: UpdateCustomerInput) {
     timeline: input.timeline,
     opening_balance: input.openingBalance,
     credit_limit: input.creditLimit,
+    sales_locked: input.salesLocked,
+    sales_lock_reason: input.salesLockReason,
+    trade_mode: input.tradeMode,
+    credit_days: input.creditDays,
+    conditional_limit: input.conditionalLimit,
+    conditional_valid_till: input.conditionalValidTill,
+    security_money: input.securityMoney,
+    opening_date: input.openingDate,
     payment_terms: input.paymentTerms,
     payment_schedule: input.paymentSchedule,
   };
@@ -763,4 +795,23 @@ export async function recordCustomerOrderPayment(
 
 export async function updateCommerceCustomerStatus(id: string, status: CustomerStatus): Promise<Customer> {
   return updateCommerceCustomer(id, { status });
+}
+
+/** What the customer owes, open orders, the limit in force and what is left (services/customer/credit_control.py). */
+export type CustomerCreditPosition = {
+  ledger_balance: string;
+  unsettled_orders: string;
+  exposure: string;
+  credit_limit: string;
+  conditional_limit: string;
+  conditional_valid_till: string | null;
+  effective_limit: string;
+  /** null = no limit */
+  available: string | null;
+  sales_locked: boolean;
+  trade_mode: "both" | "credit" | "cash";
+};
+
+export async function fetchCustomerCreditPosition(customerId: string): Promise<CustomerCreditPosition> {
+  return (await apiFetch<{ data: CustomerCreditPosition }>(`/api/v1/commerce/customers/${encodeURIComponent(customerId)}/credit`)).data;
 }

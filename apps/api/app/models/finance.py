@@ -26,6 +26,8 @@ class FinanceAccount(Base):
     account_type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     parent_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # False = a group: it takes no postings, its children do (services/finance/master_service.py)
+    is_postable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -56,6 +58,12 @@ class FinancePaymentAccount(Base):
     opening_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Money may not go out beyond the balance (OnerERP CheckAccountsBalance).
+    check_balance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # A bank account: its bank branch (finance_bank_branches) and the account number and title at the bank.
+    bank_branch_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    account_number: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    account_title: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,

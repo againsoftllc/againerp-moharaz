@@ -239,6 +239,7 @@ class FinanceService:
         name: str,
         account_type: str,
         parent_id: Optional[str] = None,
+        is_postable: bool = True,
     ) -> FinanceAccount:
         self.ensure_accounts(company_id)
         code_n = code.strip()
@@ -261,6 +262,7 @@ class FinanceService:
             name=name_n,
             account_type=type_n,
             is_system=False,
+            is_postable=is_postable,
         )
         self._db.add(row)
         self._db.flush()
@@ -277,7 +279,12 @@ class FinanceService:
         account_type: Optional[str] = None,
         parent_id: object = _UNSET,
         is_active: Optional[bool] = None,
+        is_postable: Optional[bool] = None,
     ) -> FinanceAccount:
+        if is_postable is not None:
+            from app.services.finance.master_service import set_postable
+
+            set_postable(row, is_postable)
         if name is not None:
             row.name = name.strip()
         if account_type is not None:
@@ -726,6 +733,8 @@ class FinanceService:
         return self.get_default_payment_account(company_id)
 
     def list_payment_accounts_with_balance(self, company_id: str = "default") -> list[dict]:
+        from app.services.finance.master_service import bank_label
+
         accounts = self.ensure_payment_accounts(company_id)
         accounts = sorted(accounts, key=lambda a: (not a.is_default, a.name))
         movement_rows = (
@@ -766,6 +775,11 @@ class FinanceService:
                     "is_active": account.is_active,
                     "is_default": account.is_default,
                     "created_at": account.created_at,
+                    "check_balance": bool(getattr(account, "check_balance", False)),
+                    "bank_branch_id": getattr(account, "bank_branch_id", None),
+                    "bank_label": bank_label(self._db, account),
+                    "account_number": getattr(account, "account_number", None),
+                    "account_title": getattr(account, "account_title", None),
                 }
             )
         return result
@@ -796,6 +810,10 @@ class FinanceService:
         kind: str = "cash",
         opening_balance: Decimal = Decimal("0"),
         is_default: bool = False,
+        check_balance: bool = False,
+        bank_branch_id: Optional[str] = None,
+        account_number: Optional[str] = None,
+        account_title: Optional[str] = None,
     ) -> FinancePaymentAccount:
         existing = (
             self._db.query(FinancePaymentAccount)
@@ -804,8 +822,15 @@ class FinanceService:
         )
         if existing:
             raise HTTPException(status_code=400, detail="A payment account with this name already exists")
-        gl_code = PAYMENT_ACCOUNT_KIND_TO_GL_CODE.get(kind, "1000")
-        gl_account = self._account_by_code(company_id, gl_code)
+        from app.services.finance.master_service import get_branch, next_bank_ledger
+
+        if bank_branch_id:
+            get_branch(self._db, bank_branch_id, company_id)
+        if kind == "bank":
+            # each bank account its own ledger under 1010 Bank, so its balance shows in the books
+            gl_account = next_bank_ledger(self._db, company_id, self, name)
+        else:
+            gl_account = self._account_by_code(company_id, PAYMENT_ACCOUNT_KIND_TO_GL_CODE.get(kind, "1000"))
         if is_default:
             self._db.query(FinancePaymentAccount).filter(
                 FinancePaymentAccount.company_id == company_id, FinancePaymentAccount.is_default.is_(True)
@@ -817,6 +842,10 @@ class FinanceService:
             gl_account_id=gl_account.id,
             opening_balance=opening_balance,
             is_default=is_default,
+            check_balance=check_balance,
+            bank_branch_id=bank_branch_id or None,
+            account_number=(account_number or "").strip() or None,
+            account_title=(account_title or "").strip() or None,
         )
         self._db.add(account)
         self._db.flush()
@@ -829,7 +858,23 @@ class FinanceService:
         name: Optional[str] = None,
         is_active: Optional[bool] = None,
         is_default: Optional[bool] = None,
+        check_balance: Optional[bool] = None,
+        bank_branch_id: object = _UNSET,
+        account_number: object = _UNSET,
+        account_title: object = _UNSET,
     ) -> FinancePaymentAccount:
+        if check_balance is not None:
+            account.check_balance = check_balance
+        if bank_branch_id is not _UNSET:
+            if bank_branch_id:
+                from app.services.finance.master_service import get_branch
+
+                get_branch(self._db, str(bank_branch_id), account.company_id)
+            account.bank_branch_id = bank_branch_id or None
+        if account_number is not _UNSET:
+            account.account_number = (str(account_number or "")).strip() or None
+        if account_title is not _UNSET:
+            account.account_title = (str(account_title or "")).strip() or None
         if name is not None:
             account.name = name
         if is_active is not None:
@@ -1027,6 +1072,11 @@ class FinanceService:
             if money(debit) == money(0) and money(credit) == money(0):
                 continue
             account = self._account_by_code(company_id, account_code)
+            if getattr(account, "is_postable", True) is False:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{account.code} {account.name} is a group account; post to one of its accounts instead",
+                )
             self._db.add(
                 FinanceJournalLine(
                     journal_entry_id=entry.id,
@@ -2254,6 +2304,9 @@ class FinanceService:
             raise HTTPException(status_code=400, detail="Payment amount exceeds outstanding balance")
 
         payment_account = self._resolve_payment_account(payable.company_id, payment_account_id)
+        from app.services.finance.master_service import assert_can_pay_out
+
+        assert_can_pay_out(self, payment_account, amount)
         gl_code = self._payment_account_gl_code(payment_account)
         pay_date = payment_date or date.today()
         source_key = str(uuid.uuid4())
@@ -2332,6 +2385,10 @@ class FinanceService:
             return existing, self.get_journal_entry(existing.journal_entry_id, company_id=company_id)
 
         payment_account = self._resolve_payment_account(company_id, payment_account_id)
+        if direction == "outbound":
+            from app.services.finance.master_service import assert_can_pay_out
+
+            assert_can_pay_out(self, payment_account, amount)
         gl_code = self._payment_account_gl_code(payment_account)
         pay_date = payment_date or date.today()
         zero = Decimal("0")
@@ -2714,6 +2771,9 @@ class FinanceService:
             payment_account_id or expense.payment_account_id,
             method_hint=payment_method,
         )
+        from app.services.finance.master_service import assert_can_pay_out
+
+        assert_can_pay_out(self, payment_account, expense.total)
         gl_code = self._payment_account_gl_code(payment_account)
 
         pay_date = payment_date or date.today()

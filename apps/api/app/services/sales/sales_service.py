@@ -36,6 +36,7 @@ from app.models.sales import (
     SalesQuotationStatusHistory,
 )
 from app.services.inventory.stock_movement_service import MovementInput, StockMovementService
+from app.services.inventory import product_master
 from app.services.inventory.constants import (
     MOVEMENT_CUSTOMER_RETURN,
     MOVEMENT_POS_SALE,
@@ -624,7 +625,8 @@ class SalesService:
         )
         self._db.add(sales_order)
         self._db.flush()
-        self._add_order_lines(sales_order, sales_lines, commerce_order.customer_id)
+        # the storefront already charged these prices: take them as they are
+        self._add_order_lines(sales_order, sales_lines, commerce_order.customer_id, check_prices=False)
         self._db.flush()
         self._recalc_order(sales_order)
         self._apply_commerce_totals(sales_order, commerce_order)
@@ -1087,6 +1089,7 @@ class SalesService:
         *,
         actor_id: Optional[str] = None,
         deliver: bool = True,
+        paid_at_counter: bool = False,
     ) -> SalesOrder:
         """Confirm a draft. With `deliver` (the counter-sale default) the goods
         leave stock right here — a shop hands them over with the invoice, there
@@ -1094,6 +1097,10 @@ class SalesService:
         order = self._require_order(order_id)
         if order.status != "draft":
             raise HTTPException(status_code=400, detail="Only draft orders can be confirmed")
+        # credit control: a locked customer, a cash-only customer with something due, or one over the credit limit is refused
+        from app.services.customer.credit_control import check_order_confirm
+
+        check_order_confirm(self._db, order, paid_at_counter=paid_at_counter)
         lines = self.get_order_lines(order.id)
         backordered: list[str] = []
         for line in lines:
@@ -1644,7 +1651,8 @@ class SalesService:
                 continue
             qty = dline.quantity_delivered
             item = self._db.get(Item, so_line.item_id)
-            if item and item.item_type in ("service", "digital", "combo"):
+            # services, digital, combos and products that keep no stock are handed over without a stock movement
+            if not product_master.moves_stock(self._db, item):
                 so_line.quantity_delivered += qty
                 continue
             movement_type = (
@@ -1708,7 +1716,7 @@ class SalesService:
             created_by=actor_id,
         )
         # POS posts its own delivery below (and advances the order to completed).
-        self.confirm_order(order.id, actor_id=actor_id, deliver=False)
+        self.confirm_order(order.id, actor_id=actor_id, deliver=False, paid_at_counter=True)
         so_lines = self.get_order_lines(order.id)
         delivery = self.create_delivery(
             order.id,
@@ -2044,11 +2052,10 @@ class SalesService:
         instead of backordering, so out-of-stock items can't be sold.
         """
         item = self._db.get(Item, line.item_id)
-        if item and item.item_type in ("service", "digital", "combo"):
+        if not product_master.moves_stock(self._db, item):
             return True
-        from app.services.inventory.inventory_settings_service import allow_negative_stock
-
-        allow_negative = allow_negative_stock(self._db, order.company_id or "default")
+        # the company allows negative stock, or this product may be sold past its stock
+        allow_negative = product_master.allows_negative(self._db, line.item_id, order.company_id)
         svc = StockMovementService(self._db)
         try:
             stock = svc.lock_stock(line.item_id, order.warehouse_id, order.company_id)
@@ -2218,7 +2225,7 @@ class SalesService:
         """Goods handed over at confirmation come back when the sale is cancelled
         (what was already returned through a sales return stays returned)."""
         item = self._db.get(Item, line.item_id)
-        if item and item.item_type in ("service", "digital", "combo"):
+        if not product_master.moves_stock(self._db, item):
             return False
         returned = int(getattr(line, "quantity_returned", 0) or 0)
         qty = int(line.quantity_delivered or 0) - returned
@@ -2257,13 +2264,48 @@ class SalesService:
 
     # ── Line builders ────────────────────────────────────────────────────────
 
+    def _price_line(
+        self,
+        item: Item,
+        line_in: SalesLineInput,
+        *,
+        company_id: Optional[str],
+        customer_id: Optional[str],
+        warehouse_id: Optional[str],
+        user_id: Optional[str],
+        check: bool = True,
+    ) -> Decimal:
+        """A line's unit price: 0 takes the resolved price (customer price → price type → catalog); anything else is
+        checked against the price type's bounds and the discount type's cap (sales pricing masters)."""
+        from app.services.sales import pricing_service
+
+        q = pricing_service.quote(
+            self._db,
+            company_id=company_id or "default",
+            item_id=item.id,
+            quantity=int(line_in.quantity or 1),
+            customer_id=customer_id,
+            warehouse_id=warehouse_id,
+            user_id=user_id,
+        )
+        unit_price = line_in.unit_price
+        if unit_price == Decimal("0"):
+            unit_price = q.price
+        if check:
+            product_master.require_sellable(self._db, item)
+            pricing_service.check_line(
+                q, label=item.sku or item.name, unit_price=unit_price, quantity=int(line_in.quantity or 0),
+                discount_amount=line_in.discount_amount or Decimal("0"),
+            )
+        return unit_price
+
     def _add_quotation_lines(self, quote: SalesQuotation, lines: list[SalesLineInput]) -> None:
         for idx, line_in in enumerate(lines, start=1):
             item = self._require_item(line_in.item_id)
-            unit_price = line_in.unit_price
-            price_row = self.resolve_customer_price(quote.customer_id, item.id, company_id=quote.company_id)
-            if price_row and unit_price == Decimal("0"):
-                unit_price = price_row.unit_price
+            unit_price = self._price_line(
+                item, line_in, company_id=quote.company_id, customer_id=quote.customer_id,
+                warehouse_id=quote.warehouse_id, user_id=quote.created_by,
+            )
             tax_amount, line_total = self._calc_line(line_in.quantity, unit_price, line_in.tax_rate, line_in.discount_amount)
             self._db.add(
                 SalesQuotationLine(
@@ -2283,17 +2325,15 @@ class SalesService:
                 ),
             )
 
-    def _add_order_lines(self, order: SalesOrder, lines: list[SalesLineInput], customer_id: str) -> None:
+    def _add_order_lines(
+        self, order: SalesOrder, lines: list[SalesLineInput], customer_id: str, *, check_prices: bool = True
+    ) -> None:
         for idx, line_in in enumerate(lines, start=1):
             item = self._require_item(line_in.item_id)
-            unit_price = line_in.unit_price
-            price_row = self.resolve_customer_price(customer_id, item.id, company_id=order.company_id, quantity=line_in.quantity)
-            if price_row and unit_price == Decimal("0"):
-                unit_price = price_row.unit_price
-            elif unit_price == Decimal("0"):
-                product = self._db.get(CatalogProduct, item.id)
-                if product:
-                    unit_price = product.price
+            unit_price = self._price_line(
+                item, line_in, company_id=order.company_id, customer_id=customer_id,
+                warehouse_id=order.warehouse_id, user_id=order.created_by, check=check_prices,
+            )
             tax_amount, line_total = self._calc_line(line_in.quantity, unit_price, line_in.tax_rate, line_in.discount_amount)
             new_line = SalesOrderLine(
                 sales_order_id=order.id,
@@ -2365,22 +2405,22 @@ class SalesService:
         keep_ids: set[str] = set()
         for idx, line_in in enumerate(lines, start=1):
             item = self._require_item(line_in.item_id)
-            unit_price = line_in.unit_price
-            price_row = self.resolve_customer_price(
-                customer_id, item.id, company_id=order.company_id, quantity=line_in.quantity
+            bucket = by_item.get(item.id)
+            row = bucket.pop(0) if bucket else None
+            # a line saved before the price masters existed (or before a rule changed) keeps saving as it was
+            unchanged = row is not None and (
+                row.unit_price == line_in.unit_price
+                and row.quantity_ordered == line_in.quantity
+                and (row.discount_amount or Decimal("0")) == line_in.discount_amount
             )
-            if price_row and unit_price == Decimal("0"):
-                unit_price = price_row.unit_price
-            elif unit_price == Decimal("0"):
-                product = self._db.get(CatalogProduct, item.id)
-                if product:
-                    unit_price = product.price
+            unit_price = self._price_line(
+                item, line_in, company_id=order.company_id, customer_id=customer_id,
+                warehouse_id=order.warehouse_id, user_id=order.created_by, check=not unchanged,
+            )
             tax_amount, line_total = self._calc_line(
                 line_in.quantity, unit_price, line_in.tax_rate, line_in.discount_amount
             )
 
-            bucket = by_item.get(item.id)
-            row = bucket.pop(0) if bucket else None
             if row is not None:
                 row.line_number = idx
                 row.sort_order = idx

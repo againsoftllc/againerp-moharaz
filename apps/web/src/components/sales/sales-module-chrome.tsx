@@ -77,6 +77,16 @@ const NAV_MENUS: NavMenu[] = [
   { id: "quotation", label: "Quotation", direct: true, listFilter: "quotations", children: [] },
   { id: "return", label: "Return", direct: true, href: "/sales/returns", children: [] },
   { id: "customer", label: "Customer", direct: true, href: "/customers", children: [] },
+  {
+    id: "pricing",
+    label: "Pricing",
+    children: [
+      { id: "price-types", label: "Price types", href: "/sales/pricing/price-types" },
+      { id: "discount-types", label: "Discount types", href: "/sales/pricing/discount-types" },
+      { id: "rules", label: "Pricing rules", href: "/sales/pricing/rules" },
+      { id: "customer-groups", label: "Customer groups", href: "/sales/pricing/customer-groups" },
+    ],
+  },
 ];
 
 function childVisible(menuId: string, childId: string, flags: SalesFeatureFlags): boolean {

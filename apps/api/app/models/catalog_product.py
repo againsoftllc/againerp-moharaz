@@ -48,6 +48,8 @@ class CatalogProduct(Base):
     stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     track_quantity: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     not_for_selling: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # OnerERP IsAllowNegativeSales: this product may be sold past its stock even when the company does not allow negative stock
+    allow_negative_sales: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     weight: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     tax_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
     tax_type: Mapped[str] = mapped_column(String(20), nullable=False, default="exclusive")
@@ -81,6 +83,13 @@ class CatalogProduct(Base):
     seo_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     focus_keyphrase: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     warranty: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    # structured warranty / return (OnerERP WarrantyDays, IsLifeTimeWarranty, ServiceWarrantyDays, ReturnAllowedDays);
+    # when set they win over the free-text `warranty`
+    warranty_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    lifetime_warranty: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    service_warranty_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    return_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    hs_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     origin: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     thumbnail: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     custom_specs_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

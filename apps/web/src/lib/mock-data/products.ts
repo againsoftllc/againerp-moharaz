@@ -55,6 +55,14 @@ export type Product = {
   barcode?: string | null;
   barcodeType?: string;
   notForSelling?: boolean;
+  /** May be sold past its stock even when the company keeps stock from going negative. */
+  allowNegativeSales?: boolean;
+  /** Structured warranty / return: when set they win over the free-text warranty. */
+  warrantyDays?: number | null;
+  lifetimeWarranty?: boolean;
+  serviceWarrantyDays?: number | null;
+  returnDays?: number | null;
+  hsCode?: string | null;
   weight?: string | null;
   taxRate?: number | null;
   taxType?: string;

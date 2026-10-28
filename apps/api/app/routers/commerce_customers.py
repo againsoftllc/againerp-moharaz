@@ -29,6 +29,8 @@ from app.schemas.customer_ledger import (
     CustomerPaymentResponse,
 )
 from app.schemas.commerce_customer import (
+    CustomerCreditPositionRead,
+    CustomerCreditPositionResponse,
     CustomerBulkDeleteRequest,
     CustomerBulkDeleteResponse,
     CustomerBulkDeleteResult,
@@ -684,6 +686,14 @@ def _to_read(
         wallet_balance=row.wallet_balance,
         opening_balance=getattr(row, "opening_balance", None) or Decimal("0"),
         credit_limit=getattr(row, "credit_limit", None) or Decimal("0"),
+        sales_locked=bool(getattr(row, "sales_locked", False)),
+        sales_lock_reason=getattr(row, "sales_lock_reason", None),
+        trade_mode=getattr(row, "trade_mode", None) or "both",
+        credit_days=getattr(row, "credit_days", None),
+        conditional_limit=getattr(row, "conditional_limit", None) or Decimal("0"),
+        conditional_valid_till=getattr(row, "conditional_valid_till", None),
+        security_money=getattr(row, "security_money", None) or Decimal("0"),
+        opening_date=getattr(row, "opening_date", None),
         payment_terms=getattr(row, "payment_terms", None),
         payment_schedule=getattr(row, "payment_schedule", None),
         risk_score=row.risk_score,
@@ -747,6 +757,14 @@ def _field_label(key: str) -> str:
         "profile_image": "Profile photo",
         "opening_balance": "Opening balance",
         "credit_limit": "Credit limit",
+        "sales_locked": "Sales locked",
+        "sales_lock_reason": "Sales lock reason",
+        "trade_mode": "Sells on",
+        "credit_days": "Credit days",
+        "conditional_limit": "Conditional limit",
+        "conditional_valid_till": "Conditional limit valid till",
+        "security_money": "Security money",
+        "opening_date": "Opening date",
         "tags": "Tags",
         "addresses": "Addresses",
     }
@@ -778,6 +796,14 @@ def _summarize_customer_changes(
         "credit_limit",
         "payment_terms",
         "payment_schedule",
+        "sales_locked",
+        "sales_lock_reason",
+        "trade_mode",
+        "credit_days",
+        "conditional_limit",
+        "conditional_valid_till",
+        "security_money",
+        "opening_date",
     )
     for key in scalar_keys:
         if key not in updates:
@@ -1359,6 +1385,36 @@ def raise_customer_invoice(
         db, customer_id, payload, company_id=company_id
     )
     return CustomerInvoiceResponse(data=invoice)
+
+
+@router.get("/{customer_id}/credit", response_model=CustomerCreditPositionResponse)
+def customer_credit_position(
+    customer_id: str,
+    db: Session = Depends(get_db),
+    _: AuthUser = Depends(require_permission("customers", "read")),
+    company_id: str = Depends(get_current_company_id),
+) -> CustomerCreditPositionResponse:
+    """What the customer owes, open orders, the limit in force and what is left (services/customer/credit_control.py)."""
+    from app.services.customer.credit_control import credit_position
+
+    row = db.get(CommerceCustomer, customer_id)
+    if not row or (row.company_id or "default") != company_id:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    pos = credit_position(db, row)
+    return CustomerCreditPositionResponse(
+        data=CustomerCreditPositionRead(
+            ledger_balance=pos.ledger_balance,
+            unsettled_orders=pos.unsettled_orders,
+            exposure=pos.exposure,
+            credit_limit=pos.credit_limit,
+            conditional_limit=pos.conditional_limit,
+            conditional_valid_till=pos.conditional_valid_till,
+            effective_limit=pos.effective_limit,
+            available=pos.available,
+            sales_locked=bool(getattr(row, "sales_locked", False)),
+            trade_mode=getattr(row, "trade_mode", None) or "both",
+        )
+    )
 
 
 @router.post("/{customer_id}/ledger/payments", response_model=CustomerPaymentResponse, status_code=201)

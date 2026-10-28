@@ -60,6 +60,7 @@ from app.services.finance import dashboard_period_service
 from app.services.finance.constants import account_normal_balance
 from app.services.finance.partner_trading_service import partner_trading
 from app.services.finance.finance_reports import FinanceReportService
+from app.services.finance.master_service import bank_label
 from app.services.finance.finance_service import FinanceService
 from app.services.finance.posting import money
 
@@ -110,6 +111,7 @@ def _account_read(
         parent_code=parent.code if parent else None,
         is_system=account.is_system,
         is_active=account.is_active,
+        is_postable=getattr(account, "is_postable", True),
         nature=nature,
         debit=debit,
         credit=credit,
@@ -141,6 +143,11 @@ def _payment_account_read(db: Session, service: FinanceService, account: Finance
         "is_active": account.is_active,
         "is_default": account.is_default,
         "created_at": account.created_at,
+        "check_balance": bool(getattr(account, "check_balance", False)),
+        "bank_branch_id": getattr(account, "bank_branch_id", None),
+        "bank_label": bank_label(db, account),
+        "account_number": getattr(account, "account_number", None),
+        "account_title": getattr(account, "account_title", None),
     }
     return FinancePaymentAccountRead(**data)
 
@@ -304,6 +311,7 @@ def create_account(
         name=payload.name,
         account_type=payload.account_type,
         parent_id=payload.parent_id,
+        is_postable=payload.is_postable,
     )
     db.commit()
     db.refresh(row)
@@ -515,6 +523,10 @@ def create_payment_account(
         kind=payload.kind,
         opening_balance=payload.opening_balance,
         is_default=payload.is_default,
+        check_balance=payload.check_balance,
+        bank_branch_id=payload.bank_branch_id,
+        account_number=payload.account_number,
+        account_title=payload.account_title,
     )
     db.commit()
     db.refresh(account)
@@ -562,6 +574,11 @@ def update_payment_account(
         name=payload.name,
         is_active=payload.is_active,
         is_default=payload.is_default,
+        **{
+            key: value
+            for key, value in payload.model_dump(exclude_unset=True).items()
+            if key in ("check_balance", "bank_branch_id", "account_number", "account_title")
+        },
     )
     db.commit()
     db.refresh(account)

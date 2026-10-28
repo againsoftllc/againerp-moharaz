@@ -17,16 +17,129 @@
 
 | Module | Open High | Open Medium | Open Low | Fixed |
 |---|---|---|---|---|
-| Inventory | 0 | 5 | 10 | 5 |
+| Inventory | 0 | 4 | 10 | 6 |
 | Workspace | 0 | 3 | 8 | 6 |
 | Finance | 0 | 5 | 9 | 1 |
 | Platform | 0 | 2 | 1 | 1 |
 | Other modules | 0 | 1 | 1 | 1 |
-| **All** | **0** | **16** | **29** | **14** |
+| **All** | **0** | **15** | **29** | **15** |
 
 There are no open High findings.
 
 ## 3. Changelog
+
+### Masters from OnerERP roadmap §14 Phase 2
+New features, not audit fixes. Parts done so far are listed below; details in §4.7.
+
+**Part A: customer credit control** (spec §15.2, §15.11)
+- **Credit control at sale:** before, a customer's credit limit was stored but nothing checked it. Now confirming a sales order (which issues its invoice) is refused (409, with the reason) in these cases:
+  - the customer is **locked for sales** (Oner IsLocked). This also applies to a paid POS counter sale;
+  - the customer is **cash only** and part of the order is still unpaid;
+  - with a credit limit, what the customer owes + confirmed orders not invoiced yet + this order's unpaid part would be over the limit. Until its *valid till* date, a higher **conditional limit** replaces the credit limit.
+  - A credit limit of 0 means no limit. The checks run in `confirm_order`, so they also cover bulk confirm and an approver's replay.
+- **New customer fields** (Profile → Accounting): *Sells on* (Cash & credit / Credit / Cash only), *Credit days*, *Conditional limit* + *Valid till*, *Security money*, *Opening date*, and the *Sales* Open / Locked switch with a reason.
+  - The section also shows the customer's credit position: owes or advance, open orders, the limit in force and what is still available (`GET /commerce/customers/{id}/credit`).
+  - Every field change is written to the customer's timeline like the other fields.
+- **Verified:**
+  - 6 new unit tests (`services/customer/test_credit_control.py`) pass, and the sales and POS tests still pass.
+  - Type check: no new errors (121).
+  - Tested live on SO-00001 (Rakibul Hasan, ৳5,45,991, draft). The customer was given a limit of 1,000, then made cash only, then locked. Each confirm was refused with its reason (409), and the order stayed a draft.
+  - The Accounting section shows "Advance ৳2,65,125 · no limit" and the new fields. *Credit days* saved from the drawer.
+  - Clean-up: the customer's limit, mode, lock and credit days are back to what they were. A passing confirm was not tried live, so that no stock would move; the unit tests cover it.
+- **Not built:** customer group and grade masters (moved to Part D, where prices and discounts use them), ledger limit, cheque-dishonour opening, the control-account override, and a credit check on stand-alone invoices and party adjustments (they do not go through `confirm_order`).
+
+**Part B: finance masters** (spec §16.2, §16.3, §8.1 Bank)
+- **Group accounts:** Chart of accounts → an account can be ticked *Group account (no direct postings)*.
+  - Journals, vouchers and opening balances then refuse it with a reason; its child accounts take the postings.
+  - System accounts must stay postable, because the ERP posts to them (6000, for example, has children and still takes expense postings).
+  - The level was already shown as the tree depth.
+- **Check balance (Oner CheckAccountsBalance):** a cash / bank account can be marked *Check balance*. Money can then not go out of it beyond what it holds. This applies to:
+  - debit and contra vouchers
+  - supplier payments (from the ledger)
+  - bill settle and expense pay
+  - outbound party payments
+  - Transfers already checked the balance.
+- **Banks and branches (Oner Bank → Branch → Account):** Finance → Payments → **Banks & branches** (`/finance/banks`).
+  - It is seeded with the 61 banks the cheque picker already listed. Each bank has branches with routing number, address and phone.
+  - The payment-account drawer is now a common drawer with **create and edit** (this fixes FIN-10 for payment accounts). A bank account picks its bank and branch and keeps its account number and title.
+  - Each **new** bank account gets its own GL ledger under 1010 Bank (1011, 1012, …). Accounts made earlier keep 1010.
+- **Opening balances (Oner OpeningBalance + IsOpeningBalanceFinalized):** Finance → Accounting → **Opening balances** (`/finance/opening-balances`).
+  - A batch of GL openings is kept as a draft until *Finalize & post*. That posts one journal on its date (the period must be open), with the difference to the new **3900 Opening Balance Equity**, and locks the batch.
+  - AR / AP control, cash / bank heads and group accounts are refused, each with where its opening comes from instead.
+- **Verified:**
+  - 5 new unit tests (`test_finance_masters.py`) pass. Finance (117), RMA (175), core (13) and customer (6) tests pass too.
+  - Type check: no new errors (121).
+  - Tested live:
+    - 61 banks are seeded. A *QA Gulshan* branch was added to City Bank (routing 225261725).
+    - A bank account *QA City Bank Gulshan* got GL **1011** and the label "City Bank · QA Gulshan". With *Check balance* on, approving a ৳5 debit voucher from it was refused, because it holds 0.
+    - A group account 6990 was refused on a voucher line. Making 1000 Cash a group was refused.
+    - Opening balances: AR was refused. A ৳10 opening for a test asset 1590 was finalized as JE-00094 (3900 credited ৳10). Editing it afterwards was refused. JV-2026-00001 then took both back to 0.
+    - The Banks page and drawer, the opening batch drawer and the new payment-account drawer load.
+  - Clean-up: the test bank account, 1590, 6990, GL 1011 and the QA branch were made inactive. JE-00094 and JV-2026-00001 stay in the journal and cancel out.
+- **Not built:**
+  - Location-wise openings (journal lines have no location yet).
+  - A categorization table for report lines (balance sheet and P&L still bucket by code range).
+  - Cheque and party-bank pickers still use the static bank list, not the new master. The names match.
+
+**Part D: price and discount masters** (spec §8.1 Price/Discount, §14 item 9)
+- **Before:** the sales form took the product's catalog price, and the server only filled a price when the line came in at 0. Customer groups were free text, and custom groups lived only in the browser. Nothing limited the price or the discount a seller gave.
+- **Sales → Pricing** (new menu) has four pages, each a list with the common drawer:
+  - **Price types** (Oner Price Type): a named price list. Each product can have quantity slabs (from 10 up: a lower price) and dated prices. *Fixed* means a sales line must use the listed price. *Within limits* lets the seller go a set % below and above it (lower / upper limit).
+  - **Discount types** (Oner Discount Type): a default % for a product, a brand or a category, from a quantity up. The product line wins, then the brand, then the category. *Max discount %* caps what a seller may give on a line.
+  - **Pricing rules** (Oner Price & Discount Configuration): which price type and discount type apply. A rule can be limited by customer group, warehouse, salesperson, brand, category and a date range. Every condition filled in must match. The rule with the most conditions wins, then the higher priority.
+  - **Customer groups** (Oner CustomerGroup): now a server master. It is seeded with the 7 built-in groups plus any group code a customer already has. A group can carry a default price type and discount type, used when no rule matches.
+- **What a line gets:** the customer's own price (the existing customer price list) comes first. Next is the first matching price type that has a price for the product at that quantity. Otherwise the catalog price. The discount % comes from the matching discount type.
+  - The **sales order form** asks for this (`GET /sales/pricing/quote`) when a product is added. It fills the price and the % discount, with a toast naming the price type. It only does so while the line still shows the product's own price.
+- **Checked on save:** sales order and quotation lines are refused (400, with the bounds) when the price is outside the price type's limits or the discount is over the cap. A line edited without changing its price, quantity or discount saves as before, so older orders still save. Storefront orders are taken at the price the shop charged.
+- **Verified:**
+  - 5 new unit tests (`services/sales/test_pricing.py`) pass. Customer (6) and finance (117) tests pass too.
+  - Type check: no new errors (121).
+  - Tested live:
+    - Customer groups: the 7 groups show with their customer counts (Retail 1,868).
+    - Price type *QA Dealer* (Dell Inspiron 15 at ৳60,000, −5% / +10%) was made in the drawer. Rule *QA retail Dhaka* (group Retail, warehouse Dhaka HQ) was made in the drawer. A *QA Promo* discount type (2%, max 5%) was attached to the rule.
+    - Quote for retail customer A K Azad at Dhaka HQ: ৳60,000, bounds 57,000–66,000, 2%. For Rakibul Hasan the customer's own price (৳61,749.05) still wins.
+    - New orders at ৳50,000 and ৳70,000, and one with a ৳3,500 discount (over 5%), were each refused with the bound. No order was created.
+    - New sales order form, Walk-in (Retail): adding SKU-DELL-15 filled ৳60,000 and 2% (৳58,800). The order was discarded.
+  - Clean-up: the QA rule, price type and discount type were made inactive. The quote is back to the catalog price.
+- **Fixed on the way:** the server's catalog fallback looked up the catalog product by the item id. A product whose catalog id differs from its item id got no price. It now maps item → catalog product (`product_for_item`). An item with no catalog product at all can still be priced.
+- **Not built:**
+  - Re-quoting a line when its quantity or the order's customer changes (only on adding a product).
+  - The quote in POS and the quotation form.
+  - The header (order-level) discount is not capped.
+  - Oner's "Configured Price Info" popup and per-product upper/lower limits (`ProductWiseUpperLowerPriceSetup`).
+  - The customer drawer still offers the groups from the browser list. Switching it to the server master is a follow-up.
+
+**Part C: product master rules** (spec §8.1 Product, §14 item 7, §18.5)
+- **Not for selling is enforced:** before, the flag only hid the product from POS. Now a sales order or quotation line, and a POS cart line, for such a product is refused with the reason (400). The sales form refuses it too.
+- **Negative sales per product (Oner IsAllowNegativeSales):** a new *Negative sales — sell even when out of stock* tick on the product. It lets that one product be sold and delivered past its stock while the company keeps *Allow negative stock* off. The stock-out check, the sales reserve, the POS check and the sales form all honour it.
+- **Products that keep no stock (IsStockMaintain off):** a product with *Track quantity* off is now handed over without a stock movement, like a service. Before, its delivery tried to take stock and failed. Unticking *Track quantity* now also updates the product's inventory record, which before stayed on.
+- **Serial tracking is locked once used:** switching a product to or from serial tracking is refused (409) once it has stock movements or serials. The serial registry and the stock count would otherwise no longer match.
+- **Structured warranty and return days:** new fields *Warranty days* (or *Lifetime*), *Service warranty days* and *Return days*. When set, warranty days win over the free-text warranty for every warranty check: serial lookup, POS, RMA intake and tickets (`warranty.product_warranty_text`). A sales return past the product's return days is refused, pointing to RMA.
+- **HS code** on the product (Oner HSCodeId; no duty table yet).
+- **Related / spare products (Oner RelatedOrSpareProduct):** a new *Related / Spare* tab in the product drawer. Search, add as related or as a spare part, then Save (`/catalog/products/{id}/relations`).
+- **Unit types and warehouse types on the server (fixes INV-08):** `/inventory/unit-types` and `/inventory/warehouse-types`.
+  - Units carry a decimals setting (Oner FractionalLength).
+  - The product form and the warehouse form load the list from the server when they open, and every add, rename, delete or default change is saved there.
+  - A browser's own custom units and types are sent up once, the first time it loads the list.
+  - A unit still used by a product cannot be removed (409, naming the units).
+- **Verified:**
+  - 6 new unit tests (`services/inventory/test_product_master.py`) pass. Inventory (20 in all), sales (5), POS (9), RMA (175), customer (6) and finance (117) tests pass too.
+  - Type check: no new errors (121).
+  - Tested live:
+    - Unit types: removing *ea* and *pcs* (used by products) was refused, naming both. Warehouse types: the presets plus the existing *Regional* type.
+    - SKU-053024 (serial laptop, sold on SO-00035 on 26 Oct):
+      - With *Return days* 1, a return was refused ("allowed for 1 day(s) after the sale").
+      - Turning serial tracking off was refused (409).
+      - Marked not for selling, a new order with it was refused.
+      - Each setting was put back.
+    - Product drawer: the *Related / Spare* tab added a battery as a spare part and saved it (checked through the API, then cleared).
+    - Edit form: the new fields show, and an HS code saved from it (then cleared).
+  - Not tried live: a confirm that sells past stock under *Negative sales*, because it would move real stock. The unit tests cover the rule, and the same check is used at every stock-out.
+- **Not built:**
+  - **Category-wise GL heads.** Sales revenue posts to one 4000 line from the invoice total, and there is no cost-of-goods posting at sale. Splitting revenue and COGS by category needs the invoice journal, its adjustments and its reversals to work by line first. That is a separate finance piece.
+  - Three-level unit conversion (secondary / tertiary units).
+  - RMA picking parts from the spare list.
+  - The govt duty table behind the HS code.
 
 ### `52900d9` — vendor API role check; Website settings made real
 - **PLT-01** `rbac_guard.py` maps `vendors/` → `purchase`. Every write to `/api/v1/vendors/*` now needs purchase permission. Verified: the seed `viewer` user gets 403 on create/delete; admin passes; reads unchanged.
@@ -64,6 +177,48 @@ There are no open High findings.
 - **List export**: `lib/list-io/grid-table.ts` (`gridToTable`) + `lib/list-io/export-list.ts` (`exportListTable`); server-paged lists export the page on screen.
 - **AI billing (super admin)**: `/api/v1/super-admin/companies/{id}/ai-billing` (get, record-payment, package).
 
+### 4.7 Masters (OnerERP roadmap §14 Phase 2)
+- **Customer credit control:** `services/customer/credit_control.py`.
+  - `ensure_customer_credit_columns()` runs right after `create_all` in `main.py`. It adds `commerce_customers.sales_locked`, `sales_lock_reason`, `trade_mode` (both / credit / cash), `credit_days`, `conditional_limit`, `conditional_valid_till`, `security_money` and `opening_date`.
+  - `credit_position()`: ledger balance (billed − net paid, from the customer ledger) + unsettled orders (confirmed / processing / packed / shipped with no invoice: total − paid).
+  - `effective_limit()`: the conditional limit while valid and higher, otherwise the credit limit.
+  - `check_order_confirm()` is called at the top of `SalesService.confirm_order`. POS's `complete_instant_sale` passes `paid_at_counter=True`, so a POS sale only checks the lock.
+  - UI: `CustomerCreditFields` in `components/customers/partner-form-sheet.tsx` (Accounting group), and `fetchCustomerCreditPosition` in `lib/api/commerce-customers.ts`.
+- **Finance masters:** `services/finance/master_service.py`, models in `models/finance_master.py` (`finance_banks`, `finance_bank_branches`, `finance_opening_batches`, `finance_opening_lines`), routes in `routers/finance_masters.py` (`/finance/banks`, `/finance/bank-branches/{id}`, `/finance/opening-balances` + `/finalize`).
+  - `ensure_finance_master_columns()` runs after `create_all`. It adds `finance_accounts.is_postable` and, on `finance_payment_accounts`: `check_balance`, `bank_branch_id`, `account_number`, `account_title`.
+  - `is_postable` is checked in `_post_journal`, in voucher lines and in opening lines. `set_postable` refuses system accounts.
+  - `assert_can_pay_out` is called from `settle_payable`, `pay_expense`, `post_party_payment` (outbound), `post_ledger_payment_journal` (outbound, after the payment row exists) and voucher approve (debit, contra).
+  - `create_payment_account(kind="bank")` gets its ledger from `next_bank_ledger` (1011–1019 under 1010).
+  - Opening batch: `save_batch` refuses `opening_restricted_codes`. `finalize_batch` posts source type `opening_balance`, puts the difference on 3900 (created on first use) and then the batch can no longer be edited or deleted.
+  - UI:
+    - Pages: `app/(admin)/finance/banks`, `app/(admin)/finance/opening-balances`.
+    - Components: `components/finance/bank-drawer.tsx`, `opening-batch-drawer.tsx`, and a rewritten `payment-account-drawer.tsx` (create and edit).
+    - API client: `lib/api/finance-masters.ts`.
+    - Also: *Group account* on the account form, and *Edit* in the payment-account row menu.
+- **Price and discount masters:** models in `models/sales_pricing.py` (`customer_groups`, `sales_price_types` + `sales_price_type_items`, `sales_discount_types` + `sales_discount_type_items`, `sales_pricing_rules`). Logic is in `services/sales/pricing_service.py`, routes in `routers/sales_pricing.py` (`/sales/pricing/customer-groups|price-types|discount-types|rules|quote`).
+  - Price rows are kept against the **item id** (what sales lines carry). `product_for_item()` finds the catalog product (price, brand, category) by `catalog_products.item_id`.
+  - `quote()`: customer price (`CustomerItemPrice`) → matching rules (most conditions, then priority) → the customer group's defaults → catalog. `check_line()` raises 400 on the bounds or the discount cap.
+  - `SalesService._price_line()` is called from `_add_quotation_lines`, `_add_order_lines` and `_replace_order_lines`. It fills a 0 price and checks the rest. `_replace_order_lines` skips the check for an unchanged line. The storefront import passes `check_prices=False`.
+  - `ensure_customer_groups()` seeds the groups when the list is first read.
+  - UI:
+    - Pages: `app/(admin)/sales/pricing/{price-types,discount-types,rules,customer-groups}`, all rendering `components/sales/pricing/sales-pricing-page.tsx`.
+    - Drawers: `components/sales/pricing/*-drawer.tsx`.
+    - Menu: *Pricing* in `components/sales/sales-module-chrome.tsx`.
+    - API client: `lib/api/sales-pricing.ts`.
+    - Order form: `applyPriceQuote` in `sales-order-form-drawer.tsx`.
+- **Product master rules:** `services/inventory/product_master.py`, with models in `models/product_master.py` (`inventory_unit_types`, `inventory_warehouse_types`, `catalog_product_relations`) and routes in `routers/product_masters.py`.
+  - `ensure_product_master_columns()` runs after `create_all`. It adds `catalog_products.allow_negative_sales`, `warranty_days`, `lifetime_warranty`, `service_warranty_days`, `return_days` and `hs_code`.
+  - `require_sellable()` is called from `SalesService._price_line` (on checked lines) and `PosService.add_line`.
+  - `moves_stock()` (non-stock item types and `inventory_items.track_stock` off) replaces the item-type checks in sales delivery, reserve and cancel-restock.
+  - `allows_negative()` (company setting or the product flag) is used by `StockMovementService.apply_movement` (stock-out), the sales reserve and the POS check.
+  - `guard_serial_change()` is called in `_apply_product_inventory_fields` (catalog product create / update).
+  - `SalesReturnService._check_return_window()` checks return days against the order's confirm date (else the order date).
+  - Web:
+    - `lib/inventory/unit-types.ts` and `warehouse-type-options.ts` keep a localStorage copy. `syncUnitTypes()` and `syncWarehouseTypes()` load the server list, and every write is sent to the server.
+    - `lib/api/product-masters.ts` is the API client.
+    - `components/products/product-drawer/product-relations-panel.tsx` is the Related / Spare tab.
+    - The new fields are in `inventory-product-quick-add.tsx` and the overview panel.
+
 ## 5. Open findings
 
 ### Inventory
@@ -72,7 +227,6 @@ There are no open High findings.
 |---|---|---|---|---|---|
 | INV-06 | Medium | Broken link | `/inventory/dashboard → /inventory/stock` | **The 'Low stock' and 'Out of stock' tiles open the unfiltered stock list.** The dashboard links to /inventory/stock?status=low_stock and ?status=out_of_stock, but neither the stock page nor the stock grid reads search params. Filters always start at 'all'. | `app/(admin)/inventory/dashboard/page.tsx:232,233,289 · app/(admin)/inventory/stock/page.tsx:20` |
 | INV-07 | Medium | API/Data | `/inventory/purchase/receipts · /returns` | **Purchase receipts and returns stop at 50 rows.** fetchPurchaseReceipts() and fetchPurchaseReturns() send no page or per_page, so the backend default of 50 applies. The page has no paging, so older documents never appear. | `lib/api/purchase-receipts.ts:96 · lib/api/purchase-returns.ts:118 · routers/purchase_receipts.py:38` |
-| INV-08 | Medium | Dummy | `/inventory/warehouses · catalog quick-add` | **Custom warehouse types and unit types are kept only in the browser.** Custom types are saved to each user's localStorage, so other users and devices never see them. | `lib/inventory/warehouse-type-options.ts:3,22,38 · lib/inventory/unit-types.ts:21` |
 | INV-09 | Medium | Dummy | `/inventory/rma · /inventory/serials (customer drawer)` | **The customer drawer opened from RMA or Serials starts from placeholder values.** buildMinimalPartnerFromSales hard-codes loyaltyTier 'silver' and zero totals. The shared partner drawer falls back to AGAIN_DEMO_PARTNER (demo seed data) when no customer is passed. Open it from an RMA row to confirm what the user actually sees. *(Needs check)* | `lib/mock-data/partner-drawer-seed.ts:176 · components/shared/again-partner-drawer.tsx:42,92,298 · components/rma/rma-grid.tsx:236` |
 | INV-20 | Medium | Drawer/Button | `/inventory/orders (bulk select)` | **Bulk 'Export' on selected orders only shows a toast.** Select orders → Export toasts 'Export selected (mock)'. The list's own Export menu is real now; the bulk-bar button is still fake. | `apps/web/src/components/sales/sales-order-grid.tsx:963` |
 | INV-10 | Low | API/Data | `/inventory/transfers · /inventory/adjustments` | **Transfers and adjustments stop at 200 rows.** Both send per_page=200 with no paging control, so anything older than the latest 200 is invisible. | `lib/api/stock-transfers.ts:106 · lib/api/stock-adjustments.ts:107` |
@@ -154,3 +308,4 @@ There are no open High findings.
 | FIN-01 | High | `/finance/settings` | Finance settings are saved only in the browser and have no effect | `9da1604` |
 | PLT-01 | High | `/api/v1/vendors/*` | Any logged-in user can change vendors, vendor portal users and price lists | `52900d9` |
 | OTH-01 | High | `/website/settings` | Website catalog settings: Save stores nothing | `52900d9` |
+| INV-08 | Medium | `/inventory/warehouses · catalog quick-add` | Custom warehouse types and unit types are kept only in the browser | Masters (Part C) |

@@ -35,6 +35,7 @@ import {
   buildWarehouseTypeOptions,
   removeWarehouseType,
   renameWarehouseType,
+  syncWarehouseTypes,
 } from "@/lib/inventory/warehouse-type-options";
 import type { Warehouse } from "@/lib/mock-data/inventory";
 
@@ -161,6 +162,17 @@ export function WarehouseFormDialog({
   );
   const [saving, setSaving] = useState(false);
   const [listTypeOpen, setListTypeOpen] = useState(false);
+  // warehouse types are a company list on the server: refresh the local copy when the form opens
+  useEffect(() => {
+    let cancelled = false;
+    void syncWarehouseTypes().then(() => {
+      if (!cancelled) setTypeOptions(buildWarehouseTypeOptions(warehouse?.type ?? (noun === "location" ? "Location" : EMPTY.type)));
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [listCountryOpen, setListCountryOpen] = useState(false);
   const [typeOptions, setTypeOptions] = useState<string[]>(() =>
     buildWarehouseTypeOptions(warehouse?.type ?? (noun === "location" ? "Location" : EMPTY.type)),

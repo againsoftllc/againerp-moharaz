@@ -138,6 +138,7 @@ import { attachSalesInvoicePrint } from "@/lib/sales/sales-invoice-print";
 import { attachSalesPackingPrint, type SalesPackingDocumentKind } from "@/lib/sales/sales-packing-print";
 import { fetchWorkspaceCompany } from "@/lib/api/workspace-company";
 import { fetchPaymentAccounts, type ApiFinancePaymentAccount } from "@/lib/api/finance";
+import { fetchPriceQuote } from "@/lib/api/sales-pricing";
 import { companyTaxRatePct, companyTaxesEnabled } from "@/lib/api/workspace-company";
 import {
   calculateDropshipShipping,
@@ -635,6 +636,10 @@ type SalesProductOption = {
   purchasePrice?: number;
   stock?: number;
   trackQuantity?: boolean;
+  /** This product may be sold past its stock (product setting, on top of the company's negative-stock policy). */
+  allowNegativeSales?: boolean;
+  /** Marked "not for selling": it cannot go on a sales line. */
+  notForSelling?: boolean;
   trackSerial?: boolean;
   /** For the product search bar's Brand / Category filter. */
   brand?: string;
@@ -659,6 +664,8 @@ function mapItemsToSalesProducts(
     stock?: number | null;
     track_quantity?: boolean | null;
     track_serial?: boolean | null;
+    allow_negative_sales?: boolean | null;
+    not_for_selling?: boolean | null;
     thumbnail?: string | null;
     weight?: string | null;
     brand?: string | null;
@@ -675,6 +682,8 @@ function mapItemsToSalesProducts(
   const stockByItem = new Map<string, number>();
   const trackByItem = new Map<string, boolean>();
   const serialByItem = new Map<string, boolean>();
+  const negativeByItem = new Map<string, boolean>();
+  const notForSaleByItem = new Map<string, boolean>();
   for (const product of products) {
     if (product.item_id) {
       priceByItem.set(product.item_id, parseFloat(product.price) || 0);
@@ -687,6 +696,8 @@ function mapItemsToSalesProducts(
       if (typeof product.stock === "number") stockByItem.set(product.item_id, product.stock);
       trackByItem.set(product.item_id, product.track_quantity ?? true);
       serialByItem.set(product.item_id, product.track_serial === true);
+      negativeByItem.set(product.item_id, product.allow_negative_sales === true);
+      notForSaleByItem.set(product.item_id, product.not_for_selling === true);
       if (product.brand) brandByItem.set(product.item_id, product.brand);
       if (product.category) categoryByItem.set(product.item_id, product.category);
     }
@@ -706,6 +717,8 @@ function mapItemsToSalesProducts(
     stock: stockByItem.get(item.id),
     trackQuantity: trackByItem.get(item.id),
     trackSerial: serialByItem.get(item.id),
+    allowNegativeSales: negativeByItem.get(item.id),
+    notForSelling: notForSaleByItem.get(item.id),
     brand: brandByItem.get(item.id),
     category: categoryByItem.get(item.id),
   }));
@@ -3068,7 +3081,10 @@ export function SalesOrderFormDrawer({
     product: SalesProductOption | undefined,
     quantity: number,
   ): string | null => {
-    if (allowNegativeStock || !product || product.stock == null || product.trackQuantity === false) {
+    if (product?.notForSelling) {
+      return `${product.name} is marked not for selling`;
+    }
+    if (allowNegativeStock || !product || product.stock == null || product.trackQuantity === false || product.allowNegativeSales) {
       return null;
     }
     if (product.stock <= 0) {
@@ -3078,6 +3094,29 @@ export function SalesOrderFormDrawer({
       return `${product.name}: only ${product.stock} in stock (requested ${quantity})`;
     }
     return null;
+  };
+
+  /** Sales pricing masters: once a product is on a line, its customer / price type price and default discount % fill in -
+   * only while the line still shows the product's own price (the seller has not typed over it). */
+  const applyPriceQuote = (lineId: string, product: SalesProductOption, quantity = 1) => {
+    if (!product.id) return;
+    void fetchPriceQuote({ itemId: product.id, quantity, customerId: form.customerId, warehouseId: sellingWarehouse?.id ?? form.warehouseId })
+      .then((q) => {
+        const price = Number(q.price);
+        const pct = Number(q.discount_pct) || 0;
+        if (q.source === "catalog" && pct === 0) return;
+        setForm((f) => ({
+          ...f,
+          lines: f.lines.map((l) => {
+            if (l.id !== lineId || l.itemId !== product.id || l.unitPrice !== product.price) return l;
+            const merged = { ...l, unitPrice: price, ...(pct > 0 ? { discount: pct, discountType: "percent" as const } : {}) };
+            merged.tax = taxForLine(merged);
+            return merged;
+          }),
+        }));
+        if (q.source === "price_type" && price !== product.price) toast.info(`${product.sku}: ${q.price_type_name} price`);
+      })
+      .catch(() => undefined);
   };
 
   const applyProductToLine = (lineId: string, product: SalesProductOption) => {
@@ -3102,6 +3141,7 @@ export function SalesOrderFormDrawer({
       description: product.description,
     });
     setProductOpenId(null);
+    applyPriceQuote(lineId, product);
     // If the product carries selectable variants, open the picker drawer so
     // the user can set per-variant quantities (storefront-style).
     if (product.catalogProductId) void openVariantPickerIfAny(lineId, product);
@@ -3169,6 +3209,7 @@ export function SalesOrderFormDrawer({
         },
       ],
     }));
+    applyPriceQuote(id, product);
     if (product.catalogProductId) void openVariantPickerIfAny(id, product);
   };
 

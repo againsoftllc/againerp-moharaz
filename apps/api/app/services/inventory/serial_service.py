@@ -534,7 +534,7 @@ def assign_to_order(
         from app.services.inventory.inventory_settings_service import warranty_anchor_date
 
         verdict = warranty_rules.evaluate(
-            warranty_text=product.warranty if product else None,
+            warranty_text=warranty_rules.product_warranty_text(product),
             purchased_on=warranty_anchor_date(
                 db, company_id, sold_on=purchased_on, received_at=row.received_at
             ),
@@ -625,7 +625,7 @@ def assign_to_sales_order(
             )
         product = db.query(CatalogProduct).filter(CatalogProduct.sku == row.sku).first() if row.sku else None
         verdict = warranty_rules.evaluate(
-            warranty_text=product.warranty if product else None,
+            warranty_text=warranty_rules.product_warranty_text(product),
             purchased_on=warranty_anchor_date(
                 db, order.company_id or COMPANY_DEFAULT, sold_on=sold_on, received_at=row.received_at
             ),
@@ -823,7 +823,7 @@ def lookup_for_claim(
         product = db.query(CatalogProduct).filter(CatalogProduct.sku == row.sku).first()
 
     verdict = warranty_rules.evaluate(
-        warranty_text=product.warranty if product else None,
+        warranty_text=warranty_rules.product_warranty_text(product),
         purchased_on=purchased_on,
     )
     return SerialClaimContext(

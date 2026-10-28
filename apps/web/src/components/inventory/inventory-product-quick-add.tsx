@@ -76,6 +76,7 @@ import {
   removeUnitType,
   renameUnitType,
   setDefaultUnitType,
+  syncUnitTypes,
 } from "@/lib/inventory/unit-types";
 import { cn } from "@/lib/utils";
 import { ChevronDown, X } from "lucide-react";
@@ -256,6 +257,13 @@ export function InventoryProductQuickAdd({
   const [locationIds, setLocationIds] = useState<string[]>([]);
   const [trackQuantity, setTrackQuantity] = useState(true);
   const [notForSelling, setNotForSelling] = useState(false);
+  // product master (OnerERP): negative sales, structured warranty / return days, HS code
+  const [allowNegativeSales, setAllowNegativeSales] = useState(false);
+  const [warrantyDays, setWarrantyDays] = useState("");
+  const [lifetimeWarranty, setLifetimeWarranty] = useState(false);
+  const [serviceWarrantyDays, setServiceWarrantyDays] = useState("");
+  const [returnDays, setReturnDays] = useState("");
+  const [hsCode, setHsCode] = useState("");
   const [weight, setWeight] = useState("");
   const [taxRate, setTaxRate] = useState("");
   const [taxType, setTaxType] = useState("exclusive");
@@ -265,6 +273,19 @@ export function InventoryProductQuickAdd({
   const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
   const [unitTypeOptions, setUnitTypeOptions] = useState(() => buildUnitTypeOptions());
   const [defaultUnitType, setDefaultUnitTypeState] = useState(() => readDefaultUnitType());
+  // unit types are a company master on the server: refresh the local copy each time the form opens
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void syncUnitTypes().then(() => {
+      if (cancelled) return;
+      setUnitTypeOptions(buildUnitTypeOptions());
+      setDefaultUnitTypeState(readDefaultUnitType());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
   const [productType, setProductType] = useState<(typeof PRODUCT_TYPES)[number] | "digital">("simple");
   const [purchasePrice, setPurchasePrice] = useState("");
   const [price, setPrice] = useState("");
@@ -411,6 +432,12 @@ export function InventoryProductQuickAdd({
     setLocationOpen(false);
     setTrackQuantity(true);
     setNotForSelling(false);
+    setAllowNegativeSales(false);
+    setWarrantyDays("");
+    setLifetimeWarranty(false);
+    setServiceWarrantyDays("");
+    setReturnDays("");
+    setHsCode("");
     setWeight("");
     setTaxRate("");
     setTaxType("exclusive");
@@ -523,6 +550,12 @@ export function InventoryProductQuickAdd({
         setLocationIds(detail.locationIds ?? []);
         setTrackQuantity(detail.trackQuantity ?? true);
         setNotForSelling(detail.notForSelling ?? false);
+        setAllowNegativeSales(detail.allowNegativeSales ?? false);
+        setWarrantyDays(detail.warrantyDays != null ? String(detail.warrantyDays) : "");
+        setLifetimeWarranty(detail.lifetimeWarranty ?? false);
+        setServiceWarrantyDays(detail.serviceWarrantyDays != null ? String(detail.serviceWarrantyDays) : "");
+        setReturnDays(detail.returnDays != null ? String(detail.returnDays) : "");
+        setHsCode(detail.hsCode ?? "");
         setWeight(detail.weight ?? "");
         setTaxRate(detail.taxRate != null ? String(detail.taxRate) : "");
         setTaxType(detail.taxType || "exclusive");
@@ -779,6 +812,12 @@ export function InventoryProductQuickAdd({
         barcode_type: barcodeType,
         track_quantity: trackQuantity,
         not_for_selling: notForSelling,
+        allow_negative_sales: allowNegativeSales,
+        warranty_days: lifetimeWarranty || !warrantyDays.trim() ? null : Math.max(0, Math.floor(Number(warrantyDays) || 0)),
+        lifetime_warranty: lifetimeWarranty,
+        service_warranty_days: serviceWarrantyDays.trim() ? Math.max(0, Math.floor(Number(serviceWarrantyDays) || 0)) : null,
+        return_days: returnDays.trim() ? Math.max(0, Math.floor(Number(returnDays) || 0)) : null,
+        hs_code: hsCode.trim() || null,
         weight: weight.trim() || null,
         tax_rate: taxRate.trim() ? Number(taxRate) : undefined,
         tax_type: taxType,
@@ -1261,6 +1300,50 @@ export function InventoryProductQuickAdd({
                         />
                       </AgainFormField>
                     ) : null}
+                    {fieldVisibility.warranty ? (
+                      <>
+                        <AgainFormField label="Warranty days">
+                          <div className="flex items-center gap-3">
+                            <Input
+                              type="number"
+                              min={0}
+                              inputMode="numeric"
+                              value={lifetimeWarranty ? "" : warrantyDays}
+                              disabled={lifetimeWarranty}
+                              onChange={(e) => setWarrantyDays(e.target.value.replace(/\D/g, ""))}
+                              placeholder="from the warranty text"
+                            />
+                            <label className="flex shrink-0 items-center gap-1.5 text-xs">
+                              <input type="checkbox" checked={lifetimeWarranty} onChange={(e) => setLifetimeWarranty(e.target.checked)} aria-label="Lifetime warranty" />
+                              Lifetime
+                            </label>
+                          </div>
+                        </AgainFormField>
+                    <AgainFormField label="Service warranty days">
+                      <Input
+                        type="number"
+                        min={0}
+                        inputMode="numeric"
+                        value={serviceWarrantyDays}
+                        onChange={(e) => setServiceWarrantyDays(e.target.value.replace(/\D/g, ""))}
+                        placeholder="none"
+                      />
+                    </AgainFormField>
+                      </>
+                    ) : null}
+                    <AgainFormField label="Return days">
+                      <Input
+                        type="number"
+                        min={0}
+                        inputMode="numeric"
+                        value={returnDays}
+                        onChange={(e) => setReturnDays(e.target.value.replace(/\D/g, ""))}
+                        placeholder="no limit"
+                      />
+                    </AgainFormField>
+                    <AgainFormField label="HS code">
+                      <Input value={hsCode} onChange={(e) => setHsCode(e.target.value.slice(0, 20))} placeholder="e.g. 8471.30.00" />
+                    </AgainFormField>
                     {fieldVisibility.origin ? (
                       <AgainFormField label="Origin">
                         <OriginCombobox
@@ -1300,6 +1383,19 @@ export function InventoryProductQuickAdd({
                             aria-label="Not for selling"
                           />
                           Hide from POS
+                        </label>
+                      </AgainFormField>
+                    ) : null}
+                    {trackQuantity ? (
+                      <AgainFormField label="Negative sales">
+                        <label className="flex h-8 items-center gap-2 border-b border-border/50 px-0.5 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={allowNegativeSales}
+                            onChange={(e) => setAllowNegativeSales(e.target.checked)}
+                            aria-label="Allow negative sales"
+                          />
+                          Sell even when out of stock
                         </label>
                       </AgainFormField>
                     ) : null}

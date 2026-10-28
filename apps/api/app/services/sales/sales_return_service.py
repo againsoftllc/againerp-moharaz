@@ -85,6 +85,24 @@ class SalesReturnService:
             .all()
         )
 
+    def _check_return_window(self, order, so_line, return_date: date) -> None:
+        """A product's return days (OnerERP ReturnAllowedDays) count from the sale; later returns go through RMA."""
+        from app.services.inventory.product_master import product_for_item
+
+        product = product_for_item(self._db, so_line.item_id)
+        days = getattr(product, "return_days", None) if product else None
+        if days is None:
+            return
+        sold = order.confirmed_at.date() if getattr(order, "confirmed_at", None) else order.order_date
+        if sold and (return_date - sold).days > int(days):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{so_line.sku}: returns are allowed for {days} day(s) after the sale ({sold}); "
+                    "this one is past that — use RMA (warranty) instead"
+                ),
+            )
+
     def create_return(
         self,
         sales_order_id: str,
@@ -134,6 +152,7 @@ class SalesReturnService:
                 raise HTTPException(
                     status_code=404, detail=f"Sales order line not found: {line_in.sales_order_line_id}"
                 )
+            self._check_return_window(order, so_line, ret.return_date)
             already = int(getattr(so_line, "quantity_returned", 0) or 0) + self._pending_returned_quantity(
                 so_line.id
             )

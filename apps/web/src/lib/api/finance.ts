@@ -13,6 +13,13 @@ export type ApiFinancePaymentAccount = {
   is_active: boolean;
   is_default: boolean;
   created_at: string;
+  /** Money may not go out beyond the balance. */
+  check_balance?: boolean;
+  bank_branch_id?: string | null;
+  /** "Bank · Branch" */
+  bank_label?: string | null;
+  account_number?: string | null;
+  account_title?: string | null;
 };
 
 export type ApiFinanceAccount = {
@@ -25,6 +32,8 @@ export type ApiFinanceAccount = {
   parent_code?: string | null;
   is_system: boolean;
   is_active: boolean;
+  /** false = a group: no postings, its children take them */
+  is_postable?: boolean;
   nature?: "debit" | "credit" | string;
   debit?: string;
   credit?: string;
@@ -263,6 +272,7 @@ export async function createFinanceAccount(input: {
   name: string;
   account_type: string;
   parent_id?: string | null;
+  is_postable?: boolean;
 }) {
   return apiFetch<{ data: ApiFinanceAccount }>(`${BASE}/accounts`, {
     method: "POST",
@@ -277,6 +287,7 @@ export async function updateFinanceAccount(
     account_type?: string;
     parent_id?: string | null;
     is_active?: boolean;
+    is_postable?: boolean;
   },
 ) {
   return apiFetch<{ data: ApiFinanceAccount }>(`${BASE}/accounts/${id}`, {
@@ -337,6 +348,10 @@ export async function createPaymentAccount(input: {
   kind: string;
   opening_balance?: string;
   is_default?: boolean;
+  check_balance?: boolean;
+  bank_branch_id?: string | null;
+  account_number?: string | null;
+  account_title?: string | null;
 }) {
   return apiFetch<{ data: ApiFinancePaymentAccount }>(`${BASE}/payment-accounts`, {
     method: "POST",
@@ -346,7 +361,15 @@ export async function createPaymentAccount(input: {
 
 export async function updatePaymentAccount(
   id: string,
-  input: { name?: string; is_active?: boolean; is_default?: boolean },
+  input: {
+    name?: string;
+    is_active?: boolean;
+    is_default?: boolean;
+    check_balance?: boolean;
+    bank_branch_id?: string | null;
+    account_number?: string | null;
+    account_title?: string | null;
+  },
 ) {
   return apiFetch<{ data: ApiFinancePaymentAccount }>(`${BASE}/payment-accounts/${id}`, {
     method: "PATCH",

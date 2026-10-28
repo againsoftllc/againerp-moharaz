@@ -19,6 +19,7 @@ class FinanceAccountRead(BaseModel):
     parent_code: Optional[str] = None
     is_system: bool
     is_active: bool
+    is_postable: bool = True
     nature: str = "debit"
     debit: Decimal = Decimal("0")
     credit: Decimal = Decimal("0")
@@ -32,6 +33,7 @@ class FinanceAccountCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     account_type: str
     parent_id: Optional[str] = None
+    is_postable: bool = True
 
 
 class FinanceAccountUpdate(BaseModel):
@@ -39,6 +41,7 @@ class FinanceAccountUpdate(BaseModel):
     account_type: Optional[str] = None
     parent_id: Optional[str] = None
     is_active: Optional[bool] = None
+    is_postable: Optional[bool] = None
 
 
 class FinanceAccountResponse(BaseModel):
@@ -58,6 +61,11 @@ class FinancePaymentAccountRead(BaseModel):
     is_active: bool
     is_default: bool
     created_at: datetime
+    check_balance: bool = False
+    bank_branch_id: Optional[str] = None
+    bank_label: Optional[str] = None  # "Bank · Branch"
+    account_number: Optional[str] = None
+    account_title: Optional[str] = None
 
 
 class FinancePaymentAccountCreate(BaseModel):
@@ -65,12 +73,20 @@ class FinancePaymentAccountCreate(BaseModel):
     kind: str = "cash"
     opening_balance: Decimal = Decimal("0")
     is_default: bool = False
+    check_balance: bool = False
+    bank_branch_id: Optional[str] = None
+    account_number: Optional[str] = Field(default=None, max_length=40)
+    account_title: Optional[str] = Field(default=None, max_length=120)
 
 
 class FinancePaymentAccountUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=120)
     is_active: Optional[bool] = None
     is_default: Optional[bool] = None
+    check_balance: Optional[bool] = None
+    bank_branch_id: Optional[str] = None
+    account_number: Optional[str] = Field(default=None, max_length=40)
+    account_title: Optional[str] = Field(default=None, max_length=120)
 
 
 class FinancePaymentAccountTransferRequest(BaseModel):

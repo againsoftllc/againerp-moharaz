@@ -58,6 +58,7 @@ from app.schemas.variant import VariantBulkReplace, VariantUpsert
 from app.services.inventory.constants import MOVEMENT_OPENING_STOCK
 from app.services.inventory.inventory_item_location_service import InventoryItemLocationService
 from app.services.inventory.inventory_item_service import InventoryItemService
+from app.services.inventory import product_master
 from app.services.inventory.stock_movement_service import MovementInput, StockMovementService
 from app.services.inventory.stock_status import compute_stock_status as _compute_stock_status
 from app.services.ecommerce.ecommerce_item_service import EcommerceItemService
@@ -236,6 +237,7 @@ def _apply_product_inventory_fields(
     ):
         return
     inv = InventoryItemService(db).ensure_for_catalog_product(product)
+    serial_before = bool(inv.track_serial)
     if alert_quantity is not None:
         inv.reorder_level = alert_quantity
         inv.min_stock = alert_quantity
@@ -265,6 +267,8 @@ def _apply_product_inventory_fields(
             inv.track_batch = bool(track_batch)
             if inv.track_batch:
                 inv.track_serial = False
+    # serial tracking is fixed once the product has stock history (OnerERP: IsSerial locked after use)
+    product_master.guard_serial_change(db, product.item_id or product.id, serial_before, bool(inv.track_serial), product.sku)
 
 
 def _apply_product_item_fields(
@@ -381,6 +385,12 @@ def _product_read(
         barcode=item.barcode if item else None,
         barcode_type=(item.barcode_type if item and item.barcode_type else "C128"),
         not_for_selling=row.not_for_selling,
+        allow_negative_sales=bool(getattr(row, "allow_negative_sales", False)),
+        warranty_days=getattr(row, "warranty_days", None),
+        lifetime_warranty=bool(getattr(row, "lifetime_warranty", False)),
+        service_warranty_days=getattr(row, "service_warranty_days", None),
+        return_days=getattr(row, "return_days", None),
+        hs_code=getattr(row, "hs_code", None),
         weight=row.weight,
         tax_rate=row.tax_rate,
         tax_type=row.tax_type,
@@ -1230,6 +1240,12 @@ def duplicate_product(
         seo_description=source.seo_description,
         focus_keyphrase=source.focus_keyphrase,
         warranty=source.warranty,
+        warranty_days=getattr(source, "warranty_days", None),
+        lifetime_warranty=bool(getattr(source, "lifetime_warranty", False)),
+        service_warranty_days=getattr(source, "service_warranty_days", None),
+        return_days=getattr(source, "return_days", None),
+        hs_code=getattr(source, "hs_code", None),
+        allow_negative_sales=bool(getattr(source, "allow_negative_sales", False)),
         origin=getattr(source, "origin", None),
         thumbnail=source.thumbnail,
         custom_specs_json=source.custom_specs_json,
@@ -1465,6 +1481,11 @@ def update_product(
             if "status" in changes:
                 default.status = row.status
 
+    if "track_quantity" in changes:
+        # IsStockMaintain: a product that keeps no stock is sold without moving stock (product_master.moves_stock)
+        inv = InventoryItemService(db).ensure_for_catalog_product(row)
+        inv.track_stock = bool(row.track_quantity)
+        inv.tracking_mode = "quantity" if row.track_quantity else "none"
     _apply_product_inventory_fields(db, row, inv_fields)
     db.commit()
     db.refresh(row)

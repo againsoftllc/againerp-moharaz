@@ -33,6 +33,14 @@ class CustomerRead(BaseModel):
     wallet_balance: Decimal
     opening_balance: Decimal = Decimal("0")
     credit_limit: Decimal = Decimal("0")
+    sales_locked: bool = False
+    sales_lock_reason: Optional[str] = None
+    trade_mode: str = "both"
+    credit_days: Optional[int] = None
+    conditional_limit: Decimal = Decimal("0")
+    conditional_valid_till: Optional[date] = None
+    security_money: Decimal = Decimal("0")
+    opening_date: Optional[date] = None
     payment_terms: Optional[str] = None
     payment_schedule: Optional[str] = None
     risk_score: int
@@ -109,6 +117,31 @@ class CustomerUpdate(BaseModel):
     payment_terms: Optional[str] = None
     payment_schedule: Optional[str] = None
     whatsapp_verified: Optional[bool] = None
+    sales_locked: Optional[bool] = None
+    sales_lock_reason: Optional[str] = Field(default=None, max_length=500)
+    trade_mode: Optional[str] = Field(default=None, pattern="^(both|credit|cash)$")
+    credit_days: Optional[int] = Field(default=None, ge=0, le=3650)
+    conditional_limit: Optional[Decimal] = Field(default=None, ge=0)
+    conditional_valid_till: Optional[date] = None
+    security_money: Optional[Decimal] = Field(default=None, ge=0)
+    opening_date: Optional[date] = None
+
+
+class CustomerCreditPositionRead(BaseModel):
+    ledger_balance: Decimal
+    unsettled_orders: Decimal
+    exposure: Decimal
+    credit_limit: Decimal
+    conditional_limit: Decimal
+    conditional_valid_till: Optional[date] = None
+    effective_limit: Decimal
+    available: Optional[Decimal] = None
+    sales_locked: bool
+    trade_mode: str
+
+
+class CustomerCreditPositionResponse(BaseModel):
+    data: CustomerCreditPositionRead
 
 
 class WalletRechargeRequest(BaseModel):

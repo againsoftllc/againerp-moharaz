@@ -195,9 +195,10 @@ class StockMovementService:
         if effect == "on_hand_in":
             qty_after = qty_before + data.quantity
         elif effect == "on_hand_out":
-            from app.services.inventory.inventory_settings_service import allow_negative_stock
+            from app.services.inventory.product_master import allows_negative
 
-            allow_negative = allow_negative_stock(self._db, data.company_id)
+            # the company allows negative stock, or this product may be sold past its stock (IsAllowNegativeSales)
+            allow_negative = allows_negative(self._db, data.item_id, data.company_id)
             if data.consume_reserved:
                 reserved_release = min(data.quantity, stock.reserved)
             if not allow_negative and qty_before < data.quantity:
