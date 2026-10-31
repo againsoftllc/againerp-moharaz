@@ -1,3 +1,4 @@
+import importlib
 import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -698,6 +699,19 @@ async def lifespan(_app: FastAPI):
         ensure_approval_request_target_columns()
     except Exception:
         logger.exception("Could not ensure the catalog / role columns")
+    # Same for the columns every login / product / customer query selects. The bootstrap only runs in the leader process,
+    # and on a Railway redeploy the old container still holds that lock, so these cannot wait for it (login 500'd on
+    # "auth_users.must_change_password does not exist").
+    for module_name, func_name in (
+        ("app.services.core.auth_security", "ensure_auth_security_columns"),
+        ("app.services.customer.credit_control", "ensure_customer_credit_columns"),
+        ("app.services.finance.master_service", "ensure_finance_master_columns"),
+        ("app.services.inventory.product_master", "ensure_product_master_columns"),
+    ):
+        try:
+            getattr(importlib.import_module(module_name), func_name)()
+        except Exception:
+            logger.exception("Could not run %s.%s", module_name, func_name)
     try:
         from app.database import SessionLocal
         from app.services.site_cors import refresh_site_cors_origins
@@ -714,14 +728,34 @@ async def lifespan(_app: FastAPI):
     # With several worker processes (WEB_CONCURRENCY) the seeding bootstrap and the price auto-sync loop run in one
     # of them only — the one holding this advisory lock for its lifetime; the others just serve requests.
     if _hold_leader_lock():
-        threading.Thread(target=_bootstrap, daemon=True).start()
-        try:
-            from app.services.plugins.price_auto_sync import start_background_loop
-
-            start_background_loop()
-        except Exception:
-            logger.exception("Could not start the Price Compare auto-sync loop")
+        _run_as_leader()
+    else:
+        # During a redeploy the previous container still holds the lock; keep trying so the bootstrap runs here once it exits.
+        threading.Thread(target=_wait_for_leader_lock, daemon=True).start()
     yield
+
+
+def _run_as_leader() -> None:
+    import threading
+
+    threading.Thread(target=_bootstrap, daemon=True).start()
+    try:
+        from app.services.plugins.price_auto_sync import start_background_loop
+
+        start_background_loop()
+    except Exception:
+        logger.exception("Could not start the Price Compare auto-sync loop")
+
+
+def _wait_for_leader_lock() -> None:
+    import time
+
+    while True:
+        time.sleep(15)
+        if _hold_leader_lock():
+            logger.info("Took the bootstrap leader lock; running bootstrap")
+            _run_as_leader()
+            return
 
 
 _LEADER_LOCK_ID = 727_001
